@@ -2,10 +2,13 @@
 
 // ============================================================
 // PixelCity.tsx — 像素都市 · 界面壳与交互面板
+//   桌面：右上建造中心（整板 + 四分组均可折叠）/ 左侧浮动工具条
+//   移动：底部抽屉 + 横滚工具条 + 大触控目标
+//   收缩状态 / 行人开关 持久化到 localStorage
 // ============================================================
 
 import {
-  useEffect, useRef, useState, useCallback,
+  useEffect, useRef, useState, useCallback, useSyncExternalStore,
 } from 'react';
 import '@/lib/pixelcity/pixelcity.css';
 import { Engine, type Tool } from '@/lib/pixelcity/engine';
@@ -18,6 +21,7 @@ const ICON_NAMES = [
   'view', 'grass', 'water', 'sand', 'farm', 'rock', 'tree', 'road',
   'house', 'shop', 'factory', 'park', 'doze', 'city',
   'save', 'random', 'exportp', 'atlas',
+  'person', 'personoff', 'menu',
 ];
 
 type Phase = 'loading' | 'ready';
@@ -45,19 +49,74 @@ const TOOLBAR: Array<{ icon: string; label: string; tool: Tool; cat?: Cat; hot: 
   { icon: 'view', label: '观察', tool: { t: 'view' }, hot: '1' },
   { icon: 'tree', label: '植树', tool: { t: 'tree' }, hot: '2' },
   { icon: 'road', label: '道路', tool: { t: 'road' }, hot: '3' },
-  { icon: 'house', label: '住宅', tool: { t: 'build', id: 'house', variant: 0 }, cat: 'res', hot: '4' },
-  { icon: 'shop', label: '商业', tool: { t: 'build', id: 'shop', variant: 0 }, cat: 'com', hot: '5' },
-  { icon: 'factory', label: '工业', tool: { t: 'build', id: 'factory', variant: 0 }, cat: 'ind', hot: '6' },
-  { icon: 'park', label: '公共', tool: { t: 'build', id: 'park', variant: 0 }, cat: 'civ', hot: '7' },
-  { icon: 'doze', label: '推土', tool: { t: 'doze' }, hot: '8' },
+  { icon: 'grass', label: '地形', tool: { t: 'terr', k: 0 }, hot: '4' },
+  { icon: 'house', label: '住宅', tool: { t: 'build', id: 'house', variant: 0 }, cat: 'res', hot: '5' },
+  { icon: 'shop', label: '商业', tool: { t: 'build', id: 'shop', variant: 0 }, cat: 'com', hot: '6' },
+  { icon: 'factory', label: '工业', tool: { t: 'build', id: 'factory', variant: 0 }, cat: 'ind', hot: '7' },
+  { icon: 'park', label: '公共', tool: { t: 'build', id: 'park', variant: 0 }, cat: 'civ', hot: '8' },
+  { icon: 'doze', label: '推土', tool: { t: 'doze' }, hot: '9' },
 ];
+
+// ---------------- 界面收缩状态（持久化） ----------------
+
+type UiState = {
+  panel: boolean;    // 桌面右侧建造中心
+  toolbar: boolean;  // 浮动工具条
+  build: boolean;    // 建造面板分组
+  mini: boolean;     // 小地图分组
+  cityops: boolean;  // 市政操作分组
+  about: boolean;    // 关于分组
+  drawer: boolean;   // 移动端抽屉
+  crowds: boolean;   // 行人 / 车辆
+  min: boolean;      // 标题栏最小化
+};
+
+const UI_DEFAULT: UiState = {
+  panel: true, toolbar: true, build: true, mini: true,
+  cityops: true, about: false, drawer: false, crowds: true, min: false,
+};
+
+const UI_KEY = 'pxc_ui_v1';
+
+function loadUi(): UiState {
+  try {
+    const raw = localStorage.getItem(UI_KEY);
+    if (raw) return { ...UI_DEFAULT, ...(JSON.parse(raw) as Partial<UiState>) };
+  } catch { /* 忽略 */ }
+  return { ...UI_DEFAULT };
+}
+
+// ---- 外部 UI 状态存储（localStorage 持久化，useSyncExternalStore 水合安全）----
+let uiStore: UiState = (() => {
+  try {
+    const raw = localStorage.getItem(UI_KEY);
+    if (raw) return { ...UI_DEFAULT, ...(JSON.parse(raw) as Partial<UiState>) };
+  } catch { /* SSR / 数据损坏时用默认值 */ }
+  return { ...UI_DEFAULT };
+})();
+const uiSubs = new Set<() => void>();
+
+function setUiStore(next: (u: UiState) => UiState): void {
+  uiStore = next(uiStore);
+  try { localStorage.setItem(UI_KEY, JSON.stringify(uiStore)); } catch { /* 忽略 */ }
+  for (const fn of uiSubs) fn();
+}
+
+function useUiState(): [UiState, typeof setUiStore] {
+  const subscribe = useCallback((cb: () => void) => {
+    uiSubs.add(cb);
+    return () => { uiSubs.delete(cb); };
+  }, []);
+  const snap = useSyncExternalStore(subscribe, () => uiStore, () => UI_DEFAULT);
+  return [snap, setUiStore];
+}
 
 function toolHint(t: Tool): string {
   switch (t.t) {
-    case 'view': return '左键拖动平移 · 滚轮缩放 · 空格居中';
-    case 'terr': return `按住左键涂画「${TERR_OPTS[t.k]?.label ?? '地形'}」（水域会淹没地上物）`;
-    case 'tree': return '点击或拖动，种下随机小树';
-    case 'road': return '按住左键拖出路网，转角自动拼接';
+    case 'view': return '拖动平移 · 滚轮/双指缩放 · 空格居中';
+    case 'terr': return `按住拖动画画「${TERR_OPTS[t.k]?.label ?? '地形'}」（水域会淹没地上物）`;
+    case 'tree': return '点击或拖动，种下随机小树（共 6 种，含樱花与棕榈）';
+    case 'road': return '按住拖出路网，转角自动拼接';
     case 'doze': return '点击拆除：整栋建筑 / 树木 / 道路';
     case 'build': {
       const d = defById(t.id);
@@ -72,6 +131,7 @@ export default function PixelCity() {
   const [tool, setTool] = useState<Tool>({ t: 'view' });
   const [subCat, setSubCat] = useState<SubCat>('terr');
   const [stats, setStats] = useState({ pop: 0, buildings: 0, roads: 0, trees: 0 });
+  const [crowd, setCrowd] = useState({ peds: 0, cars: 0 });
   const [hover, setHover] = useState<{ tx: number; ty: number } | null>(null);
   const [fps, setFps] = useState(0);
   const [zoom, setZoom] = useState(2);
@@ -81,6 +141,8 @@ export default function PixelCity() {
   const [slotMeta, setSlotMeta] = useState<Array<{ time: string; pop: number } | null>>([null, null, null]);
   const [cellsByCat, setCellsByCat] = useState<Record<string, CellItem[]>>({});
   const [iconSrc, setIconSrc] = useState<Record<string, string>>({});
+  const [ui] = useUiState();
+  const [isMobile, setIsMobile] = useState(false);
 
   const engineRef = useRef<Engine | null>(null);
   const beeperRef = useRef<Beeper | null>(null);
@@ -93,6 +155,26 @@ export default function PixelCity() {
     setToast({ id: Date.now(), msg });
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), 2400);
+  }, []);
+
+  const toggle = useCallback((k: keyof UiState) => {
+    setUiStore(u => ({ ...u, [k]: !u[k] }));
+    beeperRef.current?.play('click');
+  }, []);
+
+  /** 小地图挂载点（桌面侧栏 / 移动抽屉二选一），断点切换时重绑 */
+  const miniRefCb = useCallback((cv: HTMLCanvasElement | null) => {
+    miniRef.current = cv;
+    if (cv) engineRef.current?.rebindMini(cv);
+  }, []);
+
+  // ---------------- 断点检测 ----------------
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 820px)');
+    const upd = () => setIsMobile(mq.matches);
+    upd();
+    mq.addEventListener('change', upd);
+    return () => mq.removeEventListener('change', upd);
   }, []);
 
   // ---------------- 引擎生命周期 ----------------
@@ -111,10 +193,10 @@ export default function PixelCity() {
     let disposed = false;
 
     void eng.init((frac, label) => setProg({ frac, label })).then(() => {
-      if (disposed || !viewRef.current || !miniRef.current) return;
+      if (disposed || !viewRef.current) return;
+      eng.setCrowds(loadUi().crowds);
       eng.attach(viewRef.current, miniRef.current);
       setStats(eng.map.stats());
-      // 目录缩略图（异步回调中生成，避免 effect 内同步 setState）
       const acc: Record<string, CellItem[]> = { res: [], com: [], ind: [], civ: [] };
       for (const d of CATALOG) {
         for (let v = 0; v < d.variants; v++) {
@@ -125,7 +207,6 @@ export default function PixelCity() {
         }
       }
       setCellsByCat(acc);
-      // 预生成全部像素图标（避免 SSR 期访问 document）
       const iuMap: Record<string, string> = {};
       for (const n of ICON_NAMES) iuMap[n] = iconURI(n);
       setIconSrc(iuMap);
@@ -151,11 +232,12 @@ export default function PixelCity() {
         Digit1: { t: 'view' },
         Digit2: { t: 'tree' },
         Digit3: { t: 'road' },
-        Digit4: { t: 'build', id: 'house', variant: 0 },
-        Digit5: { t: 'build', id: 'shop', variant: 0 },
-        Digit6: { t: 'build', id: 'factory', variant: 0 },
-        Digit7: { t: 'build', id: 'park', variant: 0 },
-        Digit8: { t: 'doze' },
+        Digit4: { t: 'terr', k: 0 },
+        Digit5: { t: 'build', id: 'house', variant: 0 },
+        Digit6: { t: 'build', id: 'shop', variant: 0 },
+        Digit7: { t: 'build', id: 'factory', variant: 0 },
+        Digit8: { t: 'build', id: 'park', variant: 0 },
+        Digit9: { t: 'doze' },
       };
       const t = map[e.code];
       if (t) {
@@ -164,15 +246,22 @@ export default function PixelCity() {
           const cat = defById(t.id).cat;
           setSubCat(cat);
         }
+        if (t.t === 'terr') setSubCat('terr');
         eng2.setTool(t);
       }
     };
     window.addEventListener('keydown', onKey);
 
+    const crowdTimer = window.setInterval(() => {
+      const eng3 = engineRef.current;
+      if (eng3) setCrowd(eng3.crowdCount());
+    }, 1000);
+
     return () => {
       disposed = true;
       ro.disconnect();
       window.removeEventListener('keydown', onKey);
+      window.clearInterval(crowdTimer);
       window.clearTimeout(toastTimer.current);
       eng.destroy();
     };
@@ -213,6 +302,23 @@ export default function PixelCity() {
     a.remove();
   }, []);
 
+  const doGenCity = useCallback(() => {
+    const eng = engineRef.current;
+    if (!eng) return;
+    const rep = eng.generateCity();
+    if (rep) say(`一键城市：${rep.buildings} 栋建筑 · 人口 ${rep.pop} · 道路 ${rep.roads} 格`);
+    else say('可用平地不足，先换个地形试试');
+  }, [say]);
+
+  const toggleCrowds = useCallback(() => {
+    setUiStore(u => {
+      const next = { ...u, crowds: !u.crowds };
+      engineRef.current?.setCrowds(next.crowds);
+      beeperRef.current?.play('click');
+      return next;
+    });
+  }, []);
+
   const doSave = (i: number) => {
     const eng = engineRef.current;
     if (!eng) return;
@@ -241,79 +347,259 @@ export default function PixelCity() {
   const curDef = tool.t === 'build' ? defById(tool.id) : null;
   const hint = toolHint(tool);
 
+  // ---------------- 共用分组 ----------------
+
+  const buildGroup = (
+    <div className={`pxc-group${ui.build ? '' : ' closed'}`}>
+      <button className="pxc-ghead" onClick={() => toggle('build')} aria-expanded={ui.build}>
+        <span>建 造 面 板</span><i>{ui.build ? '▾' : '▸'}</i>
+      </button>
+      {ui.build && (
+        <div className="pxc-gbody">
+          <div className="pxc-tabs" role="tablist">
+            <button role="tab" aria-selected={subCat === 'terr'}
+              className={subCat === 'terr' ? 'on' : ''}
+              onClick={() => { setSubCat('terr'); beeperRef.current?.play('click'); }}>
+              地形
+            </button>
+            {CAT_META.map(c => (
+              <button key={c.key} role="tab" aria-selected={subCat === c.key}
+                className={subCat === c.key ? 'on' : ''}
+                onClick={() => { setSubCat(c.key); beeperRef.current?.play('click'); }}>
+                {c.name}
+              </button>
+            ))}
+          </div>
+          {subCat === 'terr' ? (
+            <div className="pxc-opts" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+              {TERR_OPTS.map(o => {
+                const on = tool.t === 'terr' && tool.k === o.k;
+                return (
+                  <button key={o.k} className={`pxc-opt${on ? ' on' : ''}`}
+                    title={o.desc} aria-label={o.label}
+                    onClick={() => pickTool({ t: 'terr', k: o.k }, 'terr')}>
+                    <img src={iu(o.icon)} alt="" />
+                    <span>{o.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="pxc-grid" role="grid" aria-label="建筑变体">
+              {cells.map(c => {
+                const on = tool.t === 'build' && tool.id === c.id && tool.variant === c.v;
+                const multi = defById(c.id).variants > 1;
+                return (
+                  <button key={`${c.id}#${c.v}`} className={`pxc-cell${on ? ' on' : ''}`}
+                    title={`${c.name}${multi ? ` · 变体 ${c.v + 1}` : ''}`}
+                    aria-label={`${c.name}${multi ? `变体${c.v + 1}` : ''}`}
+                    onClick={() => pickCell(c.id, c.v)}>
+                    <img src={c.uri} alt={c.name} />
+                    <span className="pxc-cname">{c.name}{multi ? `·${c.v + 1}` : ''}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div className="pxc-info">
+            {tool.t === 'terr'
+              ? <><b>{TERR_OPTS[tool.k]?.label ?? '地形'}</b><span>{TERR_OPTS[tool.k]?.desc ?? ''}</span></>
+              : curDef
+                ? <><b>{curDef.name}</b><span>{curDef.desc}</span></>
+                : <span>选择地形或建筑，开始建造你的城市（G 键一键城市）</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const miniGroup = (
+    <div className={`pxc-group${ui.mini ? '' : ' closed'}`}>
+      <button className="pxc-ghead" onClick={() => toggle('mini')} aria-expanded={ui.mini}>
+        <span>小 地 图</span><i>{ui.mini ? '▾' : '▸'}</i>
+      </button>
+      {ui.mini && (
+        <div className="pxc-gbody">
+          <canvas ref={miniRefCb} className="pxc-mini" aria-label="小地图" />
+        </div>
+      )}
+    </div>
+  );
+
+  const cityOpsGroup = (
+    <div className={`pxc-group${ui.cityops ? '' : ' closed'}`}>
+      <button className="pxc-ghead" onClick={() => toggle('cityops')} aria-expanded={ui.cityops}>
+        <span>市 政 操 作</span><i>{ui.cityops ? '▾' : '▸'}</i>
+      </button>
+      {ui.cityops && (
+        <div className="pxc-gbody">
+          <div className="pxc-row">
+            <button className="pxc-btn primary" title="一键生成整座城市 (G)" onClick={doGenCity}>
+              <img src={iu('city')} alt="" />一键城市
+            </button>
+            <button className="pxc-btn" onClick={() => { engineRef.current?.randomMap(); }}>
+              <img src={iu('random')} alt="" />随机地图
+            </button>
+            <button className="pxc-btn" onClick={() => { engineRef.current?.clearMap(); }}>
+              <img src={iu('doze')} alt="" />清空
+            </button>
+          </div>
+          <div className="pxc-row" style={{ marginTop: 4 }}>
+            <button className="pxc-btn" onClick={() => openModal('save')}>
+              <img src={iu('save')} alt="" />存档…
+            </button>
+            <button className="pxc-btn" onClick={() => {
+              const eng = engineRef.current;
+              if (!eng) return;
+              dl(eng.exportPNG(), `像素都市_${new Date().toISOString().slice(0, 10)}.png`);
+              say('已导出画面快照 PNG');
+            }}>
+              <img src={iu('exportp')} alt="" />快照
+            </button>
+            <button className="pxc-btn" onClick={() => {
+              const eng = engineRef.current;
+              if (!eng) return;
+              dl(eng.book.exportAtlas(), '像素都市_精灵图集.png');
+              say('已导出全部精灵图集');
+            }}>
+              <img src={iu('atlas')} alt="" />图集
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const aboutGroup = (
+    <div className={`pxc-group${ui.about ? '' : ' closed'}`} style={{ marginBottom: 8 }}>
+      <button className="pxc-ghead" onClick={() => toggle('about')} aria-expanded={ui.about}>
+        <span>关 于</span><i>{ui.about ? '▾' : '▸'}</i>
+      </button>
+      {ui.about && (
+        <div className="pxc-gbody">
+          <div style={{ fontSize: 11, lineHeight: 1.7, color: '#3d434e' }}>
+            一切画面均由代码程序化生成：{CATALOG.length} 类建筑参数化建模，
+            192×192 大地图 · 一键城市生成器 · 街头行人车辆，
+            经固定 2:1 等距正交投影离线光栅化为透明精灵，
+            叠加 68 色有限色板、Bayer 有序抖动、
+            扫描线与 CRT 暗角 —— 向 DOS/PC98 与 SimCity 致敬。
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   // ---------------- 渲染 ----------------
   return (
-    <div className="pxc">
+    <div className={`pxc${isMobile ? ' m' : ''}${ui.min ? ' min' : ''}`}>
       {/* 标题栏 */}
-      <div className="pxc-titlebar">
+      <div className="pxc-titlebar" onClick={ui.min ? () => toggle('min') : undefined}>
         <div className="pxc-logo" aria-hidden />
-        <h1>像素都市 PIXEL CITY · 等距建造沙盒</h1>
-        <div className="pxc-tb-actions">
-          <button className="pxc-winbtn" title="撤销 (Ctrl+Z)" aria-label="撤销"
-            onClick={() => engineRef.current?.undo()}>
-            <img src={iu('undo')} alt="" width={12} height={12} />
-          </button>
-          <button className="pxc-winbtn" title="重做 (Ctrl+Shift+Z)" aria-label="重做"
-            onClick={() => engineRef.current?.redo()}>
-            <img src={iu('redo')} alt="" width={12} height={12} />
-          </button>
-          <button className="pxc-winbtn" title="缩小 (−)" aria-label="缩小"
-            onClick={() => engineRef.current?.cycleZoom(-1)}>
-            <img src={iu('zoomout')} alt="" width={12} height={12} />
-          </button>
-          <button className="pxc-winbtn" title="放大 (+)" aria-label="放大"
-            onClick={() => engineRef.current?.cycleZoom(1)}>
-            <img src={iu('zoomin')} alt="" width={12} height={12} />
-          </button>
-          <button className="pxc-winbtn" title="声音" aria-label="声音开关"
-            onClick={() => {
-              const b = beeperRef.current;
-              if (!b) return;
-              b.enabled = !b.enabled;
-              setSoundOn(b.enabled);
-              if (b.enabled) b.play('click');
-            }}>
-            <img src={iu(soundOn ? 'sound' : 'soundoff')} alt="" width={12} height={12} />
-          </button>
-          <button className="pxc-winbtn" title="帮助" aria-label="帮助"
-            onClick={() => openModal('help')}>?</button>
-          <button className="pxc-winbtn" title="最小化" aria-label="最小化"
-            onClick={() => say('市政厅已驻留在你的屏幕上')}>─</button>
-          <button className="pxc-winbtn" title="关闭" aria-label="关闭"
-            onClick={() => say('这座城市永远为你敞开大门')}>×</button>
-        </div>
+        {!ui.min && <h1>{isMobile ? '像素都市' : '像素都市 PIXEL CITY · 等距建造沙盒'}</h1>}
+        {ui.min ? (
+          <span className="pxc-minhint">像素都市 — 已最小化（点击还原）</span>
+        ) : (
+          <div className="pxc-tb-actions">
+            {isMobile && (
+              <button className="pxc-winbtn" title="打开建造中心" aria-label="打开建造中心"
+                onClick={() => setUiStore(u => ({ ...u, drawer: true }))}>
+                <img src={iu('menu')} alt="" width={12} height={12} />
+              </button>
+            )}
+            {isMobile && (
+              <button className="pxc-winbtn" title="一键城市" aria-label="一键城市" onClick={doGenCity}>
+                <img src={iu('city')} alt="" width={12} height={12} />
+              </button>
+            )}
+            <button className="pxc-winbtn" title="撤销 (Ctrl+Z)" aria-label="撤销"
+              onClick={() => engineRef.current?.undo()}>
+              <img src={iu('undo')} alt="" width={12} height={12} />
+            </button>
+            {!isMobile && (
+              <button className="pxc-winbtn" title="重做 (Ctrl+Shift+Z)" aria-label="重做"
+                onClick={() => engineRef.current?.redo()}>
+                <img src={iu('redo')} alt="" width={12} height={12} />
+              </button>
+            )}
+            <button className="pxc-winbtn" title="缩小 (−)" aria-label="缩小"
+              onClick={() => engineRef.current?.cycleZoom(-1)}>
+              <img src={iu('zoomout')} alt="" width={12} height={12} />
+            </button>
+            <button className="pxc-winbtn" title="放大 (+)" aria-label="放大"
+              onClick={() => engineRef.current?.cycleZoom(1)}>
+              <img src={iu('zoomin')} alt="" width={12} height={12} />
+            </button>
+            <button className={`pxc-winbtn${ui.crowds ? ' on' : ''}`}
+              title={ui.crowds ? `行人车辆：开（行人 ${crowd.peds} · 车辆 ${crowd.cars}）` : '行人车辆：关'}
+              aria-label="行人车辆开关" onClick={toggleCrowds}>
+              <img src={iu(ui.crowds ? 'person' : 'personoff')} alt="" width={12} height={12} />
+            </button>
+            <button className="pxc-winbtn" title="声音" aria-label="声音开关"
+              onClick={() => {
+                const b = beeperRef.current;
+                if (!b) return;
+                b.enabled = !b.enabled;
+                setSoundOn(b.enabled);
+                if (b.enabled) b.play('click');
+              }}>
+              <img src={iu(soundOn ? 'sound' : 'soundoff')} alt="" width={12} height={12} />
+            </button>
+            <button className="pxc-winbtn" title="帮助" aria-label="帮助"
+              onClick={() => openModal('help')}>?</button>
+            {!isMobile && (
+              <>
+                <button className="pxc-winbtn" title="最小化界面" aria-label="最小化界面"
+                  onClick={() => toggle('min')}>─</button>
+                <button className="pxc-winbtn" title="关闭" aria-label="关闭"
+                  onClick={() => say('这座城市永远为你敞开大门')}>×</button>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 主体 */}
       <div className="pxc-main">
         <div className="pxc-screen" ref={wrapRef}>
           <canvas ref={viewRef} className="pxc-view" role="img"
-            aria-label="等距城市画布：左键使用工具，右键拖动平移，滚轮缩放" />
+            aria-label="等距城市画布：使用工具建造，右键拖动平移，滚轮或双指缩放" />
           <div className="pxc-crt" aria-hidden />
 
-          {/* 工具条 */}
-          <div className="pxc-toolbar" role="toolbar" aria-label="工具">
-            {TOOLBAR.map(item => {
-              let on = false;
-              if (tool.t === item.tool.t) {
-                if (tool.t === 'build' && item.tool.t === 'build') {
-                  on = defById(tool.id).cat === item.cat;
-                } else if (tool.t === 'terr' && item.tool.t === 'terr') {
-                  on = tool.k === item.tool.k;
-                } else if (tool.t !== 'build' && tool.t !== 'terr') on = true;
-              }
-              return (
-                <button key={item.label} className={`pxc-tool${on ? ' on' : ''}`}
-                  title={`${item.label} (${item.hot})`} aria-label={item.label}
-                  onClick={() => pickTool(item.tool, item.cat)}>
-                  <img src={iu(item.icon)} alt="" />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
+          {/* 工具条（可收缩） */}
+          {ui.toolbar ? (
+            <div className="pxc-toolbar" role="toolbar" aria-label="工具">
+              {TOOLBAR.map(item => {
+                let on = false;
+                if (tool.t === item.tool.t) {
+                  if (tool.t === 'build' && item.tool.t === 'build') {
+                    on = defById(tool.id).cat === item.cat;
+                  } else if (tool.t === 'terr' && item.tool.t === 'terr') {
+                    on = tool.k === item.tool.k;
+                  } else if (tool.t !== 'build' && tool.t !== 'terr') on = true;
+                }
+                return (
+                  <button key={item.label} className={`pxc-tool${on ? ' on' : ''}`}
+                    title={`${item.label} (${item.hot})`} aria-label={item.label}
+                    onClick={() => {
+                      if (item.tool.t === 'terr') setSubCat('terr');
+                      pickTool(item.tool, item.cat ?? (item.tool.t === 'terr' ? 'terr' : undefined));
+                    }}>
+                    <img src={iu(item.icon)} alt="" />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+              <button className="pxc-tool pxc-fold" title="收起工具条" aria-label="收起工具条"
+                onClick={() => toggle('toolbar')}>◀</button>
+            </div>
+          ) : (
+            <button className="pxc-tooltab" onClick={() => toggle('toolbar')}
+              title="展开工具条" aria-label="展开工具条">▶<span>工具</span></button>
+          )}
 
-          <div className="pxc-badge">ZOOM ×{zoom} · {fps} FPS</div>
+          <div className="pxc-badge">
+            ZOOM ×{zoom} · {fps} FPS{ui.crowds ? ` · 行人 ${crowd.peds}` : ''}
+          </div>
 
           {toast && <div key={toast.id} className="pxc-toast" role="status">{toast.msg}</div>}
 
@@ -333,134 +619,96 @@ export default function PixelCity() {
           )}
         </div>
 
-        {/* 右侧面板 */}
-        <aside className="pxc-panel" aria-label="建造面板">
-          <div className="pxc-group">
-            <div className="pxc-gtitle">建 造 面 板</div>
-            <div className="pxc-tabs" role="tablist">
-              <button role="tab" aria-selected={subCat === 'terr'}
-                className={subCat === 'terr' ? 'on' : ''}
-                onClick={() => { setSubCat('terr'); beeperRef.current?.play('click'); }}>
-                地形
-              </button>
-              {CAT_META.map(c => (
-                <button key={c.key} role="tab" aria-selected={subCat === c.key}
-                  className={subCat === c.key ? 'on' : ''}
-                  onClick={() => { setSubCat(c.key); beeperRef.current?.play('click'); }}>
-                  {c.name}
-                </button>
-              ))}
-            </div>
-            {subCat === 'terr' ? (
-              <div className="pxc-opts" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
-                {TERR_OPTS.map(o => {
-                  const on = tool.t === 'terr' && tool.k === o.k;
-                  return (
-                    <button key={o.k} className={`pxc-opt${on ? ' on' : ''}`}
-                      title={o.desc} aria-label={o.label}
-                      onClick={() => pickTool({ t: 'terr', k: o.k }, 'terr')}>
-                      <img src={iu(o.icon)} alt="" />
-                      <span>{o.label}</span>
-                    </button>
-                  );
-                })}
+        {/* 桌面右侧建造中心（整板可收缩） */}
+        {!isMobile && (
+          ui.panel ? (
+            <aside className="pxc-panel" aria-label="建造面板">
+              <div className="pxc-phead">
+                <span>建 造 中 心</span>
+                <button className="pxc-foldbtn" onClick={() => toggle('panel')}
+                  title="收起面板" aria-label="收起面板">▶ 收起</button>
               </div>
-            ) : (
-              <div className="pxc-grid" role="grid" aria-label="建筑变体">
-                {cells.map(c => {
-                  const on = tool.t === 'build' && tool.id === c.id && tool.variant === c.v;
-                  return (
-                    <button key={`${c.id}#${c.v}`} className={`pxc-cell${on ? ' on' : ''}`}
-                      title={`${c.name} · 变体 ${c.v + 1}`}
-                      aria-label={`${c.name}变体${c.v + 1}`}
-                      onClick={() => pickCell(c.id, c.v)}>
-                      <img src={c.uri} alt={c.name} />
-                    </button>
-                  );
-                })}
+              <div className="pxc-pbody">
+                {buildGroup}
+                {miniGroup}
+                {cityOpsGroup}
+                <div style={{ flex: 1 }} />
+                {aboutGroup}
+              </div>
+            </aside>
+          ) : (
+            <button className="pxc-paneltab" onClick={() => toggle('panel')}
+              title="展开建造中心" aria-label="展开建造中心">
+              <span>建<br />造<br />中<br />心</span>◀
+            </button>
+          )
+        )}
+      </div>
+
+      {/* 状态栏（桌面） */}
+      {!isMobile && (
+        <div className="pxc-status">
+          <div title="光标格坐标">
+            {hover ? `X:${hover.tx} Y:${hover.ty}` : 'X:— Y:—'}
+          </div>
+          <div className="pxc-hint">{hint}</div>
+          <div><b>人口</b> {stats.pop}</div>
+          <div><b>建筑</b> {stats.buildings}</div>
+          <div><b>道路</b> {stats.roads}</div>
+          <div><b>树木</b> {stats.trees}</div>
+          {ui.crowds && <div><b>行人</b> {crowd.peds} · {crowd.cars} 车</div>}
+        </div>
+      )}
+
+      {/* 移动端底部：工具条 + 抽屉 */}
+      {isMobile && (
+        <>
+          <div className="pxc-mtoolwrap">
+            <div className="pxc-mtools" role="toolbar" aria-label="工具">
+              {TOOLBAR.map(item => {
+                let on = false;
+                if (tool.t === item.tool.t) {
+                  if (tool.t === 'build' && item.tool.t === 'build') {
+                    on = defById(tool.id).cat === item.cat;
+                  } else if (tool.t === 'terr' && item.tool.t === 'terr') {
+                    on = tool.k === item.tool.k;
+                  } else if (tool.t !== 'build' && tool.t !== 'terr') on = true;
+                }
+                return (
+                  <button key={item.label} className={`pxc-mtool${on ? ' on' : ''}`}
+                    aria-label={item.label}
+                    onClick={() => {
+                      if (item.tool.t === 'terr') setSubCat('terr');
+                      pickTool(item.tool, item.cat ?? (item.tool.t === 'terr' ? 'terr' : undefined));
+                    }}>
+                    <img src={iu(item.icon)} alt="" />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className={`pxc-drawer${ui.drawer ? ' open' : ''}`}>
+            <button className="pxc-dhandle" onClick={() => toggle('drawer')}
+              aria-expanded={ui.drawer} aria-label="建造中心抽屉">
+              <i>{ui.drawer ? '▼' : '▲'}</i>
+              <span className="t">建 造 中 心</span>
+              <span className="s">
+                人口 {stats.pop} · 建筑 {stats.buildings}
+                {ui.crowds ? ` · 行人 ${crowd.peds}` : ''}
+              </span>
+            </button>
+            {ui.drawer && (
+              <div className="pxc-dbody">
+                {buildGroup}
+                {cityOpsGroup}
+                {miniGroup}
+                {aboutGroup}
               </div>
             )}
-            <div className="pxc-info">
-              {tool.t === 'terr'
-                ? <><b>{TERR_OPTS[tool.k]?.label ?? '地形'}</b><span>{TERR_OPTS[tool.k]?.desc ?? ''}</span></>
-                : curDef
-                  ? <><b>{curDef.name}</b><span>{curDef.desc}</span></>
-                  : <span>选择地形或建筑，开始建造你的城市（G 键一键城市）</span>}
-            </div>
           </div>
-
-          <div className="pxc-group">
-            <div className="pxc-gtitle">小 地 图</div>
-            <canvas ref={miniRef} className="pxc-mini" aria-label="小地图" />
-          </div>
-
-          <div className="pxc-group">
-            <div className="pxc-gtitle">市 政 操 作</div>
-            <div className="pxc-row">
-              <button className="pxc-btn primary" title="一键生成整座城市 (G)" onClick={() => {
-                const eng = engineRef.current;
-                if (!eng) return;
-                const rep = eng.generateCity();
-                if (rep) say(`一键城市：${rep.buildings} 栋建筑 · 人口 ${rep.pop} · 道路 ${rep.roads} 格`);
-                else say('可用平地不足，先换个地形试试');
-              }}>
-                <img src={iu('city')} alt="" />一键城市
-              </button>
-              <button className="pxc-btn" onClick={() => { engineRef.current?.randomMap(); }}>
-                <img src={iu('random')} alt="" />随机地图
-              </button>
-              <button className="pxc-btn" onClick={() => { engineRef.current?.clearMap(); }}>
-                <img src={iu('doze')} alt="" />清空
-              </button>
-            </div>
-            <div className="pxc-row" style={{ marginTop: 4 }}>
-              <button className="pxc-btn" onClick={() => openModal('save')}>
-                <img src={iu('save')} alt="" />存档…
-              </button>
-              <button className="pxc-btn" onClick={() => {
-                const eng = engineRef.current;
-                if (!eng) return;
-                dl(eng.exportPNG(), `像素都市_${new Date().toISOString().slice(0, 10)}.png`);
-                say('已导出画面快照 PNG');
-              }}>
-                <img src={iu('exportp')} alt="" />快照
-              </button>
-              <button className="pxc-btn" onClick={() => {
-                const eng = engineRef.current;
-                if (!eng) return;
-                dl(eng.book.exportAtlas(), '像素都市_精灵图集.png');
-                say('已导出全部精灵图集');
-              }}>
-                <img src={iu('atlas')} alt="" />图集
-              </button>
-            </div>
-          </div>
-
-          <div style={{ flex: 1 }} />
-          <div className="pxc-group" style={{ marginBottom: 8 }}>
-            <div className="pxc-gtitle">关 于</div>
-            <div style={{ fontSize: 11, lineHeight: 1.7, color: '#3d434e' }}>
-              一切画面均由代码程序化生成：{CATALOG.length} 类建筑参数化建模，
-              128×128 大地图 · 一键城市生成器，
-              经固定 2:1 等距正交投影离线光栅化为透明精灵，
-              叠加 66 色有限色板、Bayer 有序抖动、
-              扫描线与 CRT 暗角 —— 向 DOS/PC98 与 SimCity 致敬。
-            </div>
-          </div>
-        </aside>
-      </div>
-
-      {/* 状态栏 */}
-      <div className="pxc-status">
-        <div title="光标格坐标">
-          {hover ? `X:${hover.tx} Y:${hover.ty}` : 'X:— Y:—'}
-        </div>
-        <div className="pxc-hint">{hint}</div>
-        <div><b>人口</b> {stats.pop}</div>
-        <div><b>建筑</b> {stats.buildings}</div>
-        <div><b>道路</b> {stats.roads}</div>
-        <div><b>树木</b> {stats.trees}</div>
-      </div>
+        </>
+      )}
 
       {/* 存档模态 */}
       {modal === 'save' && (
@@ -509,23 +757,35 @@ export default function PixelCity() {
               <button className="pxc-x" onClick={() => setModal('none')} aria-label="关闭">×</button>
             </header>
             <div className="pxc-body">
-              <table className="pxc-help">
-                <tbody>
-                  <tr><td>左键</td><td>使用当前工具（涂地形 / 画路 / 放建筑）</td></tr>
-                  <tr><td>右键 / 中键拖动</td><td>平移视野（观察工具下左键也可）</td></tr>
-                  <tr><td>滚轮</td><td>以光标为中心缩放（×1 / ×2 / ×3）</td></tr>
-                  <tr><td>W A S D / 方向键</td><td>平移视野</td></tr>
-                  <tr><td>空格</td><td>视野居中</td></tr>
-                  <tr><td>1 – 8</td><td>快捷切换：观察 / 植树 / 道路 / 住宅 / 商业 / 工业 / 公共 / 推土</td></tr>
-                  <tr><td>G</td><td>一键生成整座城市（可反复按，每次全新）</td></tr>
-                  <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
-                  <tr><td>Esc</td><td>切回观察工具</td></tr>
-                </tbody>
-              </table>
+              {isMobile ? (
+                <table className="pxc-help">
+                  <tbody>
+                    <tr><td>单指</td><td>使用当前工具（涂地形 / 画路 / 放建筑）</td></tr>
+                    <tr><td>双指拖动</td><td>平移视野</td></tr>
+                    <tr><td>双指捏合</td><td>缩放（×1 / ×2 / ×3），也可用顶栏 ±</td></tr>
+                    <tr><td>底栏</td><td>工具横滑切换；▲ 展开建造中心抽屉</td></tr>
+                    <tr><td>面板</td><td>所有面板都能点标题栏 ▾ / ▸ 收起展开</td></tr>
+                  </tbody>
+                </table>
+              ) : (
+                <table className="pxc-help">
+                  <tbody>
+                    <tr><td>左键</td><td>使用当前工具（涂地形 / 画路 / 放建筑）</td></tr>
+                    <tr><td>右键 / 中键拖动</td><td>平移视野（观察工具下左键也可）</td></tr>
+                    <tr><td>滚轮</td><td>以光标为中心缩放（×1 / ×2 / ×3）</td></tr>
+                    <tr><td>W A S D / 方向键</td><td>平移视野</td></tr>
+                    <tr><td>空格</td><td>视野居中</td></tr>
+                    <tr><td>1 – 9</td><td>观察 / 植树 / 道路 / 地形 / 住宅 / 商业 / 工业 / 公共 / 推土</td></tr>
+                    <tr><td>G</td><td>一键生成整座城市（可反复按，每次全新）</td></tr>
+                    <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
+                    <tr><td>Esc</td><td>切回观察工具</td></tr>
+                  </tbody>
+                </table>
+              )}
               <div style={{ marginTop: 10, fontSize: 12, lineHeight: 1.8 }}>
                 小贴士：按 G 或点「一键城市」秒得一座分区完备的城市（核心商务、扇区工业、
-                外环耕地，还有城堡/灯塔/体育场等地标）；地形画板新增耕地与岩石；
-                灯塔要放在临水沙地上；旧版本 64×64 存档会自动居中迁移到 128 大地图。
+                外环耕地，还有城堡/灯塔/天文台/港口吊机等地标）；植树有 6 种树（含樱花）；
+                人口越多街上的行人与车越多，可用顶栏行人按钮开关。
               </div>
             </div>
           </div>

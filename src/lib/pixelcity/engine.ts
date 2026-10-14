@@ -3,7 +3,7 @@
 //           幽灵预览 / 小地图 / 撤销重做 / 存档导出
 // ============================================================
 
-import { CityMap, TERR_WATER, TERR_SAND, TERR_FARM, TERR_ROCK } from './map';
+import { CityMap, TERR_WATER, TERR_SAND, TERR_FARM, TERR_ROCK, MAP_N } from './map';
 import { SpriteBook, defById } from './catalog';
 import { getGround } from './terrain';
 import { ghostSprite, renderModel, type Sprite } from './softrender';
@@ -12,6 +12,7 @@ import { PALETTE } from './palette';
 import type { Beeper } from './audio';
 import { hash2 } from './rng';
 import { generateCity, type GenReport } from './citygen';
+import { ActorSystem } from './actors';
 
 export type Tool =
   | { t: 'view' }
@@ -35,8 +36,10 @@ export type EngineHooks = {
 type RenderItem = { key: number; draw: () => void };
 
 export class Engine {
-  map = new CityMap(128);
+  map = new CityMap(MAP_N);
   book = new SpriteBook();
+  actors = new ActorSystem();
+  crowds = true;
   beeper: Beeper;
   hooks: EngineHooks = {};
 
@@ -70,6 +73,10 @@ export class Engine {
   private lastSaveVer = -1;
   private lastSaveT = 0;
   private treeSprites: Sprite[] = [];
+  // 多点触控
+  private pointers = new Map<number, { x: number; y: number }>();
+  private pinchDist = 0;
+  private lastPinch: { x: number; y: number } | null = null;
 
   private listeners: Array<[EventTarget, string, EventListener]> = [];
 
@@ -80,6 +87,7 @@ export class Engine {
     this.miniBase = document.createElement('canvas');
     this.map.onChange = () => {
       this.miniDirty = true;
+      this.actors.invalidate();
       this.hooks.onStats?.(this.map.stats());
     };
   }
@@ -88,19 +96,27 @@ export class Engine {
 
   async init(onProgress: (frac: number, label: string) => void): Promise<void> {
     await this.book.init(onProgress);
-    this.treeSprites = [0, 1, 2, 3].map(v => renderModel(genTree(v * 977 + 13).model));
+    this.treeSprites = [0, 1, 2, 3, 4, 5].map(v => renderModel(genTree(v).model));
+    this.actors.ensureSprites();
     this.map.random((Math.random() * 1e9) | 0);
     this.center();
   }
 
-  attach(display: HTMLCanvasElement, mini: HTMLCanvasElement): void {
+  attach(display: HTMLCanvasElement, mini: HTMLCanvasElement | null): void {
     this.display = display;
     this.dctx = display.getContext('2d');
     this.mini = mini;
-    mini.width = this.map.n * MM;
-    mini.height = this.map.n * MM;
+    if (mini) {
+      mini.width = this.map.n * MM;
+      mini.height = this.map.n * MM;
+      this.bindMini(mini);
+    }
     this.bindInput(display);
-    this.bindMini(mini);
+    // 移动端 / 触屏默认 ×1（屏幕窄，×2 太近）
+    const coarse = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+    if (coarse || Math.min(window.innerWidth, window.innerHeight) < 500) {
+      this.setZoom(1);
+    }
     this.resize();
     this.loop();
   }
@@ -163,6 +179,18 @@ export class Engine {
     this.hooks.onTool?.(t);
   }
 
+  /** 行人 / 车辆开关 */
+  setCrowds(on: boolean): void {
+    this.crowds = on;
+    this.actors.enabled = on;
+    if (!on) this.actors.clear();
+    else this.actors.invalidate();
+  }
+
+  crowdCount(): { peds: number; cars: number } {
+    return { peds: this.actors.peds, cars: this.actors.cars };
+  }
+
   cycleZoom(dir: number): void {
     const i = ZOOMS.indexOf(this.zoom);
     const j = Math.max(0, Math.min(ZOOMS.length - 1, i + dir));
@@ -204,6 +232,7 @@ export class Engine {
     if (this.keys.has('ArrowRight') || this.keys.has('KeyD')) this.cam.x += pan;
     if (this.keys.has('ArrowUp') || this.keys.has('KeyW')) this.cam.y -= pan;
     if (this.keys.has('ArrowDown') || this.keys.has('KeyS')) this.cam.y += pan;
+    if (this.crowds) this.actors.tick(dt / 1000, this.map);
     this.render(now);
     if (this.map.version !== this.lastSaveVer && now - this.lastSaveT > 25000) {
       this.autoSave();
@@ -307,7 +336,7 @@ export class Engine {
 
         const tv = m.tree[i];
         if (tv >= 0 && !m.road[i] && m.occ[i] < 0) {
-          const sp = this.treeSprites[tv & 3];
+          const sp = this.treeSprites[tv % this.treeSprites.length];
           const key = tx + ty;
           const dx = Math.round(sx + sp.ox), dy = Math.round(sy + sp.oy);
           items.push({ key, draw: () => ctx.drawImage(sp.cv, dx, dy) });
@@ -348,6 +377,39 @@ export class Engine {
         }
       }
     }
+    // ---- 行人 / 车辆（与建筑同序参与深度排序）----
+    if (this.crowds) {
+      for (const a of this.actors.actors) {
+        const px = a.fx + a.dx * a.t, py = a.fy + a.dy * a.t;
+        let wx: number, wy: number;
+        if (a.kind === 0) {
+          wx = (px + 0.5) * 16 + a.offX;
+          wy = (py + 0.5) * 16 + a.offY;
+        } else {
+          wx = px * 16 - a.dy * 2.3;
+          wy = py * 16 + a.dx * 2.3;
+        }
+        const sx = (wx - wy) - this.cam.x + lw / 2;
+        const sy = (wx + wy) / 2 - this.cam.y + lh / 2;
+        if (sx < -80 || sx > lw + 80 || sy < -60 || sy > lh + 60) continue;
+        const key = (wx + wy) / 16;
+        if (a.kind === 0) {
+          const d = ActorSystem.dirOf(a);
+          const fr = Math.floor(t / 220 + a.phase) % 2;
+          const cv = this.actors.personCv(d as 'dr' | 'dl' | 'ur' | 'ul', fr, a.look);
+          if (!cv) continue;
+          const dx = Math.round(sx - 3), dy = Math.round(sy - 12);
+          items.push({ key, draw: () => ctx.drawImage(cv, dx, dy) });
+        } else {
+          const d = ActorSystem.dirOf(a);
+          const sp = this.actors.carSp(d as 'e' | 'w' | 's' | 'n', a.look);
+          if (!sp) continue;
+          const dx = Math.round(sx + sp.ox), dy = Math.round(sy + sp.oy);
+          items.push({ key, draw: () => ctx.drawImage(sp.cv, dx, dy) });
+        }
+      }
+    }
+
     items.sort((p, q) => p.key - q.key);
     for (const it of items) it.draw();
 
@@ -470,7 +532,7 @@ export class Engine {
       const C = {
         grass: abgr('#3B7138'), water: abgr('#3467AC'), sand: abgr('#CFB379'),
         farm: abgr('#B9C46B'), rock: abgr('#6E737F'), tree: abgr('#245129'),
-        road: abgr('#4A4C55'),
+        sakura: abgr('#C97B93'), road: abgr('#4A4C55'),
         res: abgr('#C25B44'), com: abgr('#E8CC4C'), ind: abgr('#9BA0A7'), civ: abgr('#5BC8B8'),
       };
       for (let y = 0; y < n; y++) {
@@ -479,7 +541,7 @@ export class Engine {
           const k = this.map.terr[i];
           let cv: number = k === 1 ? C.water : k === 2 ? C.sand
             : k === 3 ? C.farm : k === 4 ? C.rock : C.grass;
-          if (this.map.tree[i] >= 0) cv = C.tree;
+          if (this.map.tree[i] >= 0) cv = this.map.tree[i] === 3 ? C.sakura : C.tree;
           if (this.map.road[i]) cv = C.road;
           const a = this.map.occ[i];
           if (a >= 0) {
@@ -525,13 +587,47 @@ export class Engine {
     });
   }
 
+  /** 断点切换（侧栏↔抽屉）时把小地图重绑到新画布 */
+  rebindMini(cv: HTMLCanvasElement | null): void {
+    if (!cv || cv === this.mini) return;
+    this.listeners = this.listeners.filter(([t, n, f]) => {
+      if (t === this.mini) { t.removeEventListener(n, f); return false; }
+      return true;
+    });
+    this.mini = cv;
+    cv.width = this.map.n * MM;
+    cv.height = this.map.n * MM;
+    this.miniDirty = true;
+    this.bindMini(cv);
+  }
+
   // ---------------- 输入 ----------------
+
+  private pinchSpan(): number {
+    const p = [...this.pointers.values()];
+    return p.length >= 2 ? Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) : 0;
+  }
+
+  private pinchMid(): { x: number; y: number } {
+    const p = [...this.pointers.values()];
+    return { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 };
+  }
 
   private bindInput(display: HTMLCanvasElement): void {
     this.on(display, 'contextmenu', (e) => e.preventDefault());
     this.on(display, 'pointerdown', (e) => {
       const pe = e as PointerEvent;
-      display.setPointerCapture(pe.pointerId);
+      try { display.setPointerCapture(pe.pointerId); } catch { /* 无活动指针（合成事件等） */ }
+      this.pointers.set(pe.pointerId, { x: pe.clientX, y: pe.clientY });
+      // 双指手势：取消涂画，进入捏合缩放 / 平移
+      if (this.pointers.size >= 2) {
+        this.painting = false;
+        this.panning = false;
+        this.lastTile = null;
+        this.pinchDist = this.pinchSpan();
+        this.lastPinch = null;
+        return;
+      }
       const rect = display.getBoundingClientRect();
       const cx = pe.clientX - rect.left, cy = pe.clientY - rect.top;
       this.beeper.play('click');
@@ -549,6 +645,33 @@ export class Engine {
     });
     this.on(display, 'pointermove', (e) => {
       const pe = e as PointerEvent;
+      if (this.pointers.has(pe.pointerId)) {
+        this.pointers.set(pe.pointerId, { x: pe.clientX, y: pe.clientY });
+      }
+      // ---- 双指：中点平移 + 距离捏合（分档缩放）----
+      if (this.pointers.size >= 2) {
+        const mid = this.pinchMid();
+        if (this.lastPinch) {
+          this.cam.x -= (mid.x - this.lastPinch.x) / this.zoom;
+          this.cam.y -= (mid.y - this.lastPinch.y) / this.zoom;
+        }
+        this.lastPinch = mid;
+        const span = this.pinchSpan();
+        if (this.pinchDist > 24) {
+          const ratio = span / this.pinchDist;
+          const i = ZOOMS.indexOf(this.zoom);
+          if (ratio > 1.30 && i < ZOOMS.length - 1) {
+            const rect = display.getBoundingClientRect();
+            this.setZoom(ZOOMS[i + 1], { x: mid.x - rect.left, y: mid.y - rect.top });
+            this.pinchDist = span;
+          } else if (ratio < 0.77 && i > 0) {
+            const rect = display.getBoundingClientRect();
+            this.setZoom(ZOOMS[i - 1], { x: mid.x - rect.left, y: mid.y - rect.top });
+            this.pinchDist = span;
+          }
+        }
+        return;
+      }
       const rect = display.getBoundingClientRect();
       const cx = pe.clientX - rect.left, cy = pe.clientY - rect.top;
       const { tx, ty } = this.tileAt(cx, cy);
@@ -582,10 +705,18 @@ export class Engine {
         }
       }
     });
-    const endPointer = (): void => {
-      this.painting = false;
-      this.panning = false;
-      this.lastTile = null;
+    const endPointer = (e: Event): void => {
+      const pe = e as PointerEvent;
+      this.pointers.delete(pe.pointerId);
+      if (this.pointers.size < 2) {
+        this.pinchDist = 0;
+        this.lastPinch = null;
+      }
+      if (this.pointers.size === 0) {
+        this.painting = false;
+        this.panning = false;
+        this.lastTile = null;
+      }
     };
     this.on(display, 'pointerup', endPointer);
     this.on(display, 'pointercancel', endPointer);

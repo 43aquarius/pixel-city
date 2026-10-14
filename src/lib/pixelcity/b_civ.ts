@@ -13,7 +13,7 @@ import {
   type PatFn,
 } from './patterns';
 import { RAMP, bayer } from './palette';
-import { mulberry32 } from './rng';
+import { mulberry32, hash2 } from './rng';
 import { flagPole, waterTank, type BuildResult } from './b_util';
 
 const P = RAMP;
@@ -38,7 +38,7 @@ export function genPark(seed: number): BuildResult {
   return { model: buildModel(faces, 16, 16) };
 }
 
-/** 树木部件（供公园与植树工具复用） */
+/** 树木部件（供公园与植树工具复用）：0 阔叶 / 1 松 / 2 灌木 / 3 樱花 / 4 棕榈 / 5 高乔木 */
 export function addTree(faces: Face[], cx: number, cy: number, kind: number, seed: number): void {
   if (kind === 1) {
     // 松树：三层锥
@@ -54,6 +54,56 @@ export function addTree(faces: Face[], cx: number, cy: number, kind: number, see
       side: (u, v, px, py) => pCanopyGrad(P.LEAF, 0, 5, seed)(u, v, px, py),
       top: (u, v, px, py) => pCanopyGrad(P.LEAF, 0, 5, seed)(u, v, px, py),
     }, 8);
+  } else if (kind === 3) {
+    // 樱花树：深色枝干 + 双层粉冠 + 白色花瓣点
+    box(faces, cx - 0.9, cy - 0.9, cx + 0.9, cy + 0.9, 0, 6.5, {
+      right: pWall(P.DIRT), left: pWall(P.DIRT),
+    });
+    const sakura = (lo: number, hi: number) => (u: number, v: number, px: number, py: number) => {
+      const cl = hash2(Math.floor(u / 2.6), Math.floor(v / 2.6), seed ^ 0x5A7C);
+      if (cl < 0.16) return cell(P.WHITE, 0);           // 花簇高光
+      return pCanopyGrad(P.SAKURA, lo, hi, seed)(u, v, px, py);
+    };
+    prism(faces, cx, cy, 5.4, 5, 11, {
+      side: (u, v, px, py) => sakura(0, 6)(u, v, px, py),
+      top: (u, v, px, py) => sakura(0, 6)(u, v, px, py),
+    }, 8);
+    prism(faces, cx, cy, 3.4, 11, 15, {
+      side: (u, v, px, py) => sakura(2, 11)(u, v, px, py),
+      top: (u, v, px, py) => sakura(2, 11)(u, v, px, py),
+    }, 8);
+  } else if (kind === 4) {
+    // 棕榈：弯曲于 + 顶部放射叶冠
+    box(faces, cx - 0.9, cy - 0.9, cx + 0.9, cy + 0.9, 0, 8, {
+      right: pWall(P.DIRT), left: pWall(P.DIRT),
+    });
+    box(faces, cx - 0.4, cy - 0.4, cx + 1.4, cy + 1.4, 8, 13, {
+      right: pWall(P.DIRT), left: pWall(P.DIRT),
+    });
+    const frond = (u: number, v: number, px: number, py: number) => {
+      const cl = hash2(Math.floor(u / 2.4), Math.floor(v / 2.4), seed ^ 0xBA);
+      if (cl < 0.18) return cell(P.PINE, 2);
+      if (bayer(px, py, 0.2)) return cell(P.PINE, 1);
+      return cell(P.LEAF, 1);
+    };
+    // 四向下垂叶 + 中央叶球
+    cone(faces, cx + 2.6, cy + 0.4, 3.4, 11.5, 15.5, (u, v, px, py) => frond(u, v, px, py), 6);
+    cone(faces, cx - 0.4, cy + 2.6, 3.4, 11.5, 15.5, (u, v, px, py) => frond(u, v, px, py), 6);
+    cone(faces, cx + 0.2, cy + 0.2, 3.0, 12.5, 17.5, (u, v, px, py) => frond(u, v, px, py), 7);
+    prism(faces, cx + 0.6, cy + 0.6, 1.6, 12.5, 15.5, {
+      side: (u, v, px, py) => frond(u, v, px, py),
+      top: (u, v, px, py) => frond(u, v, px, py),
+    }, 6);
+  } else if (kind === 5) {
+    // 高乔木：高千 + 卵形大冠
+    box(faces, cx - 0.8, cy - 0.8, cx + 0.8, cy + 0.8, 0, 11, {
+      right: pWall(P.DIRT), left: pWall(P.DIRT),
+    });
+    prism(faces, cx, cy, 4.4, 10, 16, {
+      side: (u, v, px, py) => pCanopyGrad(P.LEAF, 0, 7, seed)(u, v, px, py),
+      top: (u, v, px, py) => pCanopyGrad(P.LEAF, 0, 7, seed)(u, v, px, py),
+    }, 8);
+    cone(faces, cx, cy, 3.6, 15, 21, (u, v, px, py) => pCanopyGrad(P.LEAF, 0, 6, seed)(u, v, px, py), 8);
   } else {
     // 阔叶树：双层树冠
     box(faces, cx - 0.9, cy - 0.9, cx + 0.9, cy + 0.9, 0, 7, {
@@ -70,11 +120,11 @@ export function addTree(faces: Face[], cx: number, cy: number, kind: number, see
   }
 }
 
-/** 独立树木（植树工具） */
+/** 独立树木（植树工具）：seed 低 3 位决定种类，共 6 种 */
 export function genTree(seed: number): BuildResult {
-  const kind = seed & 3;
+  const kind = seed & 7;
   const faces: Face[] = [];
-  addTree(faces, 8, 8, kind === 3 ? 0 : kind, seed);
+  addTree(faces, 8, 8, kind > 5 ? 0 : kind, seed);
   return { model: buildModel(faces, 16, 16) };
 }
 

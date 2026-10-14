@@ -35,6 +35,8 @@ export const PALETTE: readonly string[] = [
   // 61-63 强调色 / 64-65 黑白
   '#F2D24B', '#E05548', '#5BC8B8',
   '#F4F2E8', '#23252E',
+  // 66-67 樱花
+  '#E8A4B4', '#C97B93',
 ];
 
 /** 渐变色阶表：每条 ramp 从最亮到最暗，索引 0 = 受光面 */
@@ -66,6 +68,7 @@ export const RAMPS: readonly Ramp[] = [
   [64],                // 23 WHITE
   [65],                // 24 OUTLINE
   [17, 18],            // 25 WATER2 水面浅两档（动画用）
+  [66, 67],            // 26 SAKURA 樱花
 ];
 
 const RAMP_LIT = {
@@ -73,7 +76,7 @@ const RAMP_LIT = {
   ASPH: 7, PAINTY: 8, SIDE: 9, CREAM: 10, TAN: 11, BRICK: 12,
   PBLUE: 13, RFRED: 14, RFSLATE: 15, RFGRAY: 16, RFTEAL: 17,
   GLASS: 18, METAL: 19, YELLOW: 20, RED: 21, CYAN: 22, WHITE: 23,
-  OUTLINE: 24, WATER2: 25,
+  OUTLINE: 24, WATER2: 25, SAKURA: 26,
 } as const;
 
 /** 带名 ramp 索引（值一律 number，避免字面量类型传染函数签名） */

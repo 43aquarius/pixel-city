@@ -370,10 +370,62 @@ const ICONS: Record<string, string[]> = {
     '..ssssssssss..',
     '..ssssssssss..',
   ],
+  person: [
+    '.....KK........',
+    '....KKKK.......',
+    '....KwwK.......',
+    '....KwwK.......',
+    '...oRRRRo......',
+    '..oRRRRRRo.....',
+    '..oRRRRRRo.....',
+    '...oRRRRo......',
+    '...oa..ao......',
+    '...oa..ao......',
+    '...oa..ao......',
+    '...KK..KK......',
+    '...KK..KK......',
+  ],
+  personoff: [
+    '.....KK........',
+    '....KKKK.......',
+    '....KwwK.......',
+    '....KwwK.......',
+    '...oaaaao......',
+    '..oaaaaaao.....',
+    '..oaaaaaao.....',
+    '...oaaaao......',
+    '...oa..ao......',
+    '...oa..ao......',
+    '...oa..ao......',
+    '...KK..KK......',
+    '...KK..KK......',
+  ],
+  car: [
+    '................',
+    '.....KKKKKK.....',
+    '....KGGGGGGK....',
+    '...KGGGGGGGGK...',
+    '..KrrrrrrrrrrK..',
+    '.KrrrrrrrrrrrrK.',
+    '.KrrrrrrrrrrrrK.',
+    '.KyrrrrrrrrrrkK.',
+    '.KKKKKKKKKKKKKK.',
+    '..KK..KK..KK....',
+    '..KK..KK..KK....',
+  ],
+  menu: [
+    'KKKKKKKKKKKKKK',
+    '.WWWWWWWWWWWW.',
+    '..............',
+    'KKKKKKKKKKKKKK',
+    '.WWWWWWWWWWWW.',
+    '..............',
+    'KKKKKKKKKKKKKK',
+    '.WWWWWWWWWWWW.',
+  ],
 };
 
 const cache = new Map<string, HTMLCanvasElement>();
-
 /** 渲染像素图标（带 1px 透明边距） */
 export function getIcon(name: string): HTMLCanvasElement {
   const hit = cache.get(name);

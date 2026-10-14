@@ -49,3 +49,25 @@ Stage Summary:
 - 三条需求全部落地：128×128 大地图（旧档自动迁移）、一键城市（按钮/G 键，分区完备）、31 类建筑 + 7 种地形（新增耕地/岩石 + 停车场特殊地面）
 - 交付物：可运行 Next.js 16 网页应用（纯客户端，无新运行时依赖）
 - 关键文件：src/lib/pixelcity/{map,terrain,b_extra,citygen,catalog,engine,palette}.ts（改）；b_extra.ts / citygen.ts（新）；PixelCity.tsx / icons.ts（改）
+
+---
+Task ID: 3
+Agent: 主 Agent (Super Z)
+Task: 按用户新四条需求升级「像素都市」：①手机适配 ②各面板可收缩 ③地图更大+建筑面板内容更多 ④增加人物
+
+Work Log:
+- 手机适配：engine.ts 输入系统重写为多指针跟踪（pointers Map）——单指=工具/观察平移，双指=中点平移+距离分档捏合缩放（×1/×2/×3，比值阈值 1.30/0.77 带焦点）；setPointerCapture try/catch 防合成事件异常；移动端 attach() 默认 ×1 缩放（pointer:coarse 或短边<500）；layout.tsx viewport 加 user-scalable=no + viewport-fit=cover；CSS 100dvh + env(safe-area-inset-bottom) 安全区
+- UI 移动端布局（PixelCity.tsx + pixelcity.css ≤820px）：底部横滚工具条（9 工具 50px 大按钮）、底部抽屉（把手含实时统计，展开 52vh 可滚动：建造/市政/小地图/关于）、紧凑标题栏（菜单+一键城市+行人开关）、toast/badge 重定位、帮助模态分触屏/桌面两套说明
+- 面板全可收缩（需求②）：桌面右侧建造中心整板收缩为竖签（.pxc-paneltab）+ 四分组独立折叠（.pxc-ghead ▾/▸）；浮动工具条收为左缘小签（.pxc-tooltab）；标题栏最小化按钮真实生效（.pxc.min 细条+点击还原，状态栏隐藏）；移动端抽屉把手收放；全部状态经 useSyncExternalStore 外部存储持久化（localStorage pxc_ui_v1，水合安全零 SSR 不匹配）
+- 修复两关键 bug：a) loadUi() 首渲染读 localStorage → 水合失败（SSR 默认 vs 客户端持久化不一致）→ 改 useSyncExternalStore(getServerSnapshot=默认值)；b) 移动端抽屉默认收起时小地图未挂载 → attach 卡死在加载页 → attach 改收 null mini + rebindMini() 断点/抽屉切换重绑
+- 地图 128²→192²（map.ts MAP_N，旧 64/128 存档仍自动居中迁移）；色板 66→68 色（+樱花粉 2 色 SAKURA ramp）；树木 4→6 种（+樱花/棕榈/高乔木，addTree kind 3/4/5，genTree seed 低 3 位选种，小地图樱花显示粉色）
+- 新建筑 12 类 23 变体（b_more.ts 新文件）：町屋（木格+暖帘+灯笼）、住宅小区 2×2（板楼+庭院树）、居酒屋（红灯笼串+霓虹招牌）、电影院 2×2（灯泡跑马廊+立式招牌塔+霓虹星）、屋台小吃街（遮阳棚+蒸汽 smokeAt）、木材厂 2×2（敞棚+3+2+1 原木垛+板材堆）、筒仓（竖肋筒体+天桥）、港口吊机 2×2（彩色集装箱阵+龙门吊+吊装集装箱，临水布置）、巴士站、钟楼（砖塔+双面大钟指针图案）、天文台 2×2（圆塔+两段穹顶+观测缝）、千本鸟居（三重朱红鸟居递进+石灯笼）；目录 43 类 98 变体
+- actors.ts（新）：行人=7×13 字符画 ×4 朝向 ×2 步态帧 ×6 配色精确色板像素；车辆=复用等距建模软光栅化管线的小车模型（车身/底盘/玻璃座舱/四轮/前黄后红灯/出租车顶灯，4 方向×6 款）；ActorSystem 沿路网加权随机行走（直行权重 3、不掉头、死路掉头、无路移除）、按人口/道路数定目标规模（行人 10-90、车 4-24）、渐进出生裁减、车辆靠右车道偏移、与建筑同 key 参与画家算法深度排序；行人开关（标题栏按钮 + setCrowds + 徽标/状态栏计数）
+- citygen.ts 适配 192²：路距随地图加宽（+1.6）、地标尝试次数随面积平方缩放、新地标（钟楼/天文台/千本鸟居/电影院/屋台×2）、港口吊机临水扫描、木材厂/筒仓入工业扇区、町屋入郊区外环、住宅小区入中环、居酒屋入核心沿街、巴士站沿路布置（n/22 个上限）
+- 建筑面板增强：目录格子加名称标签（变体号）、面板体改滚动容器、关于文案更新（192×192·43 类·行人车辆）
+- 端到端实测（agent-browser + VLM，全新会话零错误）：桌面加载 60FPS；一键城市 4400 栋/11.5 万人口/行人 90·车 24 涌现，VLM 确认樱花树/居酒屋/电影院/行人车辆可见；町屋放置 4439→4440；推土→放置链路 ✓；分组折叠/整板收缩/工具条收缩/最小化还原/持久化跨重载 ✓；行人开关关→开重生 ✓；移动端 390×844：×1 默认缩放、抽屉统计、双指捏合 ×1↔×2 合成事件实测生效、底部工具条选择+点击放置 ✓；存档 192² 保存/读取往返 ✓；水合 0 错误；tsc/lint 通过
+
+Stage Summary:
+- 四条需求全部落地：手机适配（双指手势+底部抽屉+横滚工具条+safe-area）、全面板可收缩（整板+分组+工具条+最小化，localStorage 持久化）、地图 192²+目录 43 类 98 变体（12 类新建筑+2 种新树）、行人车辆系统（像素行人+管线建模小车沿路网活动，可开关）
+- 关键文件：b_more.ts / actors.ts（新）；map / palette / b_civ / catalog / citygen / engine / icons / PixelCity.tsx / pixelcity.css / layout.tsx（改）
+- 修复：SSR 水合不匹配（useSyncExternalStore）、移动端无小地图卡加载（attach 收 null + rebindMini）、React Compiler memoization 推断（模块级 setUiStore）

@@ -12,6 +12,11 @@ export const TERR_SAND = 2;
 export const TERR_FARM = 3;
 export const TERR_ROCK = 4;
 
+/** 地图边长（格）：v3 起为 192，旧存档自动居中迁移 */
+export const MAP_N = 192;
+/** 树木种类数（0 阔叶 / 1 松 / 2 灌木 / 3 樱花 / 4 棕榈 / 5 高乔木） */
+export const TREE_KINDS = 6;
+
 /** 游程编码：[run, v, run, v, ...]（大地图存档/撤销体积优化） */
 function rleEnc(a: ArrayLike<number>): number[] {
   const out: number[] = [];
@@ -45,7 +50,7 @@ export class CityMap {
   onChange: (() => void) | null = null;
   private batching = false;
 
-  constructor(n = 128) {
+  constructor(n = MAP_N) {
     this.n = n;
     this.terr = new Uint8Array(n * n);
     this.road = new Uint8Array(n * n);
@@ -113,7 +118,7 @@ export class CityMap {
     const i = this.idx(x, y);
     if (this.tree[i] >= 0 || this.road[i] || this.occ[i] >= 0) return false;
     if (this.terr[i] === TERR_WATER) return false;
-    this.tree[i] = Math.floor(hash2(x, y, 77) * 4);
+    this.tree[i] = Math.floor(hash2(x, y, 77) * TREE_KINDS);
     this.touch();
     return true;
   }
@@ -236,7 +241,7 @@ export class CityMap {
         }
         const forest = fbm(x / 7.3 + 40, y / 7.3 + 40, seed ^ 0x51ab);
         if (this.terr[i] === TERR_GRASS && forest > 0.62 && hash2(x, y, seed) < 0.55) {
-          this.tree[i] = Math.floor(hash2(x, y, 31) * 4);
+          this.tree[i] = Math.floor(hash2(x, y, 31) * TREE_KINDS);
         }
       }
     }
@@ -311,7 +316,7 @@ export class CityMap {
           this.terr[di] = (t >= 0 && t <= 4) ? t : TERR_GRASS;
           this.road[di] = R[si] ? 1 : 0;
           const tv = Tr[si];
-          this.tree[di] = (tv >= 0 && tv <= 3) ? (tv | 0) : -1;
+          this.tree[di] = (tv >= 0 && tv <= TREE_KINDS - 1) ? (tv | 0) : -1;
         }
       }
       for (const it of d.objs ?? []) {
