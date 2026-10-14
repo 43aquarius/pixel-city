@@ -58,6 +58,10 @@ const PERSON_LOOKS: PersonLook[] = [
   { shirt: '#F4F2E8', pants: '#4A5A6E', hair: '#4C3A28' },
   { shirt: '#4A86C8', pants: '#23252E', hair: '#6B543A' },
   { shirt: '#E2B98B', pants: '#3B3D46', hair: '#23252E' },
+  { shirt: '#C25B44', pants: '#3B3D46', hair: '#4C3A28' },
+  { shirt: '#4FA8A0', pants: '#23252E', hair: '#6B543A' },
+  { shirt: '#F1E5C0', pants: '#4A5A6E', hair: '#23252E' },
+  { shirt: '#C97B93', pants: '#3B3D46', hair: '#23252E' },
 ];
 
 const SKIN = '#E2B98B';
@@ -197,6 +201,12 @@ export class ActorSystem {
   peds = 0;
   cars = 0;
   enabled = true;
+  /** 行人数量模式：auto = 随人口自适应；manual = 固定目标数 */
+  pedAuto = true;
+  pedManual = 80;
+  static readonly PED_MAX = 300;
+  static readonly PED_AUTO_MAX = 220;
+  static readonly CAR_MAX = 40;
   private targetP = 0;
   private targetC = 0;
   private dirty = true;
@@ -222,15 +232,26 @@ export class ActorSystem {
   /** 人口 / 道路变化后重算目标规模 */
   invalidate(): void { this.dirty = true; }
 
+  /** 手动设定行人数量（auto=false 时生效，n 裁剪到 0..PED_MAX） */
+  setPedTarget(auto: boolean, n: number): void {
+    this.pedAuto = auto;
+    this.pedManual = Math.max(0, Math.min(ActorSystem.PED_MAX, Math.round(n)));
+    this.dirty = true;
+  }
+
   private syncTargets(map: CityMap): void {
     const st = map.stats();
-    this.targetP = Math.max(10, Math.min(90, 10 + Math.floor(st.pop / 60)));
-    this.targetC = Math.max(4, Math.min(24, Math.floor(st.roads / 55)));
+    if (this.pedAuto) {
+      this.targetP = Math.max(10, Math.min(ActorSystem.PED_AUTO_MAX, 10 + Math.floor(st.pop / 60)));
+    } else {
+      this.targetP = this.pedManual;
+    }
+    this.targetC = Math.max(4, Math.min(ActorSystem.CAR_MAX, Math.floor(st.roads / 55)));
     this.dirty = false;
   }
 
   private randomRoad(map: CityMap): [number, number] | null {
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 90; i++) {
       const x = Math.floor(Math.random() * map.n);
       const y = Math.floor(Math.random() * map.n);
       if (map.road[map.idx(x, y)]) return [x, y];
@@ -248,7 +269,7 @@ export class ActorSystem {
       map.inB(x + dx, y + dy) && map.road[map.idx(x + dx, y + dy)]);
     if (opts.length) d = opts[Math.floor(Math.random() * opts.length)];
     else return;   // 孤立路格，不生成
-    const look = Math.floor(Math.random() * 6);
+    const look = Math.floor(Math.random() * PERSON_LOOKS.length);
     this.actors.push({
       kind, fx: x, fy: y, dx: d[0], dy: d[1], t: Math.random() * 0.2,
       speed: kind === 0 ? 0.55 + Math.random() * 0.35 : 2.0 + Math.random() * 0.9,
@@ -296,18 +317,28 @@ export class ActorSystem {
     if (this.dirty) this.syncTargets(map);
     if (this.actors.length === 0 && (this.targetP > 0 || this.targetC > 0)) this.ensureSprites();
 
-    // 渐进补充 / 裁减
+    // 渐进补充 / 裁减（大批次时每周期处理多个，避免调人数后等待过久）
     this.spawnCd -= dt;
     if (this.spawnCd <= 0) {
       this.spawnCd = 0.12;
-      if (this.peds < this.targetP) this.spawn(map, 0);
-      else if (this.cars < this.targetC) this.spawn(map, 1);
-      else if (this.peds > this.targetP) {
-        const i = this.actors.findIndex(a => a.kind === 0);
-        if (i >= 0) { this.actors.splice(i, 1); this.peds--; }
-      } else if (this.cars > this.targetC) {
-        const i = this.actors.findIndex(a => a.kind === 1);
-        if (i >= 0) { this.actors.splice(i, 1); this.cars--; }
+      const deficitP = this.targetP - this.peds;
+      const deficitC = this.targetC - this.cars;
+      if (deficitP > 0) {
+        for (let k = 0; k < Math.min(5, deficitP); k++) this.spawn(map, 0);
+      } else if (deficitC > 0) {
+        for (let k = 0; k < Math.min(3, deficitC); k++) this.spawn(map, 1);
+      } else if (deficitP < 0) {
+        for (let k = 0; k < Math.min(6, -deficitP); k++) {
+          const i = this.actors.findIndex(a => a.kind === 0);
+          if (i < 0) break;
+          this.actors.splice(i, 1); this.peds--;
+        }
+      } else if (deficitC < 0) {
+        for (let k = 0; k < Math.min(4, -deficitC); k++) {
+          const i = this.actors.findIndex(a => a.kind === 1);
+          if (i < 0) break;
+          this.actors.splice(i, 1); this.cars--;
+        }
       }
     }
 

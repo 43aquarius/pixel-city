@@ -9,7 +9,10 @@
 // 全部通过 CityMap 规则放置（不与水/路/已有建筑冲突）。
 // ============================================================
 
-import { CityMap, TERR_FARM, TERR_GRASS, TERR_ROCK, TERR_SAND, TERR_WATER } from './map';
+import {
+  CityMap, TERR_FARM, TERR_GRASS, TERR_ROCK, TERR_SAND, TERR_WATER,
+  TERR_SNOW, TERR_FLOWER, TERR_DRY, TERR_SWAMP, TERR_AUTUMN,
+} from './map';
 import { mulberry32, fbm, hash2 } from './rng';
 
 type Dist = 'core' | 'mid' | 'sub' | 'outer' | 'ind';
@@ -18,12 +21,15 @@ export type GenReport = {
   buildings: number; pop: number; roads: number; trees: number; land: number;
 };
 
-export function generateCity(map: CityMap, seed: number): GenReport | null {
+/** 一键城市：在现有地形上程序化铺设整座城市
+ *  density ∈ [0.35, 1.3]：分区填充概率倍率，越小越疏朗（默认 0.8） */
+export function generateCity(map: CityMap, seed: number, density = 0.8): GenReport | null {
   const r = mulberry32(seed);
   const n = map.n;
   const c = (n - 1) / 2;
+  const dz = Math.max(0.35, Math.min(1.3, density));
   const tries = Math.floor(700 * (n / 128) * (n / 128));   // 地标尝试次数随面积缩放
-  const roadGap = () => 6.5 + r() * 4.5 + (n > 160 ? 1.6 : 0);
+  const roadGap = () => 6.5 + r() * 4.5 + (n > 160 ? 1.6 : 0) + (1 - dz) * 1.8;
   let land = 0;
 
   map.beginUpdate();
@@ -87,8 +93,10 @@ export function generateCity(map: CityMap, seed: number): GenReport | null {
       for (let t = 0; t < tries && placed < count; t++) {
         const x = Math.floor(r() * n), y = Math.floor(r() * n);
         const i = map.idx(x, y);
-        if (map.terr[i] === TERR_WATER || map.terr[i] === TERR_FARM
-          || map.terr[i] === TERR_ROCK || map.terr[i] === TERR_SAND) continue;
+        const tk = map.terr[i];
+        // 荒地不摆地标（雪原/花田/秋原可放，雪山城堡很有味道）
+        if (tk === TERR_WATER || tk === TERR_FARM || tk === TERR_ROCK
+          || tk === TERR_SAND || tk === TERR_DRY || tk === TERR_SWAMP) continue;
         if (map.occ[i] >= 0 || map.road[i]) continue;
         const dc = Math.hypot(x - c, y - c) / n;
         if (dc < lo || dc > hi) continue;
@@ -171,63 +179,72 @@ export function generateCity(map: CityMap, seed: number): GenReport | null {
         if (map.road[i] || map.occ[i] >= 0 || map.terr[i] === TERR_WATER) continue;
         const h = hash2(x, y, seed);
         const h2 = hash2(x, y, seed ^ 0x5EED);
+        const tk = map.terr[i];
         const d = dist(x, y);
         // 沙地海岸：少量海滩公园
-        if (map.terr[i] === TERR_SAND) {
+        if (tk === TERR_SAND) {
           if (h < 0.06) map.place('park', (h2 * 8) | 0, x, y);
           continue;
         }
-        // 岩石高地：基本留荒
-        if (map.terr[i] === TERR_ROCK) {
+        // 岩石 / 荒漠 / 沼泽：基本留荒
+        if (tk === TERR_ROCK || tk === TERR_DRY || tk === TERR_SWAMP) {
           if (h < 0.03) map.place('park', (h2 * 8) | 0, x, y);
           continue;
         }
-        const onFarm = map.terr[i] === TERR_FARM;
+        // 雪原：疏落小村落（不受径向分区约束）
+        if (tk === TERR_SNOW) {
+          if (h < 0.030 * dz) { map.place('machiya', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.055 * dz) { map.place('house', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.065 * dz) { map.place('church', (h2 * 8) | 0, x, y); continue; }
+          continue;
+        }
+        // 花田 / 秋原：与草地同规则参与分区填充
+        const onFarm = tk === TERR_FARM;
         const nr = nearRoad(x, y);
         if (d === 'core') {
-          if (h < 0.10) { if (map.place('tower', (h2 * 8) | 0, x, y)) continue; }
-          if (nr && h < 0.38) {
+          if (h < 0.10 * dz) { if (map.place('tower', (h2 * 8) | 0, x, y)) continue; }
+          if (nr && h < 0.38 * dz) {
             map.place(h2 < 0.42 ? 'shop' : h2 < 0.72 ? 'conv' : 'izakaya', (h2 * 8) | 0, x, y);
             continue;
           }
-          if (h < 0.50) { map.place('office', (h2 * 8) | 0, x, y); continue; }
-          if (h < 0.56) { map.place('parking', (h2 * 8) | 0, x, y); continue; }
-          if (h < 0.66) { map.place('park', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.50 * dz) { map.place('office', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.56 * dz) { map.place('parking', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.66 * dz) { map.place('park', (h2 * 8) | 0, x, y); continue; }
         } else if (d === 'mid') {
           if (onFarm) continue;
-          if (h < 0.05) { if (map.place('danchi', (h2 * 8) | 0, x, y)) continue; }
-          if (nr && h < 0.09) {
+          if (h < 0.05 * dz) { if (map.place('danchi', (h2 * 8) | 0, x, y)) continue; }
+          if (nr && h < 0.09 * dz) {
             map.place(h2 < 0.4 ? 'shop' : h2 < 0.7 ? 'izakaya' : 'market', (h2 * 8) | 0, x, y);
             continue;
           }
-          if (h < 0.19) { map.place('apartment', (h2 * 8) | 0, x, y); continue; }
-          if (h < 0.29) { map.place('townhouse', (h2 * 8) | 0, x, y); continue; }
-          if (h < 0.37) { map.place('house', (h2 * 8) | 0, x, y); continue; }
-          if (h < 0.41) { map.place('park', (h2 * 8) | 0, x, y); continue; }
-          if (h < 0.44) { map.place('parking', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.19 * dz) { map.place('apartment', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.29 * dz) { map.place('townhouse', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.37 * dz) { map.place('house', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.41 * dz) { map.place('park', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.44 * dz) { map.place('parking', (h2 * 8) | 0, x, y); continue; }
         } else if (d === 'sub') {
           if (onFarm) continue;
-          if (h < 0.06) { map.place('machiya', (h2 * 8) | 0, x, y); continue; }
-          if (h < 0.15) { map.place('house', (h2 * 8) | 0, x, y); continue; }
-          if (h < 0.20) { map.place('manor', (h2 * 8) | 0, x, y); continue; }
-          if (h < 0.25) { map.place('townhouse', (h2 * 8) | 0, x, y); continue; }
-          if (h < 0.27) { map.place('market', (h2 * 8) | 0, x, y); continue; }
-          if (h < 0.31) { map.place('park', (h2 * 8) | 0, x, y); continue; }
-          if (h < 0.34) { map.place('church', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.06 * dz) { map.place('machiya', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.15 * dz) { map.place('house', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.20 * dz) { map.place('manor', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.25 * dz) { map.place('townhouse', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.27 * dz) { map.place('market', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.31 * dz) { map.place('park', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.34 * dz) { map.place('church', (h2 * 8) | 0, x, y); continue; }
         } else if (d === 'ind') {
           if (onFarm) continue;
-          if (h < 0.10) { if (map.place('factory', (h2 * 8) | 0, x, y)) continue; }
-          if (h < 0.15) { if (map.place('lumber', (h2 * 8) | 0, x, y)) continue; }
-          if (h < 0.32) { if (map.place('warehouse', (h2 * 8) | 0, x, y)) continue; }
-          if (h < 0.38) { map.place('silo', (h2 * 8) | 0, x, y); continue; }
-          if (h < 0.43) { map.place('tankfarm', (h2 * 8) | 0, x, y); continue; }
-          if (h < 0.48) { map.place('parking', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.10 * dz) { if (map.place('factory', (h2 * 8) | 0, x, y)) continue; }
+          if (h < 0.15 * dz) { if (map.place('lumber', (h2 * 8) | 0, x, y)) continue; }
+          if (h < 0.32 * dz) { if (map.place('warehouse', (h2 * 8) | 0, x, y)) continue; }
+          if (h < 0.38 * dz) { map.place('silo', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.43 * dz) { map.place('tankfarm', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.48 * dz) { map.place('parking', (h2 * 8) | 0, x, y); continue; }
         } else {   // outer
           if (onFarm) continue;
-          if (h < 0.05) { map.place('machiya', (h2 * 8) | 0, x, y); continue; }
-          if (h < 0.10) { map.place('house', (h2 * 8) | 0, x, y); continue; }
-          if (h < 0.12) { map.place('manor', (h2 * 8) | 0, x, y); continue; }
-          if (h < 0.14) { map.place('church', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.05 * dz) { map.place('machiya', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.10 * dz) { map.place('house', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.12 * dz) { map.place('manor', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.14 * dz) { map.place('church', (h2 * 8) | 0, x, y); continue; }
         }
       }
     }
@@ -239,7 +256,8 @@ export function generateCity(map: CityMap, seed: number): GenReport | null {
       const x = Math.floor(r() * n), y = Math.floor(r() * n);
       const i = map.idx(x, y);
       if (map.road[i] || map.occ[i] >= 0 || map.tree[i] >= 0) continue;
-      if (map.terr[i] !== TERR_GRASS) continue;
+      const tk = map.terr[i];
+      if (tk !== TERR_GRASS && tk !== TERR_FLOWER && tk !== TERR_AUTUMN) continue;
       const near =
         (map.inB(x + 1, y) && map.road[map.idx(x + 1, y)]) ||
         (map.inB(x - 1, y) && map.road[map.idx(x - 1, y)]) ||
@@ -249,17 +267,28 @@ export function generateCity(map: CityMap, seed: number): GenReport | null {
     }
 
     // ---------- 6) 行道树 / 野生树 ----------
+    // 疏朗密度下补植更多绿树，让留白变成公园城市般的呼吸感
+    const green = 0.10 * (1 - dz);   // 密度越低补越多
     for (let y = 0; y < n; y++) {
       for (let x = 0; x < n; x++) {
         const i = map.idx(x, y);
         if (map.road[i] || map.occ[i] >= 0) continue;
-        if (map.terr[i] !== TERR_GRASS) continue;
+        const tk = map.terr[i];
         const h = hash2(x, y, seed ^ 0x7EE7);
         const d = dist(x, y);
         const nr = nearRoad(x, y);
-        if ((d === 'mid' || d === 'sub') && nr && h < 0.17) { map.plantTree(x, y); continue; }
-        if (d === 'ind' && nr && h < 0.06) { map.plantTree(x, y); continue; }
-        if (d === 'outer' && h < 0.16) { map.plantTree(x, y); continue; }
+        if ((d === 'mid' || d === 'sub') && nr && h < 0.17 + green) {
+          if (tk === TERR_GRASS || tk === TERR_FLOWER || tk === TERR_AUTUMN) { map.plantTree(x, y); continue; }
+        }
+        if (d === 'ind' && nr && h < 0.06) {
+          if (tk === TERR_GRASS || tk === TERR_FLOWER || tk === TERR_AUTUMN) { map.plantTree(x, y); continue; }
+        }
+        if (d === 'outer' && h < 0.16 + green) {
+          if (tk === TERR_GRASS || tk === TERR_FLOWER || tk === TERR_AUTUMN) { map.plantTree(x, y); continue; }
+        }
+        // 雪原松林 / 荒漠孤树
+        if (tk === TERR_SNOW && h < 0.18) { map.plantTree(x, y); continue; }
+        if (tk === TERR_DRY && h < 0.025) { map.plantTree(x, y); continue; }
       }
     }
   } finally {

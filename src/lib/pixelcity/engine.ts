@@ -3,7 +3,10 @@
 //           幽灵预览 / 小地图 / 撤销重做 / 存档导出
 // ============================================================
 
-import { CityMap, TERR_WATER, TERR_SAND, TERR_FARM, TERR_ROCK, MAP_N } from './map';
+import {
+  CityMap, TERR_WATER, TERR_SAND, TERR_FARM, TERR_ROCK, MAP_N,
+  TERR_SNOW, TERR_FLOWER, TERR_DRY, TERR_SWAMP, TERR_AUTUMN,
+} from './map';
 import { SpriteBook, defById } from './catalog';
 import { getGround } from './terrain';
 import { ghostSprite, renderModel, type Sprite } from './softrender';
@@ -40,6 +43,8 @@ export class Engine {
   book = new SpriteBook();
   actors = new ActorSystem();
   crowds = true;
+  /** 一键城市密度倍率（UI 可调，疏朗 0.55 / 适中 0.8 / 繁华 1.05） */
+  cityDensity = 0.8;
   beeper: Beeper;
   hooks: EngineHooks = {};
 
@@ -187,6 +192,11 @@ export class Engine {
     else this.actors.invalidate();
   }
 
+  /** 行人数量：auto=true 随人口自适应；否则固定 n（0..300） */
+  setPedTarget(auto: boolean, n: number): void {
+    this.actors.setPedTarget(auto, n);
+  }
+
   crowdCount(): { peds: number; cars: number } {
     return { peds: this.actors.peds, cars: this.actors.cars };
   }
@@ -306,6 +316,7 @@ export class Engine {
         } else {
           const k = m.terr[i];
           const v = Math.floor(hash2(tx, ty, 9) * 4);
+          const edge = this.waterEdge(tx, ty);
           if (k === TERR_WATER) {
             const g = getGround('water', { edge: this.landEdge(tx, ty), variant: v, frame: wf });
             ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
@@ -313,13 +324,28 @@ export class Engine {
             const g = getGround('sand', { variant: v });
             ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
           } else if (k === TERR_FARM) {
-            const g = getGround('farm', { variant: v, edge: this.waterEdge(tx, ty) });
+            const g = getGround('farm', { variant: v, edge });
             ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
           } else if (k === TERR_ROCK) {
-            const g = getGround('rock', { variant: v, edge: this.waterEdge(tx, ty) });
+            const g = getGround('rock', { variant: v, edge });
+            ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
+          } else if (k === TERR_SNOW) {
+            const g = getGround('snow', { variant: v, edge });
+            ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
+          } else if (k === TERR_FLOWER) {
+            const g = getGround('flower', { variant: v, edge });
+            ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
+          } else if (k === TERR_DRY) {
+            const g = getGround('dry', { variant: v, edge });
+            ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
+          } else if (k === TERR_SWAMP) {
+            const g = getGround('swamp', { variant: v, edge });
+            ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
+          } else if (k === TERR_AUTUMN) {
+            const g = getGround('autumn', { variant: v, edge });
             ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
           } else {
-            const g = getGround('grass', { variant: v, edge: this.waterEdge(tx, ty) });
+            const g = getGround('grass', { variant: v, edge });
             ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
           }
         }
@@ -533,6 +559,8 @@ export class Engine {
         grass: abgr('#3B7138'), water: abgr('#3467AC'), sand: abgr('#CFB379'),
         farm: abgr('#B9C46B'), rock: abgr('#6E737F'), tree: abgr('#245129'),
         sakura: abgr('#C97B93'), road: abgr('#4A4C55'),
+        snow: abgr('#DCE6F0'), flower: abgr('#A5C94F'), dry: abgr('#B99B62'),
+        swamp: abgr('#3F5F48'), autumn: abgr('#C9924E'),
         res: abgr('#C25B44'), com: abgr('#E8CC4C'), ind: abgr('#9BA0A7'), civ: abgr('#5BC8B8'),
       };
       for (let y = 0; y < n; y++) {
@@ -540,7 +568,9 @@ export class Engine {
           const i = this.map.idx(x, y);
           const k = this.map.terr[i];
           let cv: number = k === 1 ? C.water : k === 2 ? C.sand
-            : k === 3 ? C.farm : k === 4 ? C.rock : C.grass;
+            : k === 3 ? C.farm : k === 4 ? C.rock
+            : k === 5 ? C.snow : k === 6 ? C.flower : k === 7 ? C.dry
+            : k === 8 ? C.swamp : k === 9 ? C.autumn : C.grass;
           if (this.map.tree[i] >= 0) cv = this.map.tree[i] === 3 ? C.sakura : C.tree;
           if (this.map.road[i]) cv = C.road;
           const a = this.map.occ[i];
@@ -880,10 +910,10 @@ export class Engine {
     this.beeper.play('open');
   }
 
-  /** 一键城市：清空地上物（保留地形）并程序化生成整座城市 */
+  /** 一键城市：清空地上物（保留地形）并程序化生成整座城市（密度可调） */
   generateCity(): GenReport | null {
     this.pushUndo();
-    const rep = generateCity(this.map, (Math.random() * 1e9) | 0);
+    const rep = generateCity(this.map, (Math.random() * 1e9) | 0, this.cityDensity);
     if (!rep) {
       this.beeper.play('error');
       return null;

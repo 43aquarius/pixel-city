@@ -1,0 +1,902 @@
+     1→     1→// ============================================================
+     2→     2→// engine.ts — 游戏引擎：相机 / 输入 / 双通道渲染（地面+对象）/
+     3→     3→//           幽灵预览 / 小地图 / 撤销重做 / 存档导出
+     4→     4→// ============================================================
+     5→     5→
+     6→     6→import { CityMap, TERR_WATER, TERR_SAND, TERR_FARM, TERR_ROCK, MAP_N } from './map';
+     7→     7→import { SpriteBook, defById } from './catalog';
+     8→     8→import { getGround } from './terrain';
+     9→     9→import { ghostSprite, renderModel, type Sprite } from './softrender';
+    10→    10→import { genTree } from './b_civ';
+    11→    11→import { PALETTE } from './palette';
+    12→    12→import type { Beeper } from './audio';
+    13→    13→import { hash2 } from './rng';
+    14→    14→import { generateCity, type GenReport } from './citygen';
+    15→    15→import { ActorSystem } from './actors';
+    16→    16→
+    17→    17→export type Tool =
+    18→    18→  | { t: 'view' }
+    19→    19→  | { t: 'terr'; k: number }
+    20→    20→  | { t: 'tree' }
+    21→    21→  | { t: 'road' }
+    22→    22→  | { t: 'build'; id: string; variant: number }
+    23→    23→  | { t: 'doze' };
+    24→    24→
+    25→    25→const ZOOMS = [1, 2, 3];
+    26→    26→const MM = 2;   // 小地图每格像素
+    27→    27→
+    28→    28→export type EngineHooks = {
+    29→    29→  onStats?: (s: { pop: number; buildings: number; roads: number; trees: number }) => void;
+    30→    30→  onHover?: (tx: number, ty: number) => void;
+    31→    31→  onZoom?: (z: number) => void;
+    32→    32→  onTool?: (t: Tool) => void;
+    33→    33→  onFps?: (fps: number) => void;
+    34→    34→};
+    35→    35→
+    36→    36→type RenderItem = { key: number; draw: () => void };
+    37→    37→
+    38→    38→export class Engine {
+    39→    39→  map = new CityMap(MAP_N);
+    40→    40→  book = new SpriteBook();
+    41→    41→  actors = new ActorSystem();
+    42→    42→  crowds = true;
+    43→    43→  beeper: Beeper;
+    44→    44→  hooks: EngineHooks = {};
+    45→    45→
+    46→    46→  private display: HTMLCanvasElement | null = null;
+    47→    47→  private dctx: CanvasRenderingContext2D | null = null;
+    48→    48→  private lowres: HTMLCanvasElement;
+    49→    49→  private lctx: CanvasRenderingContext2D;
+    50→    50→  private mini: HTMLCanvasElement | null = null;
+    51→    51→  private miniBase: HTMLCanvasElement;
+    52→    52→  private miniDirty = true;
+    53→    53→
+    54→    54→  private dpr = 1;
+    55→    55→  zoom = 2;
+    56→    56→  cam = { x: 0, y: 0 };      // 视野中心（等距屏幕 px）
+    57→    57→
+    58→    58→  tool: Tool = { t: 'view' };
+    59→    59→  hover: { tx: number; ty: number } | null = null;
+    60→    60→
+    61→    61→  private raf = 0;
+    62→    62→  private lastT = performance.now();
+    63→    63→  private fpsAcc = 0; private fpsN = 0; private fpsAt = performance.now();
+    64→    64→
+    65→    65→  private keys = new Set<string>();
+    66→    66→  private painting = false;
+    67→    67→  private panning = false;
+    68→    68→  private dragMode = false;
+    69→    69→  private lastPan = { x: 0, y: 0 };
+    70→    70→  private lastTile: { x: number; y: number } | null = null;
+    71→    71→  private undoStack: string[] = [];
+    72→    72→  private redoStack: string[] = [];
+    73→    73→  private lastSaveVer = -1;
+    74→    74→  private lastSaveT = 0;
+    75→    75→  private treeSprites: Sprite[] = [];
+    76→    76→  // 多点触控
+    77→    77→  private pointers = new Map<number, { x: number; y: number }>();
+    78→    78→  private pinchDist = 0;
+    79→    79→  private lastPinch: { x: number; y: number } | null = null;
+    80→    80→
+    81→    81→  private listeners: Array<[EventTarget, string, EventListener]> = [];
+    82→    82→
+    83→    83→  constructor(beeper: Beeper) {
+    84→    84→    this.beeper = beeper;
+    85→    85→    this.lowres = document.createElement('canvas');
+    86→    86→    this.lctx = this.lowres.getContext('2d')!;
+    87→    87→    this.miniBase = document.createElement('canvas');
+    88→    88→    this.map.onChange = () => {
+    89→    89→      this.miniDirty = true;
+    90→    90→      this.actors.invalidate();
+    91→    91→      this.hooks.onStats?.(this.map.stats());
+    92→    92→    };
+    93→    93→  }
+    94→    94→
+    95→    95→  // ---------------- 生命周期 ----------------
+    96→    96→
+    97→    97→  async init(onProgress: (frac: number, label: string) => void): Promise<void> {
+    98→    98→    await this.book.init(onProgress);
+    99→    99→    this.treeSprites = [0, 1, 2, 3, 4, 5].map(v => renderModel(genTree(v).model));
+   100→   100→    this.actors.ensureSprites();
+   101→   101→    this.map.random((Math.random() * 1e9) | 0);
+   102→   102→    this.center();
+   103→   103→  }
+   104→   104→
+   105→   105→  attach(display: HTMLCanvasElement, mini: HTMLCanvasElement | null): void {
+   106→   106→    this.display = display;
+   107→   107→    this.dctx = display.getContext('2d');
+   108→   108→    this.mini = mini;
+   109→   109→    if (mini) {
+   110→   110→      mini.width = this.map.n * MM;
+   111→   111→      mini.height = this.map.n * MM;
+   112→   112→      this.bindMini(mini);
+   113→   113→    }
+   114→   114→    this.bindInput(display);
+   115→   115→    // 移动端 / 触屏默认 ×1（屏幕窄，×2 太近）
+   116→   116→    const coarse = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+   117→   117→    if (coarse || Math.min(window.innerWidth, window.innerHeight) < 500) {
+   118→   118→      this.setZoom(1);
+   119→   119→    }
+   120→   120→    this.resize();
+   121→   121→    this.loop();
+   122→   122→  }
+   123→   123→
+   124→   124→  destroy(): void {
+   125→   125→    cancelAnimationFrame(this.raf);
+   126→   126→    for (const [t, n, f] of this.listeners) t.removeEventListener(n, f);
+   127→   127→    this.listeners = [];
+   128→   128→  }
+   129→   129→
+   130→   130→  private on(t: EventTarget, name: string, f: EventListener, opts?: AddEventListenerOptions): void {
+   131→   131→    t.addEventListener(name, f, opts);
+   132→   132→    this.listeners.push([t, name, f]);
+   133→   133→  }
+   134→   134→
+   135→   135→  resize(): void {
+   136→   136→    const d = this.display;
+   137→   137→    if (!d) return;
+   138→   138→    const rect = d.getBoundingClientRect();
+   139→   139→    this.dpr = Math.min(2, window.devicePixelRatio || 1);
+   140→   140→    const cssW = Math.max(100, rect.width);
+   141→   141→    const cssH = Math.max(100, rect.height);
+   142→   142→    d.width = Math.round(cssW * this.dpr);
+   143→   143→    d.height = Math.round(cssH * this.dpr);
+   144→   144→    this.lowres.width = Math.ceil(cssW / this.zoom);
+   145→   145→    this.lowres.height = Math.ceil(cssH / this.zoom);
+   146→   146→    this.lctx.imageSmoothingEnabled = false;
+   147→   147→    if (this.dctx) this.dctx.imageSmoothingEnabled = false;
+   148→   148→  }
+   149→   149→
+   150→   150→  // ---------------- 坐标 ----------------
+   151→   151→
+   152→   152→  private get lw(): number { return this.lowres.width; }
+   153→   153→  private get lh(): number { return this.lowres.height; }
+   154→   154→
+   155→   155→  /** 世界格角点 → 等距屏幕 px（低分辨率画布坐标） */
+   156→   156→  private w2sx(wx: number, wy: number): number { return (wx - wy) * 16 - this.cam.x + this.lw / 2; }
+   157→   157→  private w2sy(wx: number, wy: number): number { return (wx + wy) * 8 - this.cam.y + this.lh / 2; }
+   158→   158→
+   159→   159→  /** 鼠标 CSS 坐标 → 格坐标 */
+   160→   160→  tileAt(cssX: number, cssY: number): { tx: number; ty: number } {
+   161→   161→    const sx = cssX / this.zoom, sy = cssY / this.zoom;
+   162→   162→    const ax = sx + this.cam.x - this.lw / 2;   // = (X−Y)*16
+   163→   163→    const ay = sy + this.cam.y - this.lh / 2;   // = (X+Y)*8
+   164→   164→    const X = ax / 32 + ay / 16;
+   165→   165→    const Y = ay / 16 - ax / 32;
+   166→   166→    return { tx: Math.floor(X), ty: Math.floor(Y) };
+   167→   167→  }
+   168→   168→
+   169→   169→  center(): void {
+   170→   170→    const c = this.map.n / 2;
+   171→   171→    this.cam.x = (c - c) * 16;
+   172→   172→    this.cam.y = (c + c) * 8;
+   173→   173→  }
+   174→   174→
+   175→   175→  // ---------------- 工具 ----------------
+   176→   176→
+   177→   177→  setTool(t: Tool): void {
+   178→   178→    this.tool = t;
+   179→   179→    this.hooks.onTool?.(t);
+   180→   180→  }
+   181→   181→
+   182→   182→  /** 行人 / 车辆开关 */
+   183→   183→  setCrowds(on: boolean): void {
+   184→   184→    this.crowds = on;
+   185→   185→    this.actors.enabled = on;
+   186→   186→    if (!on) this.actors.clear();
+   187→   187→    else this.actors.invalidate();
+   188→   188→  }
+   189→   189→
+   190→   190→  crowdCount(): { peds: number; cars: number } {
+   191→   191→    return { peds: this.actors.peds, cars: this.actors.cars };
+   192→   192→  }
+   193→   193→
+   194→   194→  cycleZoom(dir: number): void {
+   195→   195→    const i = ZOOMS.indexOf(this.zoom);
+   196→   196→    const j = Math.max(0, Math.min(ZOOMS.length - 1, i + dir));
+   197→   197→    if (j !== i) this.setZoom(ZOOMS[j]);
+   198→   198→  }
+   199→   199→
+   200→   200→  setZoom(z: number, focusCss?: { x: number; y: number }): void {
+   201→   201→    if (z === this.zoom) return;
+   202→   202→    let keep: { gx: number; gy: number } | null = null;
+   203→   203→    if (focusCss) {
+   204→   204→      const t = this.tileAt(focusCss.x, focusCss.y);
+   205→   205→      keep = { gx: t.tx + 0.5, gy: t.ty + 0.5 };
+   206→   206→    }
+   207→   207→    this.zoom = z;
+   208→   208→    this.resize();
+   209→   209→    if (keep && focusCss) {
+   210→   210→      const sx = focusCss.x / z, sy = focusCss.y / z;
+   211→   211→      this.cam.x = (keep.gx - keep.gy) * 16 - sx + this.lw / 2;
+   212→   212→      this.cam.y = (keep.gx + keep.gy) * 8 - sy + this.lh / 2;
+   213→   213→    }
+   214→   214→    this.beeper.play('zoom');
+   215→   215→    this.hooks.onZoom?.(z);
+   216→   216→  }
+   217→   217→
+   218→   218→  // ---------------- 主循环 ----------------
+   219→   219→
+   220→   220→  private loop = (): void => {
+   221→   221→    this.raf = requestAnimationFrame(this.loop);
+   222→   222→    const now = performance.now();
+   223→   223→    const dt = Math.min(100, now - this.lastT);
+   224→   224→    this.lastT = now;
+   225→   225→    this.fpsAcc += dt; this.fpsN++;
+   226→   226→    if (now - this.fpsAt > 500) {
+   227→   227→      this.hooks.onFps?.(Math.round(1000 / (this.fpsAcc / this.fpsN)));
+   228→   228→      this.fpsAcc = 0; this.fpsN = 0; this.fpsAt = now;
+   229→   229→    }
+   230→   230→    const pan = dt * 0.72;
+   231→   231→    if (this.keys.has('ArrowLeft') || this.keys.has('KeyA')) this.cam.x -= pan;
+   232→   232→    if (this.keys.has('ArrowRight') || this.keys.has('KeyD')) this.cam.x += pan;
+   233→   233→    if (this.keys.has('ArrowUp') || this.keys.has('KeyW')) this.cam.y -= pan;
+   234→   234→    if (this.keys.has('ArrowDown') || this.keys.has('KeyS')) this.cam.y += pan;
+   235→   235→    if (this.crowds) this.actors.tick(dt / 1000, this.map);
+   236→   236→    this.render(now);
+   237→   237→    if (this.map.version !== this.lastSaveVer && now - this.lastSaveT > 25000) {
+   238→   238→      this.autoSave();
+   239→   239→    }
+   240→   240→  };
+   241→   241→
+   242→   242→  // ---------------- 渲染 ----------------
+   243→   243→
+   244→   244→  private visibleRange(): { x0: number; y0: number; x1: number; y1: number } {
+   245→   245→    const n = this.map.n;
+   246→   246→    const cs: Array<[number, number]> = [[0, 0], [this.lw, 0], [0, this.lh], [this.lw, this.lh]];
+   247→   247→    let minX = n, maxX = 0, minY = n, maxY = 0;
+   248→   248→    for (const [sx, sy] of cs) {
+   249→   249→      const ax = sx + this.cam.x - this.lw / 2;
+   250→   250→      const ay = sy + this.cam.y - this.lh / 2;
+   251→   251→      const X = ax / 32 + ay / 16;
+   252→   252→      const Y = ay / 16 - ax / 32;
+   253→   253→      minX = Math.min(minX, Math.floor(X)); maxX = Math.max(maxX, Math.ceil(X));
+   254→   254→      minY = Math.min(minY, Math.floor(Y)); maxY = Math.max(maxY, Math.ceil(Y));
+   255→   255→    }
+   256→   256→    const pad = 4;
+   257→   257→    return {
+   258→   258→      x0: Math.max(0, minX - pad), y0: Math.max(0, minY - pad),
+   259→   259→      x1: Math.min(n - 1, maxX + pad), y1: Math.min(n - 1, maxY + pad),
+   260→   260→    };
+   261→   261→  }
+   262→   262→
+   263→   263→  private render(t: number): void {
+   264→   264→    const ctx = this.lctx;
+   265→   265→    const { lw, lh } = this;
+   266→   266→
+   267→   267→    // 背景虚空（深海蓝 + 稀疏星点抖动）
+   268→   268→    ctx.fillStyle = '#0B0F24';
+   269→   269→    ctx.fillRect(0, 0, lw, lh);
+   270→   270→    ctx.fillStyle = '#182142';
+   271→   271→    for (let y = 0; y < lh; y += 8) {
+   272→   272→      for (let x = ((y >> 3) % 2) * 8; x < lw; x += 16) ctx.fillRect(x + 3, y + 5, 1, 1);
+   273→   273→    }
+   274→   274→
+   275→   275→    const vr = this.visibleRange();
+   276→   276→    const wf = Math.floor(t / 620) % 2;
+   277→   277→    const items: RenderItem[] = [];
+   278→   278→    const m = this.map;
+   279→   279→
+   280→   280→    // ---- Pass 1：地面 ----
+   281→   281→    for (let ty = vr.y0; ty <= vr.y1; ty++) {
+   282→   282→      for (let tx = vr.x0; tx <= vr.x1; tx++) {
+   283→   283→        const i = m.idx(tx, ty);
+   284→   284→        const sx = this.w2sx(tx, ty), sy = this.w2sy(tx, ty);
+   285→   285→        if (sx < -96 || sx > lw + 96 || sy < -160 || sy > lh + 96) continue;
+   286→   286→
+   287→   287→        const a = m.occ[i];
+   288→   288→        let groundDrawn = false;
+   289→   289→        if (a >= 0) {
+   290→   290→          const o = m.objs.get(a)!;
+   291→   291→          const d = defById(o.id);
+   292→   292→          const isAnchor = o.ax === tx && o.ay === ty;
+   293→   293→          if (d.ground) {
+   294→   294→            if (isAnchor) {
+   295→   295→              const g = getGround(d.ground, { variant: o.v });
+   296→   296→              ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
+   297→   297→            }
+   298→   298→            groundDrawn = true;   // 大地面精灵覆盖全部占地格
+   299→   299→          }
+   300→   300→        }
+   301→   301→        if (groundDrawn) continue;
+   302→   302→
+   303→   303→        if (m.road[i]) {
+   304→   304→          const g = getGround('road', { road: this.roadMask(tx, ty), variant: Math.floor(hash2(tx, ty, 5) * 4) });
+   305→   305→          ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
+   306→   306→        } else {
+   307→   307→          const k = m.terr[i];
+   308→   308→          const v = Math.floor(hash2(tx, ty, 9) * 4);
+   309→   309→          if (k === TERR_WATER) {
+   310→   310→            const g = getGround('water', { edge: this.landEdge(tx, ty), variant: v, frame: wf });
+   311→   311→            ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
+   312→   312→          } else if (k === TERR_SAND) {
+   313→   313→            const g = getGround('sand', { variant: v });
+   314→   314→            ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
+   315→   315→          } else if (k === TERR_FARM) {
+   316→   316→            const g = getGround('farm', { variant: v, edge: this.waterEdge(tx, ty) });
+   317→   317→            ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
+   318→   318→          } else if (k === TERR_ROCK) {
+   319→   319→            const g = getGround('rock', { variant: v, edge: this.waterEdge(tx, ty) });
+   320→   320→            ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
+   321→   321→          } else {
+   322→   322→            const g = getGround('grass', { variant: v, edge: this.waterEdge(tx, ty) });
+   323→   323→            ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
+   324→   324→          }
+   325→   325→        }
+   326→   326→      }
+   327→   327→    }
+   328→   328→
+   329→   329→    // ---- Pass 2：树木 + 建筑（按前角深度排序）----
+   330→   330→    const seen = new Set<number>();
+   331→   331→    for (let ty = vr.y0; ty <= vr.y1; ty++) {
+   332→   332→      for (let tx = vr.x0; tx <= vr.x1; tx++) {
+   333→   333→        const i = m.idx(tx, ty);
+   334→   334→        const sx = this.w2sx(tx, ty), sy = this.w2sy(tx, ty);
+   335→   335→        if (sx < -160 || sx > lw + 160 || sy < -300 || sy > lh + 160) continue;
+   336→   336→
+   337→   337→        const tv = m.tree[i];
+   338→   338→        if (tv >= 0 && !m.road[i] && m.occ[i] < 0) {
+   339→   339→          const sp = this.treeSprites[tv % this.treeSprites.length];
+   340→   340→          const key = tx + ty;
+   341→   341→          const dx = Math.round(sx + sp.ox), dy = Math.round(sy + sp.oy);
+   342→   342→          items.push({ key, draw: () => ctx.drawImage(sp.cv, dx, dy) });
+   343→   343→        }
+   344→   344→
+   345→   345→        const a = m.occ[i];
+   346→   346→        if (a >= 0 && !seen.has(a)) {
+   347→   347→          seen.add(a);
+   348→   348→          const o = m.objs.get(a)!;
+   349→   349→          const d = defById(o.id);
+   350→   350→          const bs = this.book.get(o.id, o.v);
+   351→   351→          const sp = bs.sp;
+   352→   352→          const bsx = this.w2sx(o.ax, o.ay), bsy = this.w2sy(o.ax, o.ay);
+   353→   353→          const key = (o.ax + d.w - 1) + (o.ay + d.h - 1);
+   354→   354→          const blinkOn = Math.floor(t / 640) % 2 === 0;
+   355→   355→          const smokeFr = Math.floor(t / 300) % 3;
+   356→   356→          const bx = Math.round(bsx + sp.ox), by = Math.round(bsy + sp.oy);
+   357→   357→          const smk = bs.smokeAt;
+   358→   358→          const blk = bs.blinkAt;
+   359→   359→          const sm = smk ? this.book.smoke[smokeFr] : null;
+   360→   360→          const mx = smk ? bsx + (smk[0] - smk[1]) : 0;
+   361→   361→          const my = smk ? bsy + (smk[0] + smk[1]) / 2 - smk[2] : 0;
+   362→   362→          const lx = blk ? bsx + (blk[0] - blk[1]) : 0;
+   363→   363→          const ly = blk ? bsy + (blk[0] + blk[1]) / 2 - blk[2] : 0;
+   364→   364→          items.push({
+   365→   365→            key,
+   366→   366→            draw: () => {
+   367→   367→              ctx.drawImage(sp.cv, bx, by);
+   368→   368→              if (sm) ctx.drawImage(sm.cv, Math.round(mx + sm.ox), Math.round(my + sm.oy));
+   369→   369→              if (blk && blinkOn) {
+   370→   370→                ctx.fillStyle = PALETTE[62];
+   371→   371→                ctx.fillRect(Math.round(lx) - 1, Math.round(ly) - 1, 2, 2);
+   372→   372→                ctx.fillStyle = PALETTE[61];
+   373→   373→                ctx.fillRect(Math.round(lx), Math.round(ly), 1, 1);
+   374→   374→              }
+   375→   375→            },
+   376→   376→          });
+   377→   377→        }
+   378→   378→      }
+   379→   379→    }
+   380→   380→    // ---- 行人 / 车辆（与建筑同序参与深度排序）----
+   381→   381→    if (this.crowds) {
+   382→   382→      for (const a of this.actors.actors) {
+   383→   383→        const px = a.fx + a.dx * a.t, py = a.fy + a.dy * a.t;
+   384→   384→        let wx: number, wy: number;
+   385→   385→        if (a.kind === 0) {
+   386→   386→          wx = (px + 0.5) * 16 + a.offX;
+   387→   387→          wy = (py + 0.5) * 16 + a.offY;
+   388→   388→        } else {
+   389→   389→          wx = px * 16 - a.dy * 2.3;
+   390→   390→          wy = py * 16 + a.dx * 2.3;
+   391→   391→        }
+   392→   392→        const sx = (wx - wy) - this.cam.x + lw / 2;
+   393→   393→        const sy = (wx + wy) / 2 - this.cam.y + lh / 2;
+   394→   394→        if (sx < -80 || sx > lw + 80 || sy < -60 || sy > lh + 60) continue;
+   395→   395→        const key = (wx + wy) / 16;
+   396→   396→        if (a.kind === 0) {
+   397→   397→          const d = ActorSystem.dirOf(a);
+   398→   398→          const fr = Math.floor(t / 220 + a.phase) % 2;
+   399→   399→          const cv = this.actors.personCv(d as 'dr' | 'dl' | 'ur' | 'ul', fr, a.look);
+   400→   400→          if (!cv) continue;
+   401→   401→          const dx = Math.round(sx - 3), dy = Math.round(sy - 12);
+   402→   402→          items.push({ key, draw: () => ctx.drawImage(cv, dx, dy) });
+   403→   403→        } else {
+   404→   404→          const d = ActorSystem.dirOf(a);
+   405→   405→          const sp = this.actors.carSp(d as 'e' | 'w' | 's' | 'n', a.look);
+   406→   406→          if (!sp) continue;
+   407→   407→          const dx = Math.round(sx + sp.ox), dy = Math.round(sy + sp.oy);
+   408→   408→          items.push({ key, draw: () => ctx.drawImage(sp.cv, dx, dy) });
+   409→   409→        }
+   410→   410→      }
+   411→   411→    }
+   412→   412→
+   413→   413→    items.sort((p, q) => p.key - q.key);
+   414→   414→    for (const it of items) it.draw();
+   415→   415→
+   416→   416→    // ---- Pass 3：光标 + 幽灵 ----
+   417→   417→    this.drawCursor(ctx);
+   418→   418→
+   419→   419→    // ---- 上屏（最近邻放大 + 扫描线）----
+   420→   420→    const d = this.display;
+   421→   421→    const dctx = this.dctx;
+   422→   422→    if (d && dctx) {
+   423→   423→      const S = this.zoom * this.dpr;
+   424→   424→      dctx.imageSmoothingEnabled = false;
+   425→   425→      dctx.drawImage(this.lowres, 0, 0, lw, lh, 0, 0, Math.round(lw * S), Math.round(lh * S));
+   426→   426→      const step = Math.max(2, Math.round(S));
+   427→   427→      dctx.globalAlpha = 0.15;
+   428→   428→      dctx.fillStyle = '#000';
+   429→   429→      for (let y = step - 1; y < d.height; y += step) dctx.fillRect(0, y, d.width, 1);
+   430→   430→      dctx.globalAlpha = 1;
+   431→   431→    }
+   432→   432→
+   433→   433→    this.renderMini();
+   434→   434→  }
+   435→   435→
+   436→   436→  private roadMask(tx: number, ty: number): number {
+   437→   437→    const m = this.map;
+   438→   438→    let v = 0;
+   439→   439→    if (m.inB(tx, ty - 1) && m.road[m.idx(tx, ty - 1)]) v |= 1;
+   440→   440→    if (m.inB(tx + 1, ty) && m.road[m.idx(tx + 1, ty)]) v |= 2;
+   441→   441→    if (m.inB(tx, ty + 1) && m.road[m.idx(tx, ty + 1)]) v |= 4;
+   442→   442→    if (m.inB(tx - 1, ty) && m.road[m.idx(tx - 1, ty)]) v |= 8;
+   443→   443→    return v;
+   444→   444→  }
+   445→   445→
+   446→   446→  private waterEdge(tx: number, ty: number): number {
+   447→   447→    const m = this.map;
+   448→   448→    let v = 0;
+   449→   449→    if (!m.inB(tx, ty - 1) || m.terr[m.idx(tx, ty - 1)] === TERR_WATER) v |= 1;
+   450→   450→    if (!m.inB(tx + 1, ty) || m.terr[m.idx(tx + 1, ty)] === TERR_WATER) v |= 2;
+   451→   451→    if (!m.inB(tx, ty + 1) || m.terr[m.idx(tx, ty + 1)] === TERR_WATER) v |= 4;
+   452→   452→    if (!m.inB(tx - 1, ty) || m.terr[m.idx(tx - 1, ty)] === TERR_WATER) v |= 8;
+   453→   453→    return v;
+   454→   454→  }
+   455→   455→
+   456→   456→  private landEdge(tx: number, ty: number): number {
+   457→   457→    const m = this.map;
+   458→   458→    let v = 0;
+   459→   459→    if (!m.inB(tx, ty - 1) || m.terr[m.idx(tx, ty - 1)] !== TERR_WATER) v |= 1;
+   460→   460→    if (!m.inB(tx + 1, ty) || m.terr[m.idx(tx + 1, ty)] !== TERR_WATER) v |= 2;
+   461→   461→    if (!m.inB(tx, ty + 1) || m.terr[m.idx(tx, ty + 1)] !== TERR_WATER) v |= 4;
+   462→   462→    if (!m.inB(tx - 1, ty) || m.terr[m.idx(tx - 1, ty)] !== TERR_WATER) v |= 8;
+   463→   463→    return v;
+   464→   464→  }
+   465→   465→
+   466→   466→  /** 屏幕偏移是否在 w×h 足印菱形内（相对锚点） */
+   467→   467→  private inFootprint(dx: number, dy: number, w: number, h: number): boolean {
+   468→   468→    const X = dx / 2 + dy;
+   469→   469→    const Y = dy - dx / 2;
+   470→   470→    return X >= 0 && X <= 16 * w && Y >= 0 && Y <= 16 * h;
+   471→   471→  }
+   472→   472→
+   473→   473→  /** 光标菱形 + 放置幽灵 */
+   474→   474→  private drawCursor(ctx: CanvasRenderingContext2D): void {
+   475→   475→    const h = this.hover;
+   476→   476→    if (!h || !this.map.inB(h.tx, h.ty)) return;
+   477→   477→    const tool = this.tool;
+   478→   478→    let w = 1, hh = 1;
+   479→   479→    if (tool.t === 'build') {
+   480→   480→      const d = defById(tool.id);
+   481→   481→      w = d.w; hh = d.h;
+   482→   482→    }
+   483→   483→    const x0 = this.w2sx(h.tx, h.ty), y0 = this.w2sy(h.tx, h.ty);
+   484→   484→    ctx.beginPath();
+   485→   485→    ctx.moveTo(x0, y0);
+   486→   486→    ctx.lineTo(x0 + 16 * w, y0 + 8 * w);
+   487→   487→    ctx.lineTo(x0 + 16 * (w - hh), y0 + 8 * (w + hh));
+   488→   488→    ctx.lineTo(x0 - 16 * hh, y0 + 8 * hh);
+   489→   489→    ctx.closePath();
+   490→   490→    ctx.strokeStyle = 'rgba(8,10,18,0.85)';
+   491→   491→    ctx.lineWidth = 3;
+   492→   492→    ctx.stroke();
+   493→   493→    ctx.strokeStyle = '#F4F2E8';
+   494→   494→    ctx.lineWidth = 1;
+   495→   495→    ctx.stroke();
+   496→   496→
+   497→   497→    if (tool.t === 'build') {
+   498→   498→      const bs = this.book.get(tool.id, tool.variant);
+   499→   499→      const g = ghostSprite(bs.sp);
+   500→   500→      const ok = this.map.canPlace(tool.id, h.tx, h.ty);
+   501→   501→      ctx.drawImage(g, Math.round(x0 + bs.sp.ox), Math.round(y0 + bs.sp.oy));
+   502→   502→      if (!ok) {
+   503→   503→        ctx.fillStyle = 'rgba(224,85,72,0.55)';
+   504→   504→        const W = 16 * (w + hh), H = 8 * (w + hh) + 2;
+   505→   505→        for (let yy = 0; yy < H; yy += 2) {
+   506→   506→          for (let xx = ((yy >> 1) % 2) * 2; xx < W * 2; xx += 4) {
+   507→   507→            const px = x0 - 16 * hh + xx, py = y0 + yy;
+   508→   508→            if (this.inFootprint(px - x0, py - y0, w, hh)) ctx.fillRect(px, py, 2, 1);
+   509→   509→          }
+   510→   510→        }
+   511→   511→      }
+   512→   512→    }
+   513→   513→  }
+   514→   514→
+   515→   515→  // ---------------- 小地图 ----------------
+   516→   516→
+   517→   517→  private renderMini(): void {
+   518→   518→    const mini = this.mini;
+   519→   519→    if (!mini) return;
+   520→   520→    const mctx = mini.getContext('2d')!;
+   521→   521→    const n = this.map.n;
+   522→   522→    if (this.miniDirty) {
+   523→   523→      const W = n * MM;
+   524→   524→      if (this.miniBase.width !== W) { this.miniBase.width = W; this.miniBase.height = W; }
+   525→   525→      const bctx = this.miniBase.getContext('2d')!;
+   526→   526→      const img = bctx.createImageData(W, W);
+   527→   527→      const u32 = new Uint32Array(img.data.buffer);
+   528→   528→      const abgr = (hex: string): number => {
+   529→   529→        const q = parseInt(hex.slice(1), 16);
+   530→   530→        return (255 << 24) | ((q & 255) << 16) | (((q >> 8) & 255) << 8) | ((q >> 16) & 255);
+   531→   531→      };
+   532→   532→      const C = {
+   533→   533→        grass: abgr('#3B7138'), water: abgr('#3467AC'), sand: abgr('#CFB379'),
+   534→   534→        farm: abgr('#B9C46B'), rock: abgr('#6E737F'), tree: abgr('#245129'),
+   535→   535→        sakura: abgr('#C97B93'), road: abgr('#4A4C55'),
+   536→   536→        res: abgr('#C25B44'), com: abgr('#E8CC4C'), ind: abgr('#9BA0A7'), civ: abgr('#5BC8B8'),
+   537→   537→      };
+   538→   538→      for (let y = 0; y < n; y++) {
+   539→   539→        for (let x = 0; x < n; x++) {
+   540→   540→          const i = this.map.idx(x, y);
+   541→   541→          const k = this.map.terr[i];
+   542→   542→          let cv: number = k === 1 ? C.water : k === 2 ? C.sand
+   543→   543→            : k === 3 ? C.farm : k === 4 ? C.rock : C.grass;
+   544→   544→          if (this.map.tree[i] >= 0) cv = this.map.tree[i] === 3 ? C.sakura : C.tree;
+   545→   545→          if (this.map.road[i]) cv = C.road;
+   546→   546→          const a = this.map.occ[i];
+   547→   547→          if (a >= 0) {
+   548→   548→            const o = this.map.objs.get(a)!;
+   549→   549→            const cat = defById(o.id).cat;
+   550→   550→            cv = cat === 'res' ? C.res : cat === 'com' ? C.com
+   551→   551→              : cat === 'ind' ? C.ind : C.civ;
+   552→   552→          }
+   553→   553→          for (let dy = 0; dy < MM; dy++) {
+   554→   554→            const row = (y * MM + dy) * W + x * MM;
+   555→   555→            for (let dx = 0; dx < MM; dx++) u32[row + dx] = cv;
+   556→   556→          }
+   557→   557→        }
+   558→   558→      }
+   559→   559→      bctx.putImageData(img, 0, 0);
+   560→   560→      this.miniDirty = false;
+   561→   561→    }
+   562→   562→    mctx.imageSmoothingEnabled = false;
+   563→   563→    mctx.drawImage(this.miniBase, 0, 0);
+   564→   564→    const vr = this.visibleRange();
+   565→   565→    mctx.strokeStyle = '#F4F2E8';
+   566→   566→    mctx.lineWidth = 1;
+   567→   567→    mctx.strokeRect(vr.x0 * MM + 0.5, vr.y0 * MM + 0.5, (vr.x1 - vr.x0) * MM, (vr.y1 - vr.y0) * MM);
+   568→   568→  }
+   569→   569→
+   570→   570→  private bindMini(mini: HTMLCanvasElement): void {
+   571→   571→    const jump = (e: PointerEvent): void => {
+   572→   572→      const rect = mini.getBoundingClientRect();
+   573→   573→      const tx = Math.floor(((e.clientX - rect.left) / rect.width) * this.map.n);
+   574→   574→      const ty = Math.floor(((e.clientY - rect.top) / rect.height) * this.map.n);
+   575→   575→      this.cam.x = (tx - ty) * 16;
+   576→   576→      this.cam.y = (tx + ty) * 8;
+   577→   577→    };
+   578→   578→    this.on(mini, 'pointerdown', (e) => {
+   579→   579→      jump(e as PointerEvent);
+   580→   580→      const mv = (ev: Event) => jump(ev as PointerEvent);
+   581→   581→      const up = () => {
+   582→   582→        mini.removeEventListener('pointermove', mv);
+   583→   583→        mini.removeEventListener('pointerup', up);
+   584→   584→      };
+   585→   585→      mini.addEventListener('pointermove', mv);
+   586→   586→      mini.addEventListener('pointerup', up);
+   587→   587→    });
+   588→   588→  }
+   589→   589→
+   590→   590→  /** 断点切换（侧栏↔抽屉）时把小地图重绑到新画布 */
+   591→   591→  rebindMini(cv: HTMLCanvasElement | null): void {
+   592→   592→    if (!cv || cv === this.mini) return;
+   593→   593→    this.listeners = this.listeners.filter(([t, n, f]) => {
+   594→   594→      if (t === this.mini) { t.removeEventListener(n, f); return false; }
+   595→   595→      return true;
+   596→   596→    });
+   597→   597→    this.mini = cv;
+   598→   598→    cv.width = this.map.n * MM;
+   599→   599→    cv.height = this.map.n * MM;
+   600→   600→    this.miniDirty = true;
+   601→   601→    this.bindMini(cv);
+   602→   602→  }
+   603→   603→
+   604→   604→  // ---------------- 输入 ----------------
+   605→   605→
+   606→   606→  private pinchSpan(): number {
+   607→   607→    const p = [...this.pointers.values()];
+   608→   608→    return p.length >= 2 ? Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) : 0;
+   609→   609→  }
+   610→   610→
+   611→   611→  private pinchMid(): { x: number; y: number } {
+   612→   612→    const p = [...this.pointers.values()];
+   613→   613→    return { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 };
+   614→   614→  }
+   615→   615→
+   616→   616→  private bindInput(display: HTMLCanvasElement): void {
+   617→   617→    this.on(display, 'contextmenu', (e) => e.preventDefault());
+   618→   618→    this.on(display, 'pointerdown', (e) => {
+   619→   619→      const pe = e as PointerEvent;
+   620→   620→      try { display.setPointerCapture(pe.pointerId); } catch { /* 无活动指针（合成事件等） */ }
+   621→   621→      this.pointers.set(pe.pointerId, { x: pe.clientX, y: pe.clientY });
+   622→   622→      // 双指手势：取消涂画，进入捏合缩放 / 平移
+   623→   623→      if (this.pointers.size >= 2) {
+   624→   624→        this.painting = false;
+   625→   625→        this.panning = false;
+   626→   626→        this.lastTile = null;
+   627→   627→        this.pinchDist = this.pinchSpan();
+   628→   628→        this.lastPinch = null;
+   629→   629→        return;
+   630→   630→      }
+   631→   631→      const rect = display.getBoundingClientRect();
+   632→   632→      const cx = pe.clientX - rect.left, cy = pe.clientY - rect.top;
+   633→   633→      this.beeper.play('click');
+   634→   634→      if (pe.button === 1 || pe.button === 2 || this.tool.t === 'view') {
+   635→   635→        this.panning = true;
+   636→   636→        this.lastPan = { x: pe.clientX, y: pe.clientY };
+   637→   637→        return;
+   638→   638→      }
+   639→   639→      if (pe.button !== 0) return;
+   640→   640→      const { tx, ty } = this.tileAt(cx, cy);
+   641→   641→      this.pushUndo();
+   642→   642→      this.painting = true;
+   643→   643→      this.lastTile = { x: tx, y: ty };
+   644→   644→      this.applyToolAt(tx, ty);
+   645→   645→    });
+   646→   646→    this.on(display, 'pointermove', (e) => {
+   647→   647→      const pe = e as PointerEvent;
+   648→   648→      if (this.pointers.has(pe.pointerId)) {
+   649→   649→        this.pointers.set(pe.pointerId, { x: pe.clientX, y: pe.clientY });
+   650→   650→      }
+   651→   651→      // ---- 双指：中点平移 + 距离捏合（分档缩放）----
+   652→   652→      if (this.pointers.size >= 2) {
+   653→   653→        const mid = this.pinchMid();
+   654→   654→        if (this.lastPinch) {
+   655→   655→          this.cam.x -= (mid.x - this.lastPinch.x) / this.zoom;
+   656→   656→          this.cam.y -= (mid.y - this.lastPinch.y) / this.zoom;
+   657→   657→        }
+   658→   658→        this.lastPinch = mid;
+   659→   659→        const span = this.pinchSpan();
+   660→   660→        if (this.pinchDist > 24) {
+   661→   661→          const ratio = span / this.pinchDist;
+   662→   662→          const i = ZOOMS.indexOf(this.zoom);
+   663→   663→          if (ratio > 1.30 && i < ZOOMS.length - 1) {
+   664→   664→            const rect = display.getBoundingClientRect();
+   665→   665→            this.setZoom(ZOOMS[i + 1], { x: mid.x - rect.left, y: mid.y - rect.top });
+   666→   666→            this.pinchDist = span;
+   667→   667→          } else if (ratio < 0.77 && i > 0) {
+   668→   668→            const rect = display.getBoundingClientRect();
+   669→   669→            this.setZoom(ZOOMS[i - 1], { x: mid.x - rect.left, y: mid.y - rect.top });
+   670→   670→            this.pinchDist = span;
+   671→   671→          }
+   672→   672→        }
+   673→   673→        return;
+   674→   674→      }
+   675→   675→      const rect = display.getBoundingClientRect();
+   676→   676→      const cx = pe.clientX - rect.left, cy = pe.clientY - rect.top;
+   677→   677→      const { tx, ty } = this.tileAt(cx, cy);
+   678→   678→      this.hover = { tx, ty };
+   679→   679→      this.hooks.onHover?.(tx, ty);
+   680→   680→      if (this.panning) {
+   681→   681→        this.cam.x -= (pe.clientX - this.lastPan.x) / this.zoom;
+   682→   682→        this.cam.y -= (pe.clientY - this.lastPan.y) / this.zoom;
+   683→   683→        this.lastPan = { x: pe.clientX, y: pe.clientY };
+   684→   684→        return;
+   685→   685→      }
+   686→   686→      if (this.painting) {
+   687→   687→        const lt = this.lastTile;
+   688→   688→        if (!lt) {
+   689→   689→          this.lastTile = { x: tx, y: ty };
+   690→   690→          this.dragMode = true;
+   691→   691→          this.applyToolAt(tx, ty);
+   692→   692→          this.dragMode = false;
+   693→   693→          return;
+   694→   694→        }
+   695→   695→        const steps = Math.max(Math.abs(tx - lt.x), Math.abs(ty - lt.y));
+   696→   696→        if (steps > 0) {
+   697→   697→          this.dragMode = true;
+   698→   698→          for (let s = 1; s <= steps; s++) {
+   699→   699→            const ix = Math.round(lt.x + (tx - lt.x) * s / steps);
+   700→   700→            const iy = Math.round(lt.y + (ty - lt.y) * s / steps);
+   701→   701→            this.applyToolAt(ix, iy);
+   702→   702→          }
+   703→   703→          this.dragMode = false;
+   704→   704→          this.lastTile = { x: tx, y: ty };
+   705→   705→        }
+   706→   706→      }
+   707→   707→    });
+   708→   708→    const endPointer = (e: Event): void => {
+   709→   709→      const pe = e as PointerEvent;
+   710→   710→      this.pointers.delete(pe.pointerId);
+   711→   711→      if (this.pointers.size < 2) {
+   712→   712→        this.pinchDist = 0;
+   713→   713→        this.lastPinch = null;
+   714→   714→      }
+   715→   715→      if (this.pointers.size === 0) {
+   716→   716→        this.painting = false;
+   717→   717→        this.panning = false;
+   718→   718→        this.lastTile = null;
+   719→   719→      }
+   720→   720→    };
+   721→   721→    this.on(display, 'pointerup', endPointer);
+   722→   722→    this.on(display, 'pointercancel', endPointer);
+   723→   723→    this.on(display, 'pointerleave', () => { this.hover = null; });
+   724→   724→    this.on(display, 'wheel', (e) => {
+   725→   725→      const we = e as WheelEvent;
+   726→   726→      we.preventDefault();
+   727→   727→      const rect = display.getBoundingClientRect();
+   728→   728→      this.setZoom(
+   729→   729→        ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, ZOOMS.indexOf(this.zoom) + (we.deltaY < 0 ? 1 : -1)))],
+   730→   730→        { x: we.clientX - rect.left, y: we.clientY - rect.top },
+   731→   731→      );
+   732→   732→    }, { passive: false });
+   733→   733→
+   734→   734→    this.on(window, 'keydown', (e) => {
+   735→   735→      const ke = e as KeyboardEvent;
+   736→   736→      if (ke.target instanceof HTMLInputElement || ke.target instanceof HTMLTextAreaElement) return;
+   737→   737→      this.keys.add(ke.code);
+   738→   738→      if (ke.code === 'Space') { e.preventDefault(); this.center(); }
+   739→   739→      if (ke.code === 'Equal' || ke.code === 'NumpadAdd') this.cycleZoom(1);
+   740→   740→      if (ke.code === 'Minus' || ke.code === 'NumpadSubtract') this.cycleZoom(-1);
+   741→   741→      if ((ke.ctrlKey || ke.metaKey) && ke.code === 'KeyZ') {
+   742→   742→        e.preventDefault();
+   743→   743→        if (ke.shiftKey) this.redo(); else this.undo();
+   744→   744→      }
+   745→   745→      if ((ke.ctrlKey || ke.metaKey) && ke.code === 'KeyY') {
+   746→   746→        e.preventDefault();
+   747→   747→        this.redo();
+   748→   748→      }
+   749→   749→      if (ke.code === 'Escape') this.setTool({ t: 'view' });
+   750→   750→    });
+   751→   751→    this.on(window, 'keyup', (e) => this.keys.delete((e as KeyboardEvent).code));
+   752→   752→  }
+   753→   753→
+   754→   754→  // ---------------- 工具应用 ----------------
+   755→   755→
+   756→   756→  private applyToolAt(tx: number, ty: number): void {
+   757→   757→    const t = this.tool;
+   758→   758→    switch (t.t) {
+   759→   759→      case 'terr':
+   760→   760→        if (this.map.setTerr(tx, ty, t.k)) this.beeper.play('paint');
+   761→   761→        break;
+   762→   762→      case 'road':
+   763→   763→        if (this.map.setRoad(tx, ty, true)) this.beeper.play('paint');
+   764→   764→        break;
+   765→   765→      case 'tree':
+   766→   766→        if (this.map.plantTree(tx, ty)) this.beeper.play('paint');
+   767→   767→        break;
+   768→   768→      case 'doze':
+   769→   769→        if (this.map.bulldoze(tx, ty)) this.beeper.play('delete');
+   770→   770→        break;
+   771→   771→      case 'build': {
+   772→   772→        if (this.map.place(t.id, t.variant, tx, ty)) {
+   773→   773→          this.beeper.play('place');
+   774→   774→        } else if (!this.dragMode && this.map.inB(tx, ty)) {
+   775→   775→          this.beeper.play('error');
+   776→   776→        }
+   777→   777→        break;
+   778→   778→      }
+   779→   779→    }
+   780→   780→  }
+   781→   781→
+   782→   782→  // ---------------- 撤销 ----------------
+   783→   783→
+   784→   784→  pushUndo(): void {
+   785→   785→    this.undoStack.push(this.map.serialize());
+   786→   786→    if (this.undoStack.length > 24) this.undoStack.shift();
+   787→   787→    this.redoStack.length = 0;
+   788→   788→  }
+   789→   789→
+   790→   790→  canUndo(): boolean { return this.undoStack.length > 0; }
+   791→   791→  canRedo(): boolean { return this.redoStack.length > 0; }
+   792→   792→
+   793→   793→  undo(): void {
+   794→   794→    const s = this.undoStack.pop();
+   795→   795→    if (!s) { this.beeper.play('error'); return; }
+   796→   796→    this.redoStack.push(this.map.serialize());
+   797→   797→    this.map.deserialize(s);
+   798→   798→    this.beeper.play('click');
+   799→   799→  }
+   800→   800→
+   801→   801→  redo(): void {
+   802→   802→    const s = this.redoStack.pop();
+   803→   803→    if (!s) { this.beeper.play('error'); return; }
+   804→   804→    this.undoStack.push(this.map.serialize());
+   805→   805→    this.map.deserialize(s);
+   806→   806→    this.beeper.play('click');
+   807→   807→  }
+   808→   808→
+   809→   809→  // ---------------- 存档 ----------------
+   810→   810→
+   811→   811→  static SLOT_KEY = ['pxc_slot1', 'pxc_slot2', 'pxc_slot3'];
+   812→   812→
+   813→   813→  static slotMeta(i: number): { time: string; pop: number } | null {
+   814→   814→    try {
+   815→   815→      const raw = localStorage.getItem(`pxc_meta${i + 1}`);
+   816→   816→      return raw ? (JSON.parse(raw) as { time: string; pop: number }) : null;
+   817→   817→    } catch {
+   818→   818→      return null;
+   819→   819→    }
+   820→   820→  }
+   821→   821→
+   822→   822→  saveSlot(i: number): boolean {
+   823→   823→    try {
+   824→   824→      localStorage.setItem(Engine.SLOT_KEY[i], this.map.serialize());
+   825→   825→      const st = this.map.stats();
+   826→   826→      localStorage.setItem(`pxc_meta${i + 1}`, JSON.stringify({
+   827→   827→        time: new Date().toLocaleString('zh-CN'),
+   828→   828→        pop: st.pop,
+   829→   829→      }));
+   830→   830→      this.lastSaveVer = this.map.version;
+   831→   831→      this.beeper.play('save');
+   832→   832→      return true;
+   833→   833→    } catch {
+   834→   834→      return false;
+   835→   835→    }
+   836→   836→  }
+   837→   837→
+   838→   838→  loadSlot(i: number): boolean {
+   839→   839→    const s = localStorage.getItem(Engine.SLOT_KEY[i]);
+   840→   840→    if (!s) { this.beeper.play('error'); return false; }
+   841→   841→    if (this.map.deserialize(s)) {
+   842→   842→      this.beeper.play('open');
+   843→   843→      return true;
+   844→   844→    }
+   845→   845→    this.beeper.play('error');
+   846→   846→    return false;
+   847→   847→  }
+   848→   848→
+   849→   849→  autoSave(): void {
+   850→   850→    try {
+   851→   851→      localStorage.setItem('pxc_auto', this.map.serialize());
+   852→   852→      this.lastSaveVer = this.map.version;
+   853→   853→      this.lastSaveT = performance.now();
+   854→   854→    } catch {
+   855→   855→      /* 存储满时忽略 */
+   856→   856→    }
+   857→   857→  }
+   858→   858→
+   859→   859→  loadAuto(): boolean {
+   860→   860→    const s = localStorage.getItem('pxc_auto');
+   861→   861→    return s ? this.map.deserialize(s) : false;
+   862→   862→  }
+   863→   863→
+   864→   864→  /** 导出当前视图 PNG（干净版，无扫描线） */
+   865→   865→  exportPNG(): string {
+   866→   866→    const S = 2;
+   867→   867→    const cv = document.createElement('canvas');
+   868→   868→    cv.width = this.lowres.width * S;
+   869→   869→    cv.height = this.lowres.height * S;
+   870→   870→    const ctx = cv.getContext('2d')!;
+   871→   871→    ctx.imageSmoothingEnabled = false;
+   872→   872→    ctx.drawImage(this.lowres, 0, 0, cv.width, cv.height);
+   873→   873→    return cv.toDataURL('image/png');
+   874→   874→  }
+   875→   875→
+   876→   876→  randomMap(): void {
+   877→   877→    this.pushUndo();
+   878→   878→    this.map.random((Math.random() * 1e9) | 0);
+   879→   879→    this.center();
+   880→   880→    this.beeper.play('open');
+   881→   881→  }
+   882→   882→
+   883→   883→  /** 一键城市：清空地上物（保留地形）并程序化生成整座城市 */
+   884→   884→  generateCity(): GenReport | null {
+   885→   885→    this.pushUndo();
+   886→   886→    const rep = generateCity(this.map, (Math.random() * 1e9) | 0);
+   887→   887→    if (!rep) {
+   888→   888→      this.beeper.play('error');
+   889→   889→      return null;
+   890→   890→    }
+   891→   891→    this.center();
+   892→   892→    this.beeper.play('open');
+   893→   893→    return rep;
+   894→   894→  }
+   895→   895→
+   896→   896→  clearMap(): void {
+   897→   897→    this.pushUndo();
+   898→   898→    this.map.clear();
+   899→   899→    this.beeper.play('delete');
+   900→   900→  }
+   901→   901→}
+   902→   902→

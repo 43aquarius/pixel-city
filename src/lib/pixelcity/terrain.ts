@@ -12,11 +12,11 @@ import type { Sprite } from './softrender';
 
 export type GroundKind =
   'grass' | 'water' | 'sand' | 'road' | 'park' | 'plaza' | 'school' | 'temple' | 'field'
-  | 'farm' | 'rock' | 'parking';
+  | 'farm' | 'rock' | 'parking' | 'snow' | 'flower' | 'dry' | 'swamp' | 'autumn';
 
 const KIND_IDX: Record<GroundKind, number> = {
   grass: 0, water: 1, sand: 2, road: 3, park: 4, plaza: 5, school: 6, temple: 7, field: 8,
-  farm: 9, rock: 10, parking: 11,
+  farm: 9, rock: 10, parking: 11, snow: 12, flower: 13, dry: 14, swamp: 15, autumn: 16,
 };
 
 /** 值 + Bayer → 有序抖动量化到 levels 档 */
@@ -229,6 +229,129 @@ const parkingPat: GroundPat = (X, Y, _px, _py) => {
 };
 
 // ------------------------------------------------------------
+// 雪 / 花田 / 荒漠 / 沼泽 / 秋原
+// ------------------------------------------------------------
+
+const snowPat: GroundPat = (X, Y, px, py, c) => {
+  // 冰缘：接触水面处冻结成青白色岸冰
+  const bands: Array<[number, number]> = [
+    [c.edge & 1, Y], [c.edge & 4, 16 - Y], [c.edge & 2, 16 - X], [c.edge & 8, X],
+  ];
+  for (const [e, d] of bands) {
+    if (!e) continue;
+    if (d < 1.0) return ramp(P.CYAN, 0);
+    if (d < 2.6) {
+      const t = (2.6 - d) / 1.6 * 0.7;
+      const b = (BAYER8[(py & 7) * 8 + (px & 7)] + 0.5) / 64;
+      return b < t ? ramp(P.CYAN, 0) : ramp(P.WHITE, 0);
+    }
+  }
+  // 雪面闪光
+  if (hash2(Math.floor(X), Math.floor(Y), 93) < 0.012) return ramp(P.CYAN, 0);
+  const n = vnoise(X / 5.2, Y / 5.2, 91 + c.variant);
+  const drift = vnoise(X / 13, Y / 13, 92);
+  const v = 0.5 + (n - 0.5) * 0.2 + (drift - 0.5) * 0.34;
+  const q = dquant(v, px, py, 3);
+  return q === 0 ? ramp(P.WHITE, 0) : ramp(P.PBLUE, q - 1);   // 雪白→青灰阴影
+};
+
+const flowerPat: GroundPat = (X, Y, px, py, c) => {
+  const base = grassBase(X, Y, px, py, c);
+  // 水岸 → 沙滩过渡（同草地）
+  const bands: Array<[number, number]> = [
+    [c.edge & 1, Y], [c.edge & 4, 16 - Y], [c.edge & 2, 16 - X], [c.edge & 8, X],
+  ];
+  let r = -1;
+  for (const [e, d] of bands) {
+    if (!e) continue;
+    if (d < 2.2) { r = ramp(P.SAND, 0); break; }
+    if (d < 4.6) {
+      const t = (4.6 - d) / 2.4 * 0.8;
+      const b = (BAYER8[(py & 7) * 8 + (px & 7)] + 0.5) / 64;
+      if (b < t) { r = ramp(P.SAND, 1); break; }
+    }
+  }
+  if (r >= 0) return r;
+  // 花畦：3×3 小区中心一朵小花
+  const fx = Math.floor(X / 3), fy = Math.floor(Y / 3);
+  if (hash2(fx, fy, 95) < 0.30 &&
+      Math.abs(X - (fx * 3 + 1.5)) < 0.55 && Math.abs(Y - (fy * 3 + 1.5)) < 0.55) {
+    const cc = hash2(fx, fy, 96);
+    if (cc < 0.28) return ramp(P.RED, 0);
+    if (cc < 0.52) return ramp(P.YELLOW, 0);
+    if (cc < 0.72) return ramp(P.WHITE, 0);
+    if (cc < 0.88) return ramp(P.SAKURA, 0);
+    return ramp(P.CYAN, 0);
+  }
+  return base;
+};
+
+const dryPat: GroundPat = (X, Y, px, py, c) => {
+  // 水缘泥滩
+  const bands: Array<[number, number]> = [
+    [c.edge & 1, Y], [c.edge & 4, 16 - Y], [c.edge & 2, 16 - X], [c.edge & 8, X],
+  ];
+  for (const [e, d] of bands) if (e && d < 1.4) return ramp(P.DIRT, 1);
+  // 龟裂纹
+  const cr = vnoise(X / 6.5 + 30, Y / 6.5 + 30, 98);
+  if (Math.abs(cr - 0.5) < 0.035) return ramp(P.DIRT, 2);
+  // 砾石
+  if (hash2(Math.floor(X / 2), Math.floor(Y / 2), 99) < 0.05) return ramp(P.SIDE, 2);
+  const n = vnoise(X / 4.8, Y / 4.8, 97 + c.variant);
+  return ramp(P.DIRT, dquant(0.52 + (n - 0.5) * 0.34, px, py, 3));
+};
+
+const swampPat: GroundPat = (X, Y, px, py, c) => {
+  // 水缘泥岸
+  const bands: Array<[number, number]> = [
+    [c.edge & 1, Y], [c.edge & 4, 16 - Y], [c.edge & 2, 16 - X], [c.edge & 8, X],
+  ];
+  for (const [e, d] of bands) if (e && d < 1.6) return ramp(P.DIRT, 1);
+  // 静水洼
+  const pool = vnoise(X / 5.4, Y / 5.4, 100 + c.variant);
+  if (pool > 0.80) return ramp(P.WATER, 1);
+  if (pool > 0.70) {
+    const b = (BAYER8[(py & 7) * 8 + (px & 7)] + 0.5) / 64;
+    if (b < (pool - 0.70) / 0.10 * 0.8) return ramp(P.WATER, 1);
+  }
+  // 芦苇（短竖条）
+  if (hash2(Math.floor(X), Math.floor(Y), 102) < 0.05 && (Y % 3) < 1.6) {
+    return ramp(P.PINE, 0);
+  }
+  const n = vnoise(X / 4.4, Y / 4.4, 101);
+  return ramp(P.GRASS, dquant(0.34 + (n - 0.5) * 0.24, px, py, 4));   // 暗苔藓绿
+};
+
+const autumnPat: GroundPat = (X, Y, px, py, c) => {
+  // 水岸 → 沙滩过渡（同草地）
+  const bands: Array<[number, number]> = [
+    [c.edge & 1, Y], [c.edge & 4, 16 - Y], [c.edge & 2, 16 - X], [c.edge & 8, X],
+  ];
+  for (const [e, d] of bands) {
+    if (!e) continue;
+    if (d < 2.2) return ramp(P.SAND, 0);
+    if (d < 4.6) {
+      const t = (4.6 - d) / 2.4 * 0.8;
+      const b = (BAYER8[(py & 7) * 8 + (px & 7)] + 0.5) / 64;
+      if (b < t) return ramp(P.SAND, 1);
+      break;
+    }
+  }
+  // 金褐草底
+  const n = vnoise(X / 4.7, Y / 4.7, 103 + c.variant);
+  // 落叶斑点
+  const lx = Math.floor(X / 2), ly = Math.floor(Y / 2);
+  if (hash2(lx, ly, 104) < 0.16 &&
+      Math.abs(X - (lx * 2 + 1)) < 0.6 && Math.abs(Y - (ly * 2 + 1)) < 0.6) {
+    const cc = hash2(lx, ly, 105);
+    if (cc < 0.4) return ramp(P.RFRED, 1);
+    if (cc < 0.7) return ramp(P.TAN, 0);
+    return ramp(P.BRICK, 0);
+  }
+  return ramp(P.TAN, dquant(0.5 + (n - 0.5) * 0.3, px, py, 3));
+};
+
+// ------------------------------------------------------------
 // 特殊地面（多格）
 // ------------------------------------------------------------
 
@@ -317,6 +440,11 @@ const PATS: Record<GroundKind, { pat: GroundPat; w: number; h: number } | null> 
   farm: { pat: farmPat, w: 1, h: 1 },
   rock: { pat: rockPat, w: 1, h: 1 },
   parking: { pat: parkingPat, w: 1, h: 1 },
+  snow: { pat: snowPat, w: 1, h: 1 },
+  flower: { pat: flowerPat, w: 1, h: 1 },
+  dry: { pat: dryPat, w: 1, h: 1 },
+  swamp: { pat: swampPat, w: 1, h: 1 },
+  autumn: { pat: autumnPat, w: 1, h: 1 },
 };
 
 const cache = new Map<number, Sprite>();

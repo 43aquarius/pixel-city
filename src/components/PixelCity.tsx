@@ -22,6 +22,7 @@ const ICON_NAMES = [
   'house', 'shop', 'factory', 'park', 'doze', 'city',
   'save', 'random', 'exportp', 'atlas',
   'person', 'personoff', 'menu',
+  'snow', 'flower', 'dry', 'swamp', 'autumn',
 ];
 
 type Phase = 'loading' | 'ready';
@@ -43,7 +44,22 @@ const TERR_OPTS: Array<{ k: number; label: string; icon: string; desc: string }>
   { k: 2, label: '沙地', icon: 'sand', desc: '海岸沙滩，适合灯塔' },
   { k: 3, label: '耕地', icon: 'farm', desc: '金黄/翠绿作物条田拼布' },
   { k: 4, label: '岩石', icon: 'rock', desc: '碎石荒原与孤立巨石' },
+  { k: 5, label: '雪地', icon: 'snow', desc: '北国雪原：岸冰、雪堆与松林' },
+  { k: 6, label: '花田', icon: 'flower', desc: '五彩花畦，浪漫田园' },
+  { k: 7, label: '荒漠', icon: 'dry', desc: '龟裂旱地戈壁，几乎不可开发' },
+  { k: 8, label: '沼泽', icon: 'swamp', desc: '苔藓水洼湿地，保留野趣' },
+  { k: 9, label: '秋原', icon: 'autumn', desc: '金秋草原，红叶点点' },
 ];
+
+/** 一键城市密度档位 */
+const DENSITIES: Array<{ v: number; label: string; desc: string }> = [
+  { v: 0.55, label: '疏朗', desc: '低密度：大留白 + 更多绿树' },
+  { v: 0.8, label: '适中', desc: '推荐密度：疏密有致' },
+  { v: 1.05, label: '繁华', desc: '高密度：接近无空隙的都市' },
+];
+
+const PED_STEP = 20;
+const PED_MAX = 300;
 
 const TOOLBAR: Array<{ icon: string; label: string; tool: Tool; cat?: Cat; hot: string }> = [
   { icon: 'view', label: '观察', tool: { t: 'view' }, hot: '1' },
@@ -69,11 +85,15 @@ type UiState = {
   drawer: boolean;   // 移动端抽屉
   crowds: boolean;   // 行人 / 车辆
   min: boolean;      // 标题栏最小化
+  pedsAuto: boolean; // 行人数量：自动 / 手动
+  pedsN: number;     // 手动行人目标数
+  density: number;   // 一键城市密度
 };
 
 const UI_DEFAULT: UiState = {
   panel: true, toolbar: true, build: true, mini: true,
   cityops: true, about: false, drawer: false, crowds: true, min: false,
+  pedsAuto: true, pedsN: 100, density: 0.8,
 };
 
 const UI_KEY = 'pxc_ui_v1';
@@ -194,7 +214,10 @@ export default function PixelCity() {
 
     void eng.init((frac, label) => setProg({ frac, label })).then(() => {
       if (disposed || !viewRef.current) return;
-      eng.setCrowds(loadUi().crowds);
+      const u0 = loadUi();
+      eng.setCrowds(u0.crowds);
+      eng.setPedTarget(u0.pedsAuto ?? true, u0.pedsN ?? 100);
+      eng.cityDensity = u0.density ?? 0.8;
       eng.attach(viewRef.current, miniRef.current);
       setStats(eng.map.stats());
       const acc: Record<string, CellItem[]> = { res: [], com: [], ind: [], civ: [] };
@@ -318,6 +341,26 @@ export default function PixelCity() {
       return next;
     });
   }, []);
+
+  /** 行人数量：auto / 手动；n 可为绝对值或基于当前值的增量函数（避免连点丢步） */
+  const setPeds = useCallback((auto: boolean, n: number | ((prev: number) => number)) => {
+    setUiStore(u => {
+      const base = typeof n === 'function' ? n(u.pedsN) : n;
+      return { ...u, pedsAuto: auto, pedsN: Math.max(0, Math.min(PED_MAX, Math.round(base))) };
+    });
+    // setUiStore 同步更新模块级 uiStore，这里读到的已是最终值
+    engineRef.current?.setPedTarget(uiStore.pedsAuto, uiStore.pedsN);
+    beeperRef.current?.play('click');
+  }, []);
+
+  /** 一键城市密度（对下一次生成生效） */
+  const setDensity = useCallback((v: number) => {
+    setUiStore(u => ({ ...u, density: v }));
+    if (engineRef.current) engineRef.current.cityDensity = v;
+    const d = DENSITIES.find(x => x.v === v);
+    beeperRef.current?.play('click');
+    if (d) say(`密度已设为「${d.label}」，点「一键城市」生效`);
+  }, [say]);
 
   const doSave = (i: number) => {
     const eng = engineRef.current;
@@ -444,6 +487,39 @@ export default function PixelCity() {
               <img src={iu('doze')} alt="" />清空
             </button>
           </div>
+          <div className="pxc-crowdrow">
+            <span className="pxc-lbl">密度</span>
+            {DENSITIES.map(d => (
+              <button key={d.label}
+                className={`pxc-btn mini${Math.abs(ui.density - d.v) < 0.01 ? ' on' : ''}`}
+                title={`${d.desc}（对下一次「一键城市」生效）`}
+                onClick={() => setDensity(d.v)}>
+                {d.label}
+              </button>
+            ))}
+          </div>
+          <div className="pxc-crowdrow">
+            <span className="pxc-lbl">行人</span>
+            <button
+              className={`pxc-btn mini${ui.pedsAuto ? ' on' : ''}`}
+              title={ui.pedsAuto ? '自动：行人随人口增长（上限 220）' : '点此恢复自动（随人口）'}
+              onClick={() => setPeds(!ui.pedsAuto, ui.pedsN)}>
+              自动
+            </button>
+            <button className="pxc-btn mini" aria-label="减少行人"
+              disabled={ui.pedsAuto || ui.pedsN <= 0}
+              onClick={() => setPeds(false, prev => prev - PED_STEP)}>
+              −
+            </button>
+            <span className="pxc-num" title="当前行人目标数">
+              {ui.pedsAuto ? `自动·${crowd.peds}` : `${ui.pedsN}`}
+            </span>
+            <button className="pxc-btn mini" aria-label="增加行人"
+              disabled={ui.pedsAuto || ui.pedsN >= PED_MAX}
+              onClick={() => setPeds(false, prev => prev + PED_STEP)}>
+              ＋
+            </button>
+          </div>
           <div className="pxc-row" style={{ marginTop: 4 }}>
             <button className="pxc-btn" onClick={() => openModal('save')}>
               <img src={iu('save')} alt="" />存档…
@@ -479,7 +555,8 @@ export default function PixelCity() {
         <div className="pxc-gbody">
           <div style={{ fontSize: 11, lineHeight: 1.7, color: '#3d434e' }}>
             一切画面均由代码程序化生成：{CATALOG.length} 类建筑参数化建模，
-            192×192 大地图 · 一键城市生成器 · 街头行人车辆，
+            256×256 大地图 · 10 种地形 · 一键城市（密度三档可调）·
+            行人车辆（数量可调，至多 300 人），
             经固定 2:1 等距正交投影离线光栅化为透明精灵，
             叠加 68 色有限色板、Bayer 有序抖动、
             扫描线与 CRT 暗角 —— 向 DOS/PC98 与 SimCity 致敬。
@@ -765,6 +842,7 @@ export default function PixelCity() {
                     <tr><td>双指捏合</td><td>缩放（×1 / ×2 / ×3），也可用顶栏 ±</td></tr>
                     <tr><td>底栏</td><td>工具横滑切换；▲ 展开建造中心抽屉</td></tr>
                     <tr><td>面板</td><td>所有面板都能点标题栏 ▾ / ▸ 收起展开</td></tr>
+                    <tr><td>行人</td><td>建造中心 → 市政操作，可自动或手动 0-300 人</td></tr>
                   </tbody>
                 </table>
               ) : (
@@ -783,9 +861,10 @@ export default function PixelCity() {
                 </table>
               )}
               <div style={{ marginTop: 10, fontSize: 12, lineHeight: 1.8 }}>
-                小贴士：按 G 或点「一键城市」秒得一座分区完备的城市（核心商务、扇区工业、
-                外环耕地，还有城堡/灯塔/天文台/港口吊机等地标）；植树有 6 种树（含樱花）；
-                人口越多街上的行人与车越多，可用顶栏行人按钮开关。
+                小贴士：按 G 或点「一键城市」秒得一座分区完备的城市；市政操作里可调
+                「密度」（疏朗/适中/繁华）与「行人」数量（自动或手动 0-300）；
+                随机地图有 10 种地形——北境雪原、南国秋原、花田、戈壁与沼泽；
+                植树有 6 种树（含樱花）；人口越多街上的行人与车越多。
               </div>
             </div>
           </div>

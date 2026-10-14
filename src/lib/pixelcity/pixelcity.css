@@ -438,6 +438,39 @@
 }
 .pxc-btn:disabled { color: #9aa0a9; cursor: default; }
 .pxc-btn.primary { box-shadow: inset 0 -2px 0 var(--teal); }
+.pxc-btn.mini { padding: 3px 7px; font-size: 11px; }
+.pxc-btn.mini.on {
+  border-color: var(--silver-shadow) var(--silver-lt) var(--silver-lt) var(--silver-shadow);
+  box-shadow: inset 0 0 0 2px var(--gold);
+  background: #b3b9c1;
+}
+
+/* 参数控制行（密度 / 行人数量） */
+.pxc-crowdrow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.pxc-lbl {
+  font-size: 11px;
+  background: var(--navy);
+  color: #cdd6e4;
+  border: 1px solid var(--navy-line);
+  padding: 3px 6px;
+  min-width: 34px;
+  text-align: center;
+}
+.pxc-num {
+  font-size: 12px;
+  min-width: 58px;
+  text-align: center;
+  color: var(--ink);
+  background: var(--silver-lt);
+  border: 1px solid var(--silver-shadow);
+  padding: 3px 4px;
+}
 
 /* ---------------- 状态栏 ---------------- */
 .pxc-status {

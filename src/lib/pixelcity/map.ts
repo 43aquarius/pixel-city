@@ -11,9 +11,14 @@ export const TERR_WATER = 1;
 export const TERR_SAND = 2;
 export const TERR_FARM = 3;
 export const TERR_ROCK = 4;
+export const TERR_SNOW = 5;
+export const TERR_FLOWER = 6;
+export const TERR_DRY = 7;
+export const TERR_SWAMP = 8;
+export const TERR_AUTUMN = 9;
 
-/** 地图边长（格）：v3 起为 192，旧存档自动居中迁移 */
-export const MAP_N = 192;
+/** 地图边长（格）：v4 起为 256，旧存档自动居中迁移 */
+export const MAP_N = 256;
 /** 树木种类数（0 阔叶 / 1 松 / 2 灌木 / 3 樱花 / 4 棕榈 / 5 高乔木） */
 export const TREE_KINDS = 6;
 
@@ -235,13 +240,46 @@ export class CityMap {
         if (v < 0.34) this.terr[i] = TERR_WATER;
         else if (v < 0.385) this.terr[i] = TERR_SAND;
         else if (v > 0.615 && dc > 0.2) this.terr[i] = TERR_ROCK;   // 远离中心的岩石高地
+
+        // ---- 气候带（仅草地）：北部雪原 / 南部秋原 ----
+        const cy = y / n;
+        if (this.terr[i] === TERR_GRASS) {
+          if (cy < 0.22 && fbm(x / 12 + 200, y / 12 + 200, seed ^ 0xC01D) > 0.50) {
+            this.terr[i] = TERR_SNOW;
+          } else if (cy > 0.80 && fbm(x / 12 + 300, y / 12 + 300, seed ^ 0xA377) > 0.50) {
+            this.terr[i] = TERR_AUTUMN;
+          }
+        }
+        // 戈壁旱地：外围干燥噪声斑块
+        if (this.terr[i] === TERR_GRASS && dc > 0.30 &&
+            fbm(x / 10 + 90, y / 10 + 90, seed ^ 0xDEAD) > 0.72) {
+          this.terr[i] = TERR_DRY;
+        }
+        // 滨海沼泽：低海拔湿地
+        if (this.terr[i] === TERR_GRASS && v >= 0.385 && v < 0.47 && dc > 0.18 &&
+            fbm(x / 8 + 150, y / 8 + 150, seed ^ 0x5AB6) > 0.62) {
+          this.terr[i] = TERR_SWAMP;
+        }
+        // 花田：耕地带附近的野花海
+        if (this.terr[i] === TERR_GRASS && dc > 0.30 && dc < 0.55) {
+          const f = fbm(x / 9 + 80, y / 9 + 80, seed ^ 0xF10A);
+          if (f > 0.60 && f < 0.68) this.terr[i] = TERR_FLOWER;
+        }
+
         if (this.terr[i] === TERR_GRASS && dc > 0.26 &&
             fbm(x / 9 + 80, y / 9 + 80, seed ^ 0xF00D) > 0.66) {
           this.terr[i] = TERR_FARM;   // 外围耕作带
         }
+
+        // ---- 森林 ----
         const forest = fbm(x / 7.3 + 40, y / 7.3 + 40, seed ^ 0x51ab);
-        if (this.terr[i] === TERR_GRASS && forest > 0.62 && hash2(x, y, seed) < 0.55) {
+        const t0 = this.terr[i];
+        if (t0 === TERR_GRASS && forest > 0.62 && hash2(x, y, seed) < 0.55) {
           this.tree[i] = Math.floor(hash2(x, y, 31) * TREE_KINDS);
+        } else if (t0 === TERR_SNOW && forest > 0.56 && hash2(x, y, seed) < 0.5) {
+          this.tree[i] = hash2(x, y, 31) < 0.7 ? 1 : 5;   // 雪原以松/高乔木为主
+        } else if (t0 === TERR_AUTUMN && forest > 0.60 && hash2(x, y, seed) < 0.42) {
+          this.tree[i] = hash2(x, y, 31) < 0.5 ? 0 : 5;   // 秋原阔叶疏林
         }
       }
     }
@@ -313,7 +351,7 @@ export class CityMap {
           const si = y * dn + x;
           const di = this.idx(x + off, y + off);
           const t = T[si];
-          this.terr[di] = (t >= 0 && t <= 4) ? t : TERR_GRASS;
+          this.terr[di] = (t >= 0 && t <= 9) ? t : TERR_GRASS;
           this.road[di] = R[si] ? 1 : 0;
           const tv = Tr[si];
           this.tree[di] = (tv >= 0 && tv <= TREE_KINDS - 1) ? (tv | 0) : -1;

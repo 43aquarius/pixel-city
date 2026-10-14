@@ -86,3 +86,23 @@ Work Log:
 Stage Summary:
 - 根因：dev server 进程未运行，非代码问题；已重新启动并全链路验证通过
 - 服务器进程：bun run dev（next-server v16.1.3，PID 1299），日志见 dev.log
+
+---
+Task ID: 5
+Agent: 主 Agent (Super Z)
+Task: 按用户四条新需求升级「像素都市」：①行人更多+手动控制数量 ②建筑密度可调+优化 ③地图更大 ④地形种类更多
+
+Work Log:
+- actors.ts：行人配色 6→10 套（新增陶红/深青/米白/樱粉）；新增 pedAuto/pedManual 手动模式与 setPedTarget(auto,n)；自动上限 90→220、车辆 24→40、手动上限 300；生成/裁减加速（每周期最多 5 行人 / 3 车补充、6/4 裁减）；randomRoad 尝试 60→90
+- citygen.ts：generateCity(map,seed,density=0.8) 密度参数化——全部分区填充阈值 ×dz、路距随密度加宽 (1-dz)*1.8、疏朗时行道树补植 green=0.10*(1-dz)；新地形分区规则：雪原疏落小村落（町屋/住宅/教堂，不受径向分区约束）、荒漠/沼泽留荒、花田/秋原同草地；地标排除荒漠/沼泽但允许雪原（雪山城堡）
+- map.ts：MAP_N 192→256（小地图 512px）；新增 TERR_SNOW/FLOWER/DRY/SWAMP/AUTUMN(5-9)；random() 气候带生成——北部雪原(y<0.22)/南部秋原(y>0.80)/外围戈壁/滨海沼泽/耕地带花田；雪原森林以松树为主、秋原疏林阔叶；deserialize 地形范围 t<=9 兼容
+- terrain.ts：5 种新地面精灵——雪（PBLUE 青灰阴影+CYAN 冰缘+闪光点）、花田（3×3 花畦红黄白粉青五色）、荒漠（DIRT 龟裂纹+砾石）、沼泽（暗苔藓+静水洼+芦苇）、秋原（TAN 金褐底+红/金/褐落叶）；KIND_IDX 12-16
+- icons.ts：新增 snow/flower/dry/swamp/autumn 5 个 16×16 像素图标（等距菱形风格+新增 p 粉色）
+- engine.ts：cityDensity 字段（generateCity 透传）；setPedTarget API；Pass1 渲染新增 5 地形分支（统一 edge=waterEdge）；小地图配色 snow #DCE6F0 / flower #A5C94F / dry #B99B62 / swamp #3F5F48 / autumn #C9924E
+- PixelCity.tsx + pixelcity.css：UiState 增 pedsAuto/pedsN/density（localStorage 持久化，启动时恢复到引擎）；市政操作新增「密度」三档（疏朗 0.55/适中 0.8/繁华 1.05）与「行人」控制行（自动开关 + −/＋步进 20，上限 300）；setPeds 采用 store 函数式增量防连点丢步（setUiStore 同步更新模块变量后读取最终值传引擎）；TERR_OPTS 10 项（5×2 网格）；关于/帮助文案更新（256×256·10 地形·密度行人可调）；CSS 新增 .pxc-crowdrow/.pxc-lbl/.pxc-num/.pxc-btn.mini(.on)
+- 端到端实测（agent-browser）：加载 60FPS 零错误；一键城市 256² 适中 6352 栋/16.5 万人、疏朗 4445 栋/11.5 万（树 1902 更多）、繁华 7332 栋/20.2 万——三档差异显著；行人自动达上限 220、手动 120→180→240→180 连点与收敛全部正确、重载持久化恢复；随机地图小地图像素统计：雪 4.3%/秋原 4.3%/花田 2.3%/沼泽 2.4%/荒漠 2.0% 全部生成；VLM 确认雪原（白+松树+明暗层次）/秋原（金褐+红叶）视觉正确；存档位往返精确恢复（树 3965）；移动端 390×844 抽屉/10 地形选项/雪地工具选择全通、零控制台错误；tsc src 0 错误、eslint 通过
+
+Stage Summary:
+- 四条需求全部落地：行人 10 配色+手动 0-300 可调（自动上限 220）、密度三档可调（默认 0.8 比旧版疏朗 20%）、地图 256×256（旧档自动居中迁移）、地形 5→10 种（雪原/花田/荒漠/沼泽/秋原，含气候带随机生成与城市生成适配）
+- 关键文件：map/terrain/citygen/actors/engine/icons（改）+ PixelCity.tsx + pixelcity.css（改）
+- 修复：行人步进连点丢步（store 函数式增量）
