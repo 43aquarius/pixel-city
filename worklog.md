@@ -26,3 +26,26 @@ Stage Summary:
 - 核心亮点：完全自研离线预渲染管线——18 类建筑全部代码程序化建模，启动时经固定 2:1 等距正交投影批量光栅化为透明精灵图集（可一键导出 PNG 图集），66 色有限色板 + Bayer 有序抖动统一全局观感
 - 文件结构：src/lib/pixelcity/{palette,rng,geo,patterns,softrender,terrain,b_util,b_res,b_com,b_ind,b_civ,catalog,map,engine,audio,icons}.ts + pixelcity.css；src/components/PixelCity.tsx；app/page.tsx 与 layout.tsx 已更新
 - 浏览器验证：HTTP 200、零控制台错误、lint 通过、桌面+窄屏布局正常、动画/存档/撤销/导出全部实测可用
+
+---
+Task ID: 2
+Agent: 主 Agent (Super Z)
+Task: 按用户三条新需求升级「像素都市」：①地图做大 ②一键生成城市 ③更多建筑与地形
+
+Work Log:
+- map.ts：地图 64²→128²；新增 TERR_FARM=3 / TERR_ROCK=4；序列化 v1→v2 游程编码（RLE，128² 存档仅 ~74KB）；deserialize 兼容 v1 明文 + 小图居中迁移到 128（旧 64² 存档自动放大居中）；新增 beginUpdate/endUpdate 批处理（生成器期间抑制逐次通知）；clearObjects() 清地上物保留地形；random() 新增岩石高地（v>0.615 且远离中心）与外围耕作带
+- terrain.ts：新增 farm（金黄/翠绿作物行×两种行向=4 变体拼布 + 水缘泥边）、rock（碎石堆+岩顶受光+水缘砾滩）、parking（划线车位+中央车道+西侧车行入口）三种地面精灵
+- b_extra.ts（新）：13 类建筑程序化建模——别墅府邸（四坡顶+绿篱+泳池）、住宅大厦 2×2（12-16 层挑阳台）、便利店、酒店 2×2、购物中心 2×2（玻璃中庭+天窗）、停车场（划线车位+彩色小车）、炼油厂 2×2（精馏塔林+火炬闪烁+冒烟）、火电厂 2×2（双曲线冷却塔白汽）、教堂（尖塔+十字）、博物馆 2×2（柱列+青绿穹顶）、消防局（红色卷闸门+晾塔）、灯塔（红白环纹+闪光）、城堡 2×2（雉堞城墙+门楼+角楼+主楼）
+- catalog.ts：注册 13 类新建筑（31 类 75 变体总计）
+- citygen.ts（新）：一键城市生成器——外环耕地带 → 道路网格（6-11 随机间距+中轴线）→ 距离/角度分区（核心商务/中层/郊区/外围/工业扇区）→ 17 种地标 tryPlace（纪念碑/广场/学校/医院/神社/教堂/消防局/城堡/体育场/电视塔/电厂/炼油/仓储/灯塔临水扫描）→ 分区密度填充 → 行道树/野生树；平地<25% 时报错返回
+- engine.ts：CityMap(128)；Pass1 新增 farm/rock 渲染分支；小地图改 ImageData 直写（16k 格 <2ms）+ farm/rock 配色；平移速度 0.55→0.72；generateCity() 方法
+- icons.ts：新增 city/farm/rock 像素图标
+- PixelCity.tsx：目录面板新增「地形」页签（5 种地形大按钮）；工具条精简为 8 项；快捷键重排 1-8 + G=一键城市；市政操作新增「一键城市」主按钮（两行布局）；帮助/关于文案更新
+- palette.ts：修复 RAMP as const 字面量类型传染（30+ 处 tsc 报错根因）；b_civ.ts 修复两处 frustum 多传参数
+- 城市密度两轮调优（VLM 审查反馈"高楼森林"→ 路网间距 5-9→6-11、核心区覆盖率 80%→64%、各分区概率下调）
+- 端到端验证（agent-browser + VLM）：加载 47-60 FPS；一键城市 2000 栋/4.2 万人口，西北角（郊区住宅+海岸）/东南角（工业+农田+岩石高地）VLM 审查分区清晰、呼吸感良好；耕地笔刷 VLM 确认条带纹理与清晰边界；灯塔/城堡放置形状正确；RLE v2 存档往返 ✓；v1 64² 旧档居中迁移 ✓（人口 5/建筑 1，house 渲染正常）；G 键 ✓；Ctrl+Z/Y ✓；图集导出 ✓；窄屏 480×850 ✓；控制台零错误；tsc 0 错误；eslint 通过
+
+Stage Summary:
+- 三条需求全部落地：128×128 大地图（旧档自动迁移）、一键城市（按钮/G 键，分区完备）、31 类建筑 + 7 种地形（新增耕地/岩石 + 停车场特殊地面）
+- 交付物：可运行 Next.js 16 网页应用（纯客户端，无新运行时依赖）
+- 关键文件：src/lib/pixelcity/{map,terrain,b_extra,citygen,catalog,engine,palette}.ts（改）；b_extra.ts / citygen.ts（新）；PixelCity.tsx / icons.ts（改）

@@ -68,13 +68,16 @@ export const RAMPS: readonly Ramp[] = [
   [17, 18],            // 25 WATER2 水面浅两档（动画用）
 ];
 
-export const RAMP = {
+const RAMP_LIT = {
   GRASS: 0, LEAF: 1, PINE: 2, SAND: 3, DIRT: 4, WATER: 5, FOAM: 6,
   ASPH: 7, PAINTY: 8, SIDE: 9, CREAM: 10, TAN: 11, BRICK: 12,
   PBLUE: 13, RFRED: 14, RFSLATE: 15, RFGRAY: 16, RFTEAL: 17,
   GLASS: 18, METAL: 19, YELLOW: 20, RED: 21, CYAN: 22, WHITE: 23,
   OUTLINE: 24, WATER2: 25,
 } as const;
+
+/** 带名 ramp 索引（值一律 number，避免字面量类型传染函数签名） */
+export const RAMP: { [K in keyof typeof RAMP_LIT]: number } = RAMP_LIT;
 
 /** Bayer 8x8 有序抖动矩阵（0..63） */
 export const BAYER8 = new Uint8Array([

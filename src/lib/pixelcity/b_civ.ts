@@ -223,11 +223,11 @@ export function genStadium(_seed: number): BuildResult {
   }, 8);
   frustum(faces, c, c24, 19.5, 19.5, 9, 19, {
     side: (u, v, px, py) => pCrowd()(u, v, px, py),
-  }, 8, 8, true);
+  }, 8, true);
   // 上层看台（内倾）
   frustum(faces, c, c24, 19.5, 15, 19, 24, {
     side: (u, v, px, py) => pCrowd()(u, v, px, py),
-  }, 8, 8, true);
+  }, 8, true);
   frustum(faces, c, c24, 19.5, 20.5, 19, 24.5, {
     side: (u, v, px, py) => pWall(P.SIDE)(u, v, px, py),
   }, 8);

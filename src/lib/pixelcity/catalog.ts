@@ -17,6 +17,11 @@ import {
   genPark, genTree, genPlaza, genSchool, genHospital,
   genTemple, genStadium, genRadioTower, genMonument,
 } from './b_civ';
+import {
+  genManor, genResTower, genConvenience, genHotel, genMall, genParking,
+  genRefinery, genPower, genChurch, genMuseum, genFireStation,
+  genLighthouse, genCastle,
+} from './b_extra';
 
 export type Cat = 'res' | 'com' | 'ind' | 'civ';
 
@@ -48,6 +53,10 @@ export const CATALOG: Def[] = [
     gen: genTownhouse, desc: '三层联排，带挑阳台' },
   { id: 'apartment', name: '公寓楼', cat: 'res', w: 1, h: 1, variants: 5, pop: 42,
     gen: genApartment, desc: '4-7 层多层住宅，屋顶水箱' },
+  { id: 'manor', name: '别墅府邸', cat: 'res', w: 1, h: 1, variants: 3, pop: 8,
+    gen: genManor, desc: '四坡顶大宅，绿篱泳池庭院' },
+  { id: 'restower', name: '住宅大厦', cat: 'res', w: 2, h: 2, variants: 2, pop: 300,
+    gen: genResTower, desc: '12-16 层塔楼，层层挑阳台' },
   // ---- 商业 ----
   { id: 'shop', name: '沿街商铺', cat: 'com', w: 1, h: 1, variants: 5, pop: 8,
     gen: genShop, desc: '橱窗 + 遮阳棚 + 招牌' },
@@ -55,6 +64,14 @@ export const CATALOG: Def[] = [
     gen: genOffice, desc: '玻璃幕墙，逐层退台' },
   { id: 'tower', name: '摩天大楼', cat: 'com', w: 2, h: 2, variants: 3, pop: 180,
     gen: genTower, desc: '城市天际线主角，带航空灯' },
+  { id: 'conv', name: '便利店', cat: 'com', w: 1, h: 1, variants: 4, pop: 4,
+    gen: genConvenience, desc: '通宵营业，橱窗明亮' },
+  { id: 'hotel', name: '酒店', cat: 'com', w: 2, h: 2, variants: 2, pop: 150,
+    gen: genHotel, desc: '玻璃塔楼与楼顶招牌' },
+  { id: 'mall', name: '购物中心', cat: 'com', w: 2, h: 2, variants: 2, pop: 220,
+    gen: genMall, desc: '大跨度卖场，玻璃中庭' },
+  { id: 'parking', name: '停车场', cat: 'com', w: 1, h: 1, variants: 3, pop: 0,
+    gen: genParking, ground: 'parking', desc: '划线车位，随机停着小车' },
   // ---- 工业 ----
   { id: 'factory', name: '工厂', cat: 'ind', w: 2, h: 2, variants: 4, pop: 45,
     gen: genFactory, desc: '锯齿屋顶厂房，烟囱冒烟' },
@@ -62,6 +79,10 @@ export const CATALOG: Def[] = [
     gen: genWarehouse, desc: '波纹铁皮大跨度库房' },
   { id: 'tankfarm', name: '储油罐', cat: 'ind', w: 1, h: 1, variants: 3, pop: 6,
     gen: genTankfarm, desc: '双罐 + 输油管道' },
+  { id: 'refinery', name: '炼油厂', cat: 'ind', w: 2, h: 2, variants: 2, pop: 80,
+    gen: genRefinery, desc: '精馏塔林立，火炬长明' },
+  { id: 'power', name: '火电厂', cat: 'ind', w: 2, h: 2, variants: 2, pop: 100,
+    gen: genPower, desc: '双曲线冷却塔冒白汽' },
   // ---- 公共 ----
   { id: 'park', name: '街心公园', cat: 'civ', w: 1, h: 1, variants: 3, pop: 0,
     gen: genPark, ground: 'park', desc: '小径、水塘与绿荫' },
@@ -79,6 +100,16 @@ export const CATALOG: Def[] = [
     gen: genRadioTower, desc: '格构塔身，顶端红色航标闪烁' },
   { id: 'monument', name: '纪念碑', cat: 'civ', w: 1, h: 1, variants: 1, pop: 0,
     gen: genMonument, desc: '石砌方尖碑，城市原点' },
+  { id: 'church', name: '教堂', cat: 'civ', w: 1, h: 1, variants: 2, pop: 10,
+    gen: genChurch, desc: '尖塔钟楼与十字，彩窗长明' },
+  { id: 'museum', name: '博物馆', cat: 'civ', w: 2, h: 2, variants: 1, pop: 30,
+    gen: genMuseum, ground: 'plaza', desc: '石柱回廊与青绿穹顶' },
+  { id: 'firestation', name: '消防局', cat: 'civ', w: 1, h: 1, variants: 2, pop: 25,
+    gen: genFireStation, desc: '红色卷闸门与瞭望塔' },
+  { id: 'lighthouse', name: '灯塔', cat: 'civ', w: 1, h: 1, variants: 1, pop: 2,
+    gen: genLighthouse, desc: '红白环纹塔身，顶端闪光' },
+  { id: 'castle', name: '城堡', cat: 'civ', w: 2, h: 2, variants: 1, pop: 20,
+    gen: genCastle, ground: 'temple', desc: '角塔城墙与中央主楼' },
 ];
 
 export function defById(id: string): Def {

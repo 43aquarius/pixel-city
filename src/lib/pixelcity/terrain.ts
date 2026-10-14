@@ -11,10 +11,12 @@ import { vnoise, hash2 } from './rng';
 import type { Sprite } from './softrender';
 
 export type GroundKind =
-  'grass' | 'water' | 'sand' | 'road' | 'park' | 'plaza' | 'school' | 'temple' | 'field';
+  'grass' | 'water' | 'sand' | 'road' | 'park' | 'plaza' | 'school' | 'temple' | 'field'
+  | 'farm' | 'rock' | 'parking';
 
 const KIND_IDX: Record<GroundKind, number> = {
   grass: 0, water: 1, sand: 2, road: 3, park: 4, plaza: 5, school: 6, temple: 7, field: 8,
+  farm: 9, rock: 10, parking: 11,
 };
 
 /** 值 + Bayer → 有序抖动量化到 levels 档 */
@@ -158,6 +160,75 @@ const roadPat: GroundPat = (X, Y, px, py, c) => {
 };
 
 // ------------------------------------------------------------
+// 耕地 / 岩石 / 停车场
+// ------------------------------------------------------------
+
+const farmPat: GroundPat = (X, Y, px, py, c) => {
+  // 水缘：泥边
+  const bands: Array<[number, number]> = [
+    [c.edge & 1, Y], [c.edge & 4, 16 - Y], [c.edge & 2, 16 - X], [c.edge & 8, X],
+  ];
+  for (const [e, d] of bands) if (e && d < 1.6) return ramp(P.DIRT, 1);
+  const along = (c.variant & 1) === 0;
+  const t = along ? Y : X;
+  const golden = c.variant < 2;
+  if (t % 4 < 2.5) {
+    // 作物行
+    const n = vnoise(X / 3.1, Y / 3.1, 66 + c.variant);
+    if (golden) {
+      if (hash2(Math.floor(X / 2), Math.floor(Y / 2), 4) < 0.10) return ramp(P.PAINTY, 0);
+      return ramp(P.TAN, dquant(0.52 + (n - 0.5) * 0.4, px, py, 3));
+    }
+    if (hash2(Math.floor(X / 2), Math.floor(Y / 2), 4) < 0.08) return ramp(P.LEAF, 0);
+    return ramp(P.GRASS, dquant(0.55 + (n - 0.5) * 0.3, px, py, 3));
+  }
+  // 垅沟泥土
+  const b = (BAYER8[(py & 7) * 8 + (px & 7)] + 0.5) / 64;
+  return b < 0.35 ? ramp(P.DIRT, 1) : ramp(P.DIRT, 0);
+};
+
+const rockPat: GroundPat = (X, Y, px, py, c) => {
+  // 水缘：砾石滩
+  const bands: Array<[number, number]> = [
+    [c.edge & 1, Y], [c.edge & 4, 16 - Y], [c.edge & 2, 16 - X], [c.edge & 8, X],
+  ];
+  for (const [e, d] of bands) if (e && d < 1.5) return ramp(P.SIDE, 2);
+  // 碎石堆（每变体固定 2 处）
+  const bx = 2.5 + hash2(c.variant, 2, 21) * 11, by = 2.5 + hash2(c.variant, 3, 21) * 11;
+  const bx2 = 2.5 + hash2(c.variant, 5, 21) * 11, by2 = 2.5 + hash2(c.variant, 6, 21) * 11;
+  const rocks: Array<[number, number, number]> = [[bx, by, 2.4], [bx2, by2, 1.7]];
+  for (const [ox, oy, r0] of rocks) {
+    const d = Math.hypot(X - ox, Y - oy);
+    if (d < r0) {
+      if (d > r0 - 0.9) return ramp(P.SIDE, 2);            // 岩缘
+      return X < ox ? ramp(P.SIDE, 0) : ramp(P.ASPH, 1);    // 岩顶受光
+    }
+  }
+  if (hash2(Math.floor(X / 3), Math.floor(Y / 3), 22) < 0.05) return ramp(P.DIRT, 1);
+  const n = vnoise(X / 4.2, Y / 4.2, 33);
+  return ramp(P.SIDE, dquant(0.5 + (n - 0.5) * 0.3, px, py, 3));
+};
+
+const parkingPat: GroundPat = (X, Y, _px, _py) => {
+  // 侧石围边，西侧留车行入口（y 6..10）
+  const inGate = Y > 5.6 && Y < 10.4;
+  if (X < 1.3 && !inGate) return ramp(P.SIDE, 2);
+  if (Y < 1.3 || Y > 14.7 || X > 14.7) return ramp(P.SIDE, 2);
+  const stallN = (Y > 1.3 && Y < 6.2) || (Y > 10.3 && Y < 14.7);
+  if (stallN) {
+    const lx = X - 1.6;
+    if (lx >= 0 && lx % 3.2 < 0.62) return ramp(P.WHITE, 0);
+    if (hash2(Math.floor(X / 3), Math.floor(Y / 3), 8) < 0.07) return ramp(P.ASPH, 0);
+    return ramp(P.ASPH, 1);
+  }
+  // 中部车道
+  const n = vnoise(X / 3, Y / 3, 12);
+  if (n > 0.8) return ramp(P.ASPH, 0);
+  if (n < 0.15) return ramp(P.ASPH, 2);
+  return ramp(P.ASPH, 1);
+};
+
+// ------------------------------------------------------------
 // 特殊地面（多格）
 // ------------------------------------------------------------
 
@@ -243,6 +314,9 @@ const PATS: Record<GroundKind, { pat: GroundPat; w: number; h: number } | null> 
   school: { pat: schoolPat, w: 2, h: 2 },
   temple: { pat: templePat, w: 2, h: 2 },
   field: { pat: fieldPat, w: 3, h: 3 },
+  farm: { pat: farmPat, w: 1, h: 1 },
+  rock: { pat: rockPat, w: 1, h: 1 },
+  parking: { pat: parkingPat, w: 1, h: 1 },
 };
 
 const cache = new Map<number, Sprite>();

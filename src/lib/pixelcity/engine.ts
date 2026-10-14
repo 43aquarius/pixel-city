@@ -3,7 +3,7 @@
 //           幽灵预览 / 小地图 / 撤销重做 / 存档导出
 // ============================================================
 
-import { CityMap, TERR_WATER, TERR_SAND } from './map';
+import { CityMap, TERR_WATER, TERR_SAND, TERR_FARM, TERR_ROCK } from './map';
 import { SpriteBook, defById } from './catalog';
 import { getGround } from './terrain';
 import { ghostSprite, renderModel, type Sprite } from './softrender';
@@ -11,6 +11,7 @@ import { genTree } from './b_civ';
 import { PALETTE } from './palette';
 import type { Beeper } from './audio';
 import { hash2 } from './rng';
+import { generateCity, type GenReport } from './citygen';
 
 export type Tool =
   | { t: 'view' }
@@ -34,7 +35,7 @@ export type EngineHooks = {
 type RenderItem = { key: number; draw: () => void };
 
 export class Engine {
-  map = new CityMap(64);
+  map = new CityMap(128);
   book = new SpriteBook();
   beeper: Beeper;
   hooks: EngineHooks = {};
@@ -198,7 +199,7 @@ export class Engine {
       this.hooks.onFps?.(Math.round(1000 / (this.fpsAcc / this.fpsN)));
       this.fpsAcc = 0; this.fpsN = 0; this.fpsAt = now;
     }
-    const pan = dt * 0.55;
+    const pan = dt * 0.72;
     if (this.keys.has('ArrowLeft') || this.keys.has('KeyA')) this.cam.x -= pan;
     if (this.keys.has('ArrowRight') || this.keys.has('KeyD')) this.cam.x += pan;
     if (this.keys.has('ArrowUp') || this.keys.has('KeyW')) this.cam.y -= pan;
@@ -281,6 +282,12 @@ export class Engine {
             ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
           } else if (k === TERR_SAND) {
             const g = getGround('sand', { variant: v });
+            ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
+          } else if (k === TERR_FARM) {
+            const g = getGround('farm', { variant: v, edge: this.waterEdge(tx, ty) });
+            ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
+          } else if (k === TERR_ROCK) {
+            const g = getGround('rock', { variant: v, edge: this.waterEdge(tx, ty) });
             ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
           } else {
             const g = getGround('grass', { variant: v, edge: this.waterEdge(tx, ty) });
@@ -451,29 +458,43 @@ export class Engine {
     const mctx = mini.getContext('2d')!;
     const n = this.map.n;
     if (this.miniDirty) {
-      this.miniBase.width = n * MM;
-      this.miniBase.height = n * MM;
+      const W = n * MM;
+      if (this.miniBase.width !== W) { this.miniBase.width = W; this.miniBase.height = W; }
       const bctx = this.miniBase.getContext('2d')!;
+      const img = bctx.createImageData(W, W);
+      const u32 = new Uint32Array(img.data.buffer);
+      const abgr = (hex: string): number => {
+        const q = parseInt(hex.slice(1), 16);
+        return (255 << 24) | ((q & 255) << 16) | (((q >> 8) & 255) << 8) | ((q >> 16) & 255);
+      };
+      const C = {
+        grass: abgr('#3B7138'), water: abgr('#3467AC'), sand: abgr('#CFB379'),
+        farm: abgr('#B9C46B'), rock: abgr('#6E737F'), tree: abgr('#245129'),
+        road: abgr('#4A4C55'),
+        res: abgr('#C25B44'), com: abgr('#E8CC4C'), ind: abgr('#9BA0A7'), civ: abgr('#5BC8B8'),
+      };
       for (let y = 0; y < n; y++) {
         for (let x = 0; x < n; x++) {
           const i = this.map.idx(x, y);
-          let c = '#3B7138';
           const k = this.map.terr[i];
-          if (k === TERR_WATER) c = '#3467AC';
-          else if (k === TERR_SAND) c = '#CFB379';
-          if (this.map.tree[i] >= 0) c = '#245129';
-          if (this.map.road[i]) c = '#4A4C55';
+          let cv: number = k === 1 ? C.water : k === 2 ? C.sand
+            : k === 3 ? C.farm : k === 4 ? C.rock : C.grass;
+          if (this.map.tree[i] >= 0) cv = C.tree;
+          if (this.map.road[i]) cv = C.road;
           const a = this.map.occ[i];
           if (a >= 0) {
             const o = this.map.objs.get(a)!;
             const cat = defById(o.id).cat;
-            c = cat === 'res' ? '#C25B44' : cat === 'com' ? '#E8CC4C'
-              : cat === 'ind' ? '#85878F' : '#5BC8B8';
+            cv = cat === 'res' ? C.res : cat === 'com' ? C.com
+              : cat === 'ind' ? C.ind : C.civ;
           }
-          bctx.fillStyle = c;
-          bctx.fillRect(x * MM, y * MM, MM, MM);
+          for (let dy = 0; dy < MM; dy++) {
+            const row = (y * MM + dy) * W + x * MM;
+            for (let dx = 0; dx < MM; dx++) u32[row + dx] = cv;
+          }
         }
       }
+      bctx.putImageData(img, 0, 0);
       this.miniDirty = false;
     }
     mctx.imageSmoothingEnabled = false;
@@ -726,6 +747,19 @@ export class Engine {
     this.map.random((Math.random() * 1e9) | 0);
     this.center();
     this.beeper.play('open');
+  }
+
+  /** 一键城市：清空地上物（保留地形）并程序化生成整座城市 */
+  generateCity(): GenReport | null {
+    this.pushUndo();
+    const rep = generateCity(this.map, (Math.random() * 1e9) | 0);
+    if (!rep) {
+      this.beeper.play('error');
+      return null;
+    }
+    this.center();
+    this.beeper.play('open');
+    return rep;
   }
 
   clearMap(): void {

@@ -9,6 +9,21 @@ import { defById, CATALOG } from './catalog';
 export const TERR_GRASS = 0;
 export const TERR_WATER = 1;
 export const TERR_SAND = 2;
+export const TERR_FARM = 3;
+export const TERR_ROCK = 4;
+
+/** 游程编码：[run, v, run, v, ...]（大地图存档/撤销体积优化） */
+function rleEnc(a: ArrayLike<number>): number[] {
+  const out: number[] = [];
+  let i = 0;
+  while (i < a.length) {
+    let j = i;
+    while (j < a.length && a[j] === a[i]) j++;
+    out.push(j - i, a[i]);
+    i = j;
+  }
+  return out;
+}
 
 export type Obj = {
   id: string;      // 目录 id
@@ -28,8 +43,9 @@ export class CityMap {
   objs = new Map<number, Obj>();   // 锚点索引 → 对象
   version = 0;
   onChange: (() => void) | null = null;
+  private batching = false;
 
-  constructor(n = 64) {
+  constructor(n = 128) {
     this.n = n;
     this.terr = new Uint8Array(n * n);
     this.road = new Uint8Array(n * n);
@@ -42,6 +58,13 @@ export class CityMap {
 
   private touch(): void {
     this.version++;
+    if (!this.batching) this.onChange?.();
+  }
+
+  /** 批量更新（生成器用）：抑制过程中的逐次通知 */
+  beginUpdate(): void { this.batching = true; }
+  endUpdate(): void {
+    this.batching = false;
     this.onChange?.();
   }
 
@@ -206,6 +229,11 @@ export class CityMap {
         const i = this.idx(x, y);
         if (v < 0.34) this.terr[i] = TERR_WATER;
         else if (v < 0.385) this.terr[i] = TERR_SAND;
+        else if (v > 0.615 && dc > 0.2) this.terr[i] = TERR_ROCK;   // 远离中心的岩石高地
+        if (this.terr[i] === TERR_GRASS && dc > 0.26 &&
+            fbm(x / 9 + 80, y / 9 + 80, seed ^ 0xF00D) > 0.66) {
+          this.terr[i] = TERR_FARM;   // 外围耕作带
+        }
         const forest = fbm(x / 7.3 + 40, y / 7.3 + 40, seed ^ 0x51ab);
         if (this.terr[i] === TERR_GRASS && forest > 0.62 && hash2(x, y, seed) < 0.55) {
           this.tree[i] = Math.floor(hash2(x, y, 31) * 4);
@@ -215,37 +243,88 @@ export class CityMap {
     this.touch();
   }
 
+  /** 清除全部道路/树木/建筑，保留地形（一键城市用） */
+  clearObjects(): void {
+    this.road.fill(0);
+    this.tree.fill(-1);
+    this.occ.fill(-1);
+    this.objs.clear();
+    this.touch();
+  }
+
   // ---------------- 序列化 ----------------
 
   serialize(): string {
     const objs: Array<[number, string, number, number]> = [];
     for (const [a, o] of this.objs) objs.push([a, o.id, o.v, o.seed]);
     return JSON.stringify({
-      v: 1, n: this.n,
-      terr: Array.from(this.terr),
-      road: Array.from(this.road),
-      tree: Array.from(this.tree),
+      v: 2, n: this.n,
+      terr: rleEnc(this.terr),
+      road: rleEnc(this.road),
+      tree: rleEnc(this.tree),
       objs,
     });
+  }
+
+  /** v1 明文数组 / v2 游程对 → 长度 dn*dn 的明文数组 */
+  private expandArr(src: unknown, dn: number): number[] | null {
+    if (!Array.isArray(src)) return null;
+    const total = dn * dn;
+    if (src.length === total && src.every(x => Number.isInteger(x))) return src as number[];
+    if (src.length % 2 === 0) {
+      const out = new Array<number>(total).fill(0);
+      let i = 0;
+      for (let k = 0; k < src.length; k += 2) {
+        const run = src[k], v = src[k + 1];
+        if (!Number.isInteger(run) || run < 1 || i + run > total) return null;
+        out.fill(v, i, i + run);
+        i += run;
+      }
+      return i === total ? out : null;
+    }
+    return null;
   }
 
   deserialize(s: string): boolean {
     try {
       const d = JSON.parse(s);
-      if (d.n !== this.n || !Array.isArray(d.terr)) return false;
-      this.terr.set(d.terr);
-      this.road.set(d.road);
-      this.tree.set(d.tree);
+      const dn = d?.n;
+      if (typeof dn !== 'number' || dn < 8 || dn > this.n || !Array.isArray(d.terr)) return false;
+      const T = this.expandArr(d.terr, dn);
+      const R = this.expandArr(d.road, dn);
+      const Tr = this.expandArr(d.tree, dn);
+      if (!T || !R || !Tr) return false;
+
+      // 小地图居中迁移：旧尺寸存档放大后居中摆放
+      const off = Math.floor((this.n - dn) / 2);
+      this.terr.fill(TERR_GRASS);
+      this.road.fill(0);
+      this.tree.fill(-1);
       this.occ.fill(-1);
       this.objs.clear();
-      for (const [a, id, v, seed] of d.objs) {
+
+      for (let y = 0; y < dn; y++) {
+        for (let x = 0; x < dn; x++) {
+          const si = y * dn + x;
+          const di = this.idx(x + off, y + off);
+          const t = T[si];
+          this.terr[di] = (t >= 0 && t <= 4) ? t : TERR_GRASS;
+          this.road[di] = R[si] ? 1 : 0;
+          const tv = Tr[si];
+          this.tree[di] = (tv >= 0 && tv <= 3) ? (tv | 0) : -1;
+        }
+      }
+      for (const it of d.objs ?? []) {
+        const [a, id, v, seed] = it;
         if (!CATALOG.some(x => x.id === id)) continue;
-        const o: Obj = { id, v, seed, ax: a % this.n, ay: Math.floor(a / this.n) };
-        this.objs.set(a, o);
+        const ax = (a % dn) + off, ay = Math.floor(a / dn) + off;
         const dd = defById(id);
+        if (!this.inB(ax, ay) || !this.inB(ax + dd.w - 1, ay + dd.h - 1)) continue;
+        const key = this.idx(ax, ay);
+        this.objs.set(key, { id, v, seed, ax, ay });
         for (let dy = 0; dy < dd.h; dy++) {
           for (let dx = 0; dx < dd.w; dx++) {
-            this.occ[this.idx(o.ax + dx, o.ay + dy)] = a;
+            this.occ[this.idx(ax + dx, ay + dy)] = key;
           }
         }
       }
