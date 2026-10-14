@@ -71,3 +71,18 @@ Stage Summary:
 - 四条需求全部落地：手机适配（双指手势+底部抽屉+横滚工具条+safe-area）、全面板可收缩（整板+分组+工具条+最小化，localStorage 持久化）、地图 192²+目录 43 类 98 变体（12 类新建筑+2 种新树）、行人车辆系统（像素行人+管线建模小车沿路网活动，可开关）
 - 关键文件：b_more.ts / actors.ts（新）；map / palette / b_civ / catalog / citygen / engine / icons / PixelCity.tsx / pixelcity.css / layout.tsx（改）
 - 修复：SSR 水合不匹配（useSyncExternalStore）、移动端无小地图卡加载（attach 收 null + rebindMini）、React Compiler memoization 推断（模块级 setUiStore）
+
+---
+Task ID: 4
+Agent: 主 Agent (Super Z)
+Task: 用户反馈"预览打不开"——排查并修复
+
+Work Log:
+- 诊断：ss 检查端口发现 3000 端口无进程监听（Caddy :81 代理正常、node_modules 完好），根因是 Next.js dev server 未运行（会话重启后进程丢失）
+- 修复：nohup bun run dev 后台启动 dev server（tee 输出到 dev.log），Next.js 16.1.3 Turbopack 925ms 就绪
+- 验证：直连 :3000 HTTP 200；经 Caddy :81 代理链路 HTTP 200 且标题「像素都市 PIXEL CITY」正常返回
+- 端到端复查（agent-browser 无头浏览器）：页面加载零错误、零控制台报错；1440×900 截图经 VLM 确认等距地图/工具条/建造中心/小地图全部完整渲染，状态栏 60 FPS 正常运行
+
+Stage Summary:
+- 根因：dev server 进程未运行，非代码问题；已重新启动并全链路验证通过
+- 服务器进程：bun run dev（next-server v16.1.3，PID 1299），日志见 dev.log
