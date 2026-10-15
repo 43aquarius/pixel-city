@@ -106,3 +106,20 @@ Stage Summary:
 - 四条需求全部落地：行人 10 配色+手动 0-300 可调（自动上限 220）、密度三档可调（默认 0.8 比旧版疏朗 20%）、地图 256×256（旧档自动居中迁移）、地形 5→10 种（雪原/花田/荒漠/沼泽/秋原，含气候带随机生成与城市生成适配）
 - 关键文件：map/terrain/citygen/actors/engine/icons（改）+ PixelCity.tsx + pixelcity.css（改）
 - 修复：行人步进连点丢步（store 函数式增量）
+
+---
+Task ID: 6
+Agent: 主 Agent (Super Z)
+Task: 用户反馈"预览打不开"——再次排查修复（会话重启后复发）
+
+Work Log:
+- 诊断：ss 显示 Caddy :81 正常监听但返回 502；:3000 无监听、无 bun/next 进程——dev server 进程再次丢失（会话重启连带回收）
+- 首次尝试 nohup bun run dev：命令内 8 秒存活且双链路 200，但下一条 Bash 调用时进程已被杀——定位真因：普通 nohup 进程仍是持久 shell 的后代（PPID=shell），Bash 调用结束时整棵后代进程树被环境清理，nohup/disown 无效；setsid 单用也失败
+- 修复：编写 scripts/start_dev.sh——daemon 化启动（setsid 新会话 + 后台 & + 启动 shell 立即退出 → 孤儿进程 reparent 到 PID 1 tini，脱离 Bash 调用进程树）；含幂等检查（:3000 已监听则跳过）+ pkill 清残留 + 最多 15s 就绪等待；PID 记录于 scripts/dev.pid
+- 验证：脚本 1 秒 READY；跨 Bash 调用存活（ps 确认 PPID=1）；直连 :3000 与经 Caddy :81 均 HTTP 200
+- 端到端复查（agent-browser）：页面加载零错误、零控制台报错，标题「像素都市 PIXEL CITY」正常；1440×900 截图 VLM 六项校验全通过：等距地图完整渲染、工具条/建造中心/小地图正常、状态栏 60 FPS、密度三档（疏朗/适中/繁华）与行人控制行在线、10 种地形面板在线（含雪地/花田/荒漠/沼泽/秋原）——Task 5 全部功能随代码完好保留，无渲染错误
+
+Stage Summary:
+- 根因：环境按 Bash 调用边界清理后代进程树，普通 nohup/disown 无法存活；此前偶发成功属竞态漏网
+- 方案：scripts/start_dev.sh daemon 化启动（reparent to init），今后预览丢失时执行 `bash scripts/start_dev.sh` 即可秒级恢复
+- 服务器状态：bun run dev PID 1383（PPID=1），双链路 200，Task 5 功能（256×256 地图/密度三档/行人 0-300 手动控制/10 地形）全部在线
