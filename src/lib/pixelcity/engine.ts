@@ -262,8 +262,8 @@ export class Engine {
     };
   }
 
-  crowdCount(): { peds: number; cars: number } {
-    return { peds: this.actors.peds, cars: this.actors.cars };
+  crowdCount(): { peds: number; cars: number; pets: number } {
+    return { peds: this.actors.peds, cars: this.actors.cars, pets: this.actors.pets };
   }
 
   cycleZoom(dir: number): void {
@@ -523,12 +523,12 @@ export class Engine {
       for (const a of this.actors.actors) {
         const px = a.fx + a.dx * a.t, py = a.fy + a.dy * a.t;
         let wx: number, wy: number;
-        if (a.kind === 0) {
-          wx = (px + 0.5) * 16 + a.offX;
-          wy = (py + 0.5) * 16 + a.offY;
-        } else {
+        if (a.kind === 1) {
           wx = px * 16 - a.dy * 2.3;
           wy = py * 16 + a.dx * 2.3;
+        } else {
+          wx = (px + 0.5) * 16 + a.offX;
+          wy = (py + 0.5) * 16 + a.offY;
         }
         const sx = (wx - wy) - this.cam.x + lw / 2;
         const sy = (wx + wy) / 2 - this.cam.y + lh / 2;
@@ -537,10 +537,18 @@ export class Engine {
         if (a.kind === 0) {
           const d = ActorSystem.dirOf(a) as Facing;
           const fr = Math.floor(t / 190 + a.phase) % 4;
-          const ps = this.actors.personSp(d, fr, a.look, a.body);
+          const ps = this.actors.personSp(d, fr, a.look, a.body, a.role);
           if (!ps) continue;
           const dx = Math.round(sx + ps.ox), dy = Math.round(sy + ps.oy);
           items.push({ key, draw: () => ctx.drawImage(ps.cv, dx, dy) });
+        } else if (a.kind >= 2) {
+          // 宠物：狗 / 猫（等待时坐姿）
+          const d = ActorSystem.dirOf(a) as Facing;
+          const fr = Math.floor(t / 190 + a.phase) % 4;
+          const ps = this.actors.petSp(a.kind === 2 ? 'dog' : 'cat', d, fr, a.look, a.wait > 0);
+          if (!ps) continue;
+          const dx = Math.round(sx + ps.ox), dy = Math.round(sy + ps.oy);
+          items.push({ key: key - 0.01, draw: () => ctx.drawImage(ps.cv, dx, dy) });
         } else {
           const d = ActorSystem.dirOf(a) as CarDir;
           const sp = this.actors.carSp(d, a.look);

@@ -18,3 +18,4 @@ worklog.md
 mini-services/
 worklog.md
 dev.log
+*.tsbuildinfo
