@@ -738,11 +738,11 @@ export default function PixelCity() {
                 );
               })}
               <button className="pxc-tool pxc-fold" title="收起工具条" aria-label="收起工具条"
-                onClick={() => toggle('toolbar')}>◀</button>
+                onClick={() => { toggle('toolbar'); say('工具条已收起：点左上角闪烁的「▶ 工具栏」标签展开'); }}>◀</button>
             </div>
           ) : (
             <button className="pxc-tooltab" onClick={() => toggle('toolbar')}
-              title="展开工具条" aria-label="展开工具条">▶<span>工具</span></button>
+              title="展开工具条" aria-label="展开工具条" aria-expanded={false}><b>▶</b><span>工具栏</span></button>
           )}
 
           <div className="pxc-badge">
@@ -773,7 +773,7 @@ export default function PixelCity() {
             <aside className="pxc-panel" aria-label="建造面板">
               <div className="pxc-phead">
                 <span>建 造 中 心</span>
-                <button className="pxc-foldbtn" onClick={() => toggle('panel')}
+                <button className="pxc-foldbtn" onClick={() => { toggle('panel'); say('建造中心已收起：点右缘闪烁的「◀」竖签展开'); }}
                   title="收起面板" aria-label="收起面板">▶ 收起</button>
               </div>
               <div className="pxc-pbody">
@@ -786,8 +786,8 @@ export default function PixelCity() {
             </aside>
           ) : (
             <button className="pxc-paneltab" onClick={() => toggle('panel')}
-              title="展开建造中心" aria-label="展开建造中心">
-              <span>建<br />造<br />中<br />心</span>◀
+              title="展开建造中心" aria-label="展开建造中心" aria-expanded={false}>
+              <i>◀</i><span>建造中心</span>
             </button>
           )
         )}
@@ -930,6 +930,7 @@ export default function PixelCity() {
                     <tr><td>G</td><td>一键生成整座城市（可反复按，每次全新）</td></tr>
                     <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
                     <tr><td>Esc</td><td>切回观察工具</td></tr>
+                    <tr><td>收缩</td><td>工具条 / 建造中心可「◀ / 收起」折叠；折叠后点左上角「▶ 工具栏」或右缘「◀ 建造中心」竖签恢复</td></tr>
                   </tbody>
                 </table>
               )}
