@@ -125,6 +125,9 @@ export function generateCity(map: CityMap, seed: number, density = 0.8): GenRepo
     if (r() < 0.65) tryPlace('castle', 1, 0.46, 0.72);
     tryPlace('stadium', 1, 0.30, 0.60);
     tryPlace('radiotower', 1, 0.52, 0.80);
+    tryPlace('aquarium', 1, 0.10, 0.30);
+    tryPlace('ferris', 1, 0.14, 0.34);
+    tryPlace('cellmast', 2, 0.45, 0.85);
     tryPlace('power', 1, 0, 1, { ind: true });
     tryPlace('refinery', 1, 0, 1, { ind: true });
     tryPlace('tankfarm', 2, 0, 1, { ind: true });
@@ -204,7 +207,7 @@ export function generateCity(map: CityMap, seed: number, density = 0.8): GenRepo
         if (d === 'core') {
           if (h < 0.10 * dz) { if (map.place('tower', (h2 * 8) | 0, x, y)) continue; }
           if (nr && h < 0.38 * dz) {
-            map.place(h2 < 0.42 ? 'shop' : h2 < 0.72 ? 'conv' : 'izakaya', (h2 * 8) | 0, x, y);
+            map.place(h2 < 0.40 ? 'shop' : h2 < 0.70 ? 'conv' : h2 < 0.90 ? 'izakaya' : 'electown', (h2 * 8) | 0, x, y);
             continue;
           }
           if (h < 0.50 * dz) { map.place('office', (h2 * 8) | 0, x, y); continue; }
@@ -213,8 +216,9 @@ export function generateCity(map: CityMap, seed: number, density = 0.8): GenRepo
         } else if (d === 'mid') {
           if (onFarm) continue;
           if (h < 0.05 * dz) { if (map.place('danchi', (h2 * 8) | 0, x, y)) continue; }
-          if (nr && h < 0.09 * dz) {
-            map.place(h2 < 0.4 ? 'shop' : h2 < 0.7 ? 'izakaya' : 'market', (h2 * 8) | 0, x, y);
+          if (h < 0.08 * dz) { if (map.place('hiapart', (h2 * 8) | 0, x, y)) continue; }
+          if (nr && h < 0.11 * dz) {
+            map.place(h2 < 0.4 ? 'shop' : h2 < 0.65 ? 'izakaya' : h2 < 0.85 ? 'bakery' : 'market', (h2 * 8) | 0, x, y);
             continue;
           }
           if (h < 0.19 * dz) { map.place('apartment', (h2 * 8) | 0, x, y); continue; }
@@ -224,17 +228,20 @@ export function generateCity(map: CityMap, seed: number, density = 0.8): GenRepo
           if (h < 0.44 * dz) { map.place('parking', (h2 * 8) | 0, x, y); continue; }
         } else if (d === 'sub') {
           if (onFarm) continue;
-          if (h < 0.06 * dz) { map.place('machiya', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.05 * dz) { map.place('machiya', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.09 * dz) { map.place('nagaya', (h2 * 8) | 0, x, y); continue; }
           if (h < 0.15 * dz) { map.place('house', (h2 * 8) | 0, x, y); continue; }
           if (h < 0.20 * dz) { map.place('manor', (h2 * 8) | 0, x, y); continue; }
           if (h < 0.25 * dz) { map.place('townhouse', (h2 * 8) | 0, x, y); continue; }
           if (h < 0.27 * dz) { map.place('market', (h2 * 8) | 0, x, y); continue; }
           if (h < 0.31 * dz) { map.place('park', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.33 * dz) { map.place('pavilion', (h2 * 8) | 0, x, y); continue; }
           if (h < 0.34 * dz) { map.place('church', (h2 * 8) | 0, x, y); continue; }
         } else if (d === 'ind') {
           if (onFarm) continue;
           if (h < 0.10 * dz) { if (map.place('factory', (h2 * 8) | 0, x, y)) continue; }
           if (h < 0.15 * dz) { if (map.place('lumber', (h2 * 8) | 0, x, y)) continue; }
+          if (h < 0.19 * dz) { if (map.place('brewery', (h2 * 8) | 0, x, y)) continue; }
           if (h < 0.32 * dz) { if (map.place('warehouse', (h2 * 8) | 0, x, y)) continue; }
           if (h < 0.38 * dz) { map.place('silo', (h2 * 8) | 0, x, y); continue; }
           if (h < 0.43 * dz) { map.place('tankfarm', (h2 * 8) | 0, x, y); continue; }
@@ -242,9 +249,18 @@ export function generateCity(map: CityMap, seed: number, density = 0.8): GenRepo
         } else {   // outer
           if (onFarm) continue;
           if (h < 0.05 * dz) { map.place('machiya', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.09 * dz) { map.place('nagaya', (h2 * 8) | 0, x, y); continue; }
           if (h < 0.10 * dz) { map.place('house', (h2 * 8) | 0, x, y); continue; }
           if (h < 0.12 * dz) { map.place('manor', (h2 * 8) | 0, x, y); continue; }
           if (h < 0.14 * dz) { map.place('church', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.155 * dz) { map.place('minshuku', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.17 * dz) { map.place('pavilion', (h2 * 8) | 0, x, y); continue; }
+          if (h < 0.185 * dz) {
+            if (tk === TERR_GRASS || tk === TERR_FLOWER || tk === TERR_AUTUMN) {
+              map.place(h2 < 0.5 ? 'windmill' : 'greenhouse', (h2 * 8) | 0, x, y);
+            }
+            continue;
+          }
         }
       }
     }
@@ -264,6 +280,38 @@ export function generateCity(map: CityMap, seed: number, density = 0.8): GenRepo
         (map.inB(x, y + 1) && map.road[map.idx(x, y + 1)]) ||
         (map.inB(x, y - 1) && map.road[map.idx(x, y - 1)]);
       if (near && map.place('busstop', Math.floor(r() * 2), x, y)) busN++;
+    }
+
+    // ---------- 5.5) 加油站（沿主路布置） ----------
+    let gasN = 0;
+    const gasMax = Math.max(2, Math.floor(n / 64));
+    for (let t = 0; t < tries * 3 && gasN < gasMax; t++) {
+      const x = Math.floor(r() * n), y = Math.floor(r() * n);
+      const i = map.idx(x, y);
+      if (map.road[i] || map.occ[i] >= 0 || map.tree[i] >= 0) continue;
+      const tk = map.terr[i];
+      if (tk !== TERR_GRASS && tk !== TERR_FLOWER && tk !== TERR_AUTUMN) continue;
+      const near =
+        (map.inB(x + 1, y) && map.road[map.idx(x + 1, y)]) ||
+        (map.inB(x - 1, y) && map.road[map.idx(x - 1, y)]) ||
+        (map.inB(x, y + 1) && map.road[map.idx(x, y + 1)]) ||
+        (map.inB(x, y - 1) && map.road[map.idx(x, y - 1)]);
+      if (near && map.place('gas', Math.floor(r() * 2), x, y)) gasN++;
+    }
+
+    // ---------- 5.6) 渡轮码头（临水岸线） ----------
+    let ferN = 0;
+    for (let t = 0; t < tries * 4 && ferN < 1; t++) {
+      const x = Math.floor(r() * n), y = Math.floor(r() * n);
+      const i = map.idx(x, y);
+      if (map.terr[i] === TERR_WATER || map.occ[i] >= 0 || map.road[i]) continue;
+      let waterNear = false;
+      for (let dy = -2; dy <= 2 && !waterNear; dy++) {
+        for (let dx = -2; dx <= 2 && !waterNear; dx++) {
+          if (map.inB(x + dx, y + dy) && map.terr[map.idx(x + dx, y + dy)] === TERR_WATER) waterNear = true;
+        }
+      }
+      if (waterNear && map.place('ferry', 0, x, y)) ferN++;
     }
 
     // ---------- 6) 行道树 / 野生树 ----------

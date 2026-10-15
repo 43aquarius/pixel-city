@@ -27,6 +27,11 @@ import {
   genLumber, genSilo, genDock, genBusstop, genClocktower,
   genObservatory, genTorii,
 } from './b_more';
+import {
+  genHiapart, genNagaya, genMinshuku, genElectown, genFerris,
+  genBakery, genGas, genFerry, genWindmill, genGreenhouse,
+  genBrewery, genPavilion, genAquarium, genCellmast,
+} from './b_dusk';
 
 export type Cat = 'res' | 'com' | 'ind' | 'civ';
 
@@ -66,6 +71,12 @@ export const CATALOG: Def[] = [
     gen: genMachiya, desc: '木格榻榻米町家，檐下灯笼' },
   { id: 'danchi', name: '住宅小区', cat: 'res', w: 2, h: 2, variants: 2, pop: 260,
     gen: genDanchi, desc: '两栋板楼合围中央庭院' },
+  { id: 'hiapart', name: '高层公寓', cat: 'res', w: 2, h: 2, variants: 2, pop: 340,
+    gen: genHiapart, desc: '双塔玻璃住宅，入夜窗海亮灯' },
+  { id: 'nagaya', name: '长屋', cat: 'res', w: 1, h: 1, variants: 3, pop: 16,
+    gen: genNagaya, desc: '三户联排木长屋，檐下红灯笼' },
+  { id: 'minshuku', name: '民宿旅馆', cat: 'res', w: 1, h: 1, variants: 2, pop: 10,
+    gen: genMinshuku, desc: '门廊双灯笼与青霓虹招牌' },
   // ---- 商业 ----
   { id: 'shop', name: '沿街商铺', cat: 'com', w: 1, h: 1, variants: 5, pop: 8,
     gen: genShop, desc: '橱窗 + 遮阳棚 + 招牌' },
@@ -87,6 +98,16 @@ export const CATALOG: Def[] = [
     gen: genCinema, desc: '灯泡跑马廊与立式招牌塔' },
   { id: 'market', name: '屋台小吃街', cat: 'com', w: 1, h: 1, variants: 3, pop: 6,
     gen: genMarket, desc: '大遮阳棚下的烟火气，热气腾腾' },
+  { id: 'electown', name: '电器街', cat: 'com', w: 1, h: 1, variants: 2, pop: 12,
+    gen: genElectown, desc: '层叠霓虹招牌的数码商店' },
+  { id: 'ferris', name: '摩天轮', cat: 'com', w: 2, h: 2, variants: 1, pop: 0,
+    gen: genFerris, desc: '青霓虹轮缘，夜晚点亮天际' },
+  { id: 'bakery', name: '烘焙坊', cat: 'com', w: 1, h: 1, variants: 2, pop: 8,
+    gen: genBakery, desc: '暖光橱窗与条纹雨棚' },
+  { id: 'gas', name: '加油站', cat: 'com', w: 1, h: 1, variants: 2, pop: 6,
+    gen: genGas, desc: '红条雨棚下双泵与价目牌' },
+  { id: 'ferry', name: '渡轮码头', cat: 'com', w: 2, h: 2, variants: 1, pop: 20,
+    gen: genFerry, ground: 'parking', desc: '栈桥候船楼与靠泊渡轮' },
   // ---- 工业 ----
   { id: 'factory', name: '工厂', cat: 'ind', w: 2, h: 2, variants: 4, pop: 45,
     gen: genFactory, desc: '锯齿屋顶厂房，烟囱冒烟' },
@@ -102,6 +123,12 @@ export const CATALOG: Def[] = [
     gen: genLumber, desc: '敞棚锯房，原木垛成金字塔' },
   { id: 'silo', name: '筒仓', cat: 'ind', w: 1, h: 1, variants: 2, pop: 8,
     gen: genSilo, desc: '金属筒仓群与天桥连管' },
+  { id: 'windmill', name: '风车磨坊', cat: 'ind', w: 1, h: 1, variants: 2, pop: 4,
+    gen: genWindmill, desc: '石塔红帽，四叶迎风' },
+  { id: 'greenhouse', name: '温室大棚', cat: 'ind', w: 1, h: 1, variants: 2, pop: 6,
+    gen: genGreenhouse, desc: '玻璃大棚，夜间亮起植物灯' },
+  { id: 'brewery', name: '酿造厂', cat: 'ind', w: 1, h: 1, variants: 2, pop: 15,
+    gen: genBrewery, desc: '铜釜蒸汽，麦香四溢' },
   { id: 'dock', name: '港口吊机', cat: 'ind', w: 2, h: 2, variants: 1, pop: 30,
     gen: genDock, ground: 'parking', desc: '集装箱阵与黄色龙门吊' },
   // ---- 公共 ----
@@ -139,6 +166,12 @@ export const CATALOG: Def[] = [
     gen: genObservatory, desc: '青白穹顶与观测窗缝' },
   { id: 'torii', name: '千本鸟居', cat: 'civ', w: 1, h: 1, variants: 2, pop: 3,
     gen: genTorii, desc: '朱红鸟居层层递进的参道' },
+  { id: 'pavilion', name: '凉亭', cat: 'civ', w: 1, h: 1, variants: 2, pop: 0,
+    gen: genPavilion, desc: '绿荫中的六柱大顶凉亭' },
+  { id: 'aquarium', name: '水族馆', cat: 'civ', w: 2, h: 2, variants: 1, pop: 50,
+    gen: genAquarium, desc: '玻璃幕墙主馆与圆穹角塔' },
+  { id: 'cellmast', name: '通信基站', cat: 'civ', w: 1, h: 1, variants: 2, pop: 4,
+    gen: genCellmast, desc: '格构塔身，红色航标闪烁' },
 ];
 
 export function defById(id: string): Def {
@@ -151,6 +184,7 @@ export function defById(id: string): Def {
 
 export type BuildingSprite = {
   sp: Sprite;                       // 主精灵
+  spNight: Sprite;                  // 夜光精灵（仅发光像素，与主精灵同锚点）
   thumb: HTMLCanvasElement;         // 目录缩略图
   smokeAt?: V3;                     // 烟囱口（局部坐标）
   blinkAt?: V3;                     // 闪烁灯（局部坐标）
@@ -185,8 +219,9 @@ export class SpriteBook {
         const seed = (v + 1) * 1013904223 + d.id.length * 69069 + v * 17;
         const res = d.gen(seed);
         const sp = renderModel(res.model);
+        const spNight = renderModel(res.model, { night: true });
         arr.push({
-          sp,
+          sp, spNight,
           thumb: thumbSprite(sp, THUMB),
           smokeAt: res.smokeAt,
           blinkAt: res.blinkAt,

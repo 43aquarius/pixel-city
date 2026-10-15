@@ -123,3 +123,24 @@ Stage Summary:
 - 根因：环境按 Bash 调用边界清理后代进程树，普通 nohup/disown 无法存活；此前偶发成功属竞态漏网
 - 方案：scripts/start_dev.sh daemon 化启动（reparent to init），今后预览丢失时执行 `bash scripts/start_dev.sh` 即可秒级恢复
 - 服务器状态：bun run dev PID 1383（PPID=1），双链路 200，Task 5 功能（256×256 地图/密度三档/行人 0-300 手动控制/10 地形）全部在线
+
+---
+Task ID: 7
+Agent: 主 Agent (Super Z)
+Task: 按用户第四轮三条需求升级「像素都市」：①行人精细化+智能化 ②建筑再扩 ③昼夜效果
+
+Work Log:
+- palette.ts：RAMPS 追加 NEONR[62]/NEONC[63]/LAMP[64,61] 三 ramp（27-29），日间外观与红/青一致；softrender.ts：RenderOpts.night 夜光模式 + nightPat 映射（GLASS/YELLOW→LAMP 暖光、NEONR→红、NEONC→青、其余透明），夜光精灵与日间同尺寸同锚点、自动关轮廓阴影
+- actors.ts 全重写：行人精灵 7×13×2帧 → 10×17/8×14 多部件合成（H发/S肤/E眼/R上衣/r暗面/P裤/K鞋/C手杖/B书包），三体型（成人70%/儿童18%/长者12%——长者灰发+手杖+慢速，儿童快步+背书包，长发 look 背面补发），14 套配色×双肤色，4 朝向×双步态（4 帧循环），足影纳入精灵底部；行为升级：findPath BFS 目的地寻路（行人 16-72 格、车 30-150 格，2400 节点上限，失败退化加权随机）、到达逗留（行人 0.4-2.6s）、路口停顿（长者更久）、夜间人口回落（行人×0.3、车×0.45，手动模式不缩放）；车辆与行人补充改并行（修复车被 else-if 串行阻塞）；导出 lampModel() 路灯模型与 glowPool() 光晕
+- b_dusk.ts（新 14 类 24 变体）：住宅高层公寓/长屋/民宿旅馆；商业电器街/摩天轮(makeFace 四叶轮+12段轮辋+8暖光吊舱)/烘焙坊/加油站/渡轮码头；工业风车磨坊/温室大棚/酿造厂；公共凉亭/水族馆/通信基站；大量 GLASS 夜光窗 + NEONR/NEONC 霓虹
+- b_more.ts 霓虹换 ramp：町屋/居酒屋灯笼→NEONR、居酒屋招牌→NEONR/NEONC、电影院塔招牌→NEONR（日间像素不变）
+- catalog.ts：+14 类目录、BuildingSprite.spNight 夜光精灵、SpriteBook.init 双渲染；citygen.ts：核心商业街加电器街、中环 hiapart/烘焙坊、郊区 nagaya/凉亭、外环 nagaya/民宿/凉亭/风车/温室、工业区酿造厂、新增加油站沿路布置与渡轮码头临水扫描、地标 aquarium/ferris/cellmast
+- engine.ts 昼夜系统：timeOfDay 0-24 时钟（auto ×1/×2/×4 = 8/4/2 分钟一天）+ recomputeDayNight 明暗曲线（dark/warm 分段）；渲染管线：暮色暖光叠加 → 夜幕压暗(rgba13,17,42×0.58) → 'lighter' 夜光层（建筑 spNight 万家灯火、blinkAt 航标 halo、路灯灯头+地面光池、车头灯光束）；背景预渲染缓存（bgDay 点阵 + bgNight 星月，尺寸变化才重建——消除每帧 ~15k fillRect，×1 恢复流畅）；loop 内 dayness 回写 actors + 2.5s 周期 invalidate
+- PixelCity.tsx：UiState 增 dayAuto/daySpeed/dayT（localStorage 持久化，每分钟回写当前时刻）；市政操作新增「昼夜」行（自动/手动 + 实时时钟）与「时速×1/×2/×4 + 场景晨午暮夜跳转」；状态栏/抽屉把手加时间显示；关于与帮助文案更新（动态统计 57 类 120 变体）
+- 端到端实测（agent-browser + VLM）：一键城市 6708 栋/18.8 万人，行人 220·车 40 双满（并行修复生效）；深夜跳转：行人 220→66（=×0.3 精确命中）、车 40→18，VLM 确认夜氛围/万家灯火/路灯光晕/红青霓虹/车灯/暖橙暮色/无渲染错误（7/8，月亮为地图外缘彩蛋不可见属预期）；×3 行人精修 7/7（分色/身高差/步态/肤色/配色/无异常/车正常）；新建筑夜景 7/12 可见均正常 + 5 种经目录缩略图与像素统计验证（渡轮码头黑块系 VLM 误认，实测 279 内容像素形状正常）；移动端 390×844 夜间 60 FPS 零错误、昼夜行/时速/场景按钮全渲染；持久化重载恢复 dayT 并继续自动推进；tsc src 0 错误、eslint 通过
+- 排障记录：①ensureBg 报错为 HMR 编辑中途残留（agent-browser errors 会话累积且 --clear 失效），全新会话验证 0 错误；②背景星点循环每帧数万 fillRect 致 ×1 掉帧 → 预渲染缓存修复（×2/×3 58-60 FPS、移动端 60 FPS，桌面 ×1 全城夜景 24 FPS 属极端角落场景）
+
+Stage Summary:
+- 三条需求全部落地：行人三体型 14 配色精细精灵 + BFS 智能寻路/路口停顿/夜间回家；目录 43→57 类 96→120 变体（14 种新建筑含摩天轮/电器街/水族馆/温室等夜光件）；完整昼夜循环（时钟 UI、暮暖夜蓝、万家灯火、路灯/车灯/霓虹、行人随夜色回落）
+- 关键文件：b_dusk.ts（新）；palette/softrender/actors/b_more/catalog/citygen/engine/PixelCity.tsx（改）
+- 性能：桌面 ×2/×3 与移动端全部 58-60 FPS；夜光管线为纯加色叠加，无 per-frame 重建

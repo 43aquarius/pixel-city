@@ -14,6 +14,7 @@ import '@/lib/pixelcity/pixelcity.css';
 import { Engine, type Tool } from '@/lib/pixelcity/engine';
 import { Beeper } from '@/lib/pixelcity/audio';
 import { CATALOG, defById, type Cat } from '@/lib/pixelcity/catalog';
+import { PALETTE } from '@/lib/pixelcity/palette';
 import { iconURI } from '@/lib/pixelcity/icons';
 
 const ICON_NAMES = [
@@ -88,12 +89,16 @@ type UiState = {
   pedsAuto: boolean; // 行人数量：自动 / 手动
   pedsN: number;     // 手动行人目标数
   density: number;   // 一键城市密度
+  dayAuto: boolean;  // 昼夜：自动循环 / 手动定格
+  daySpeed: number;  // 自动循环速度 ×1/×2/×4
+  dayT: number;      // 上次保存的时刻（0-24）
 };
 
 const UI_DEFAULT: UiState = {
   panel: true, toolbar: true, build: true, mini: true,
   cityops: true, about: false, drawer: false, crowds: true, min: false,
   pedsAuto: true, pedsN: 100, density: 0.8,
+  dayAuto: true, daySpeed: 1, dayT: 10,
 };
 
 const UI_KEY = 'pxc_ui_v1';
@@ -161,6 +166,7 @@ export default function PixelCity() {
   const [slotMeta, setSlotMeta] = useState<Array<{ time: string; pop: number } | null>>([null, null, null]);
   const [cellsByCat, setCellsByCat] = useState<Record<string, CellItem[]>>({});
   const [iconSrc, setIconSrc] = useState<Record<string, string>>({});
+  const [clock, setClock] = useState({ text: '10:00', ph: '昼' });
   const [ui] = useUiState();
   const [isMobile, setIsMobile] = useState(false);
 
@@ -170,6 +176,7 @@ export default function PixelCity() {
   const miniRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const toastTimer = useRef<number>(0);
+  const clockTick = useRef(0);
 
   const say = useCallback((msg: string) => {
     setToast({ id: Date.now(), msg });
@@ -218,6 +225,9 @@ export default function PixelCity() {
       eng.setCrowds(u0.crowds);
       eng.setPedTarget(u0.pedsAuto ?? true, u0.pedsN ?? 100);
       eng.cityDensity = u0.density ?? 0.8;
+      eng.setTimeOfDay(u0.dayT ?? 10);
+      eng.setDayNight(u0.dayAuto ?? true, u0.daySpeed ?? 1);
+      setClock({ text: eng.clockText(), ph: eng.phaseChar() });
       eng.attach(viewRef.current, miniRef.current);
       setStats(eng.map.stats());
       const acc: Record<string, CellItem[]> = { res: [], com: [], ind: [], civ: [] };
@@ -277,7 +287,15 @@ export default function PixelCity() {
 
     const crowdTimer = window.setInterval(() => {
       const eng3 = engineRef.current;
-      if (eng3) setCrowd(eng3.crowdCount());
+      if (eng3) {
+        setCrowd(eng3.crowdCount());
+        setClock({ text: eng3.clockText(), ph: eng3.phaseChar() });
+        // 每分钟把当前时刻回写持久化（供下次启动恢复）
+        clockTick.current = (clockTick.current + 1) % 60;
+        if (clockTick.current === 0) {
+          setUiStore(u => (Math.abs((u.dayT ?? 10) - eng3.timeOfDay) < 0.02 ? u : { ...u, dayT: eng3.timeOfDay }));
+        }
+      }
     }, 1000);
 
     return () => {
@@ -361,6 +379,23 @@ export default function PixelCity() {
     beeperRef.current?.play('click');
     if (d) say(`密度已设为「${d.label}」，点「一键城市」生效`);
   }, [say]);
+
+  /** 昼夜：自动循环开关与倍速 */
+  const setDayNight = useCallback((auto: boolean, speed: number) => {
+    setUiStore(u => ({ ...u, dayAuto: auto, daySpeed: speed }));
+    engineRef.current?.setDayNight(auto, speed);
+    beeperRef.current?.play('click');
+  }, []);
+
+  /** 昼夜：跳转时刻 */
+  const jumpTime = useCallback((h: number) => {
+    const eng = engineRef.current;
+    if (!eng) return;
+    eng.setTimeOfDay(h);
+    setClock({ text: eng.clockText(), ph: eng.phaseChar() });
+    setUiStore(u => ({ ...u, dayT: h }));
+    beeperRef.current?.play('click');
+  }, []);
 
   const doSave = (i: number) => {
     const eng = engineRef.current;
@@ -502,7 +537,7 @@ export default function PixelCity() {
             <span className="pxc-lbl">行人</span>
             <button
               className={`pxc-btn mini${ui.pedsAuto ? ' on' : ''}`}
-              title={ui.pedsAuto ? '自动：行人随人口增长（上限 220）' : '点此恢复自动（随人口）'}
+              title={ui.pedsAuto ? '自动：行人随人口增长（上限 220；夜间自动回落）' : '点此恢复自动（随人口）'}
               onClick={() => setPeds(!ui.pedsAuto, ui.pedsN)}>
               自动
             </button>
@@ -519,6 +554,39 @@ export default function PixelCity() {
               onClick={() => setPeds(false, prev => prev + PED_STEP)}>
               ＋
             </button>
+          </div>
+          <div className="pxc-crowdrow">
+            <span className="pxc-lbl">昼夜</span>
+            <button
+              className={`pxc-btn mini${ui.dayAuto ? ' on' : ''}`}
+              title={ui.dayAuto ? '自动循环（×1 = 8 分钟一天）' : '手动定格：点此恢复自动循环'}
+              onClick={() => setDayNight(!ui.dayAuto, ui.daySpeed || 1)}>
+              {ui.dayAuto ? '自动' : '手动'}
+            </button>
+            <span className="pxc-num" title="当前时刻">{clock.text} {clock.ph}</span>
+          </div>
+          <div className="pxc-crowdrow">
+            <span className="pxc-lbl">时速</span>
+            {[1, 2, 4].map(s => (
+              <button key={s}
+                className={`pxc-btn mini${ui.dayAuto && (ui.daySpeed || 1) === s ? ' on' : ''}`}
+                disabled={!ui.dayAuto}
+                title={`昼夜循环速度 ×${s}（一天 ${s === 1 ? '8' : s === 2 ? '4' : '2'} 分钟）`}
+                onClick={() => setDayNight(true, s)}>
+                ×{s}
+              </button>
+            ))}
+            <span className="pxc-lbl" style={{ marginLeft: 4 }}>场景</span>
+            {([
+              ['晨', 6.5, '清晨 06:30'], ['午', 12, '正午 12:00'],
+              ['暮', 18.2, '黄昏 18:12'], ['夜', 22.5, '深夜 22:30'],
+            ] as const).map(([ph, h, title]) => (
+              <button key={ph} className="pxc-btn mini"
+                title={`${title}（跳转时刻）`}
+                onClick={() => jumpTime(h)}>
+                {ph}
+              </button>
+            ))}
           </div>
           <div className="pxc-row" style={{ marginTop: 4 }}>
             <button className="pxc-btn" onClick={() => openModal('save')}>
@@ -554,11 +622,12 @@ export default function PixelCity() {
       {ui.about && (
         <div className="pxc-gbody">
           <div style={{ fontSize: 11, lineHeight: 1.7, color: '#3d434e' }}>
-            一切画面均由代码程序化生成：{CATALOG.length} 类建筑参数化建模，
+            一切画面均由代码程序化生成：{CATALOG.length} 类 {CATALOG.reduce((s, d) => s + d.variants, 0)} 变体建筑，
             256×256 大地图 · 10 种地形 · 一键城市（密度三档可调）·
-            行人车辆（数量可调，至多 300 人），
+            行人车辆（三体型，智能寻路，数量可调）·
+            昼夜循环（入夜点亮万家灯火、路灯与霓虹），
             经固定 2:1 等距正交投影离线光栅化为透明精灵，
-            叠加 68 色有限色板、Bayer 有序抖动、
+            叠加 {PALETTE.length} 色有限色板、Bayer 有序抖动、
             扫描线与 CRT 暗角 —— 向 DOS/PC98 与 SimCity 致敬。
           </div>
         </div>
@@ -733,6 +802,7 @@ export default function PixelCity() {
           <div><b>建筑</b> {stats.buildings}</div>
           <div><b>道路</b> {stats.roads}</div>
           <div><b>树木</b> {stats.trees}</div>
+          <div><b>时间</b> {clock.text} {clock.ph}</div>
           {ui.crowds && <div><b>行人</b> {crowd.peds} · {crowd.cars} 车</div>}
         </div>
       )}
@@ -772,7 +842,7 @@ export default function PixelCity() {
               <span className="t">建 造 中 心</span>
               <span className="s">
                 人口 {stats.pop} · 建筑 {stats.buildings}
-                {ui.crowds ? ` · 行人 ${crowd.peds}` : ''}
+                {ui.crowds ? ` · 行人 ${crowd.peds}` : ''} · {clock.text}
               </span>
             </button>
             {ui.drawer && (
@@ -843,6 +913,7 @@ export default function PixelCity() {
                     <tr><td>底栏</td><td>工具横滑切换；▲ 展开建造中心抽屉</td></tr>
                     <tr><td>面板</td><td>所有面板都能点标题栏 ▾ / ▸ 收起展开</td></tr>
                     <tr><td>行人</td><td>建造中心 → 市政操作，可自动或手动 0-300 人</td></tr>
+                    <tr><td>昼夜</td><td>市政操作：自动循环（×1/×2/×4）或跳转 晨/午/暮/夜</td></tr>
                   </tbody>
                 </table>
               ) : (
@@ -863,8 +934,8 @@ export default function PixelCity() {
               <div style={{ marginTop: 10, fontSize: 12, lineHeight: 1.8 }}>
                 小贴士：按 G 或点「一键城市」秒得一座分区完备的城市；市政操作里可调
                 「密度」（疏朗/适中/繁华）与「行人」数量（自动或手动 0-300）；
-                随机地图有 10 种地形——北境雪原、南国秋原、花田、戈壁与沼泽；
-                植树有 6 种树（含樱花）；人口越多街上的行人与车越多。
+                「昼夜」支持自动循环与场景跳转——深夜会点亮万家灯火、路灯与霓虹，
+                行人也会随夜色回家；随机地图有 10 种地形；植树有 6 种树（含樱花）。
               </div>
             </div>
           </div>

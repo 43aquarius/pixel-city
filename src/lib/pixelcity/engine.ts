@@ -15,7 +15,7 @@ import { PALETTE } from './palette';
 import type { Beeper } from './audio';
 import { hash2 } from './rng';
 import { generateCity, type GenReport } from './citygen';
-import { ActorSystem } from './actors';
+import { ActorSystem, lampModel, glowPool, type Facing, type CarDir } from './actors';
 
 export type Tool =
   | { t: 'view' }
@@ -45,6 +45,22 @@ export class Engine {
   crowds = true;
   /** 一键城市密度倍率（UI 可调，疏朗 0.55 / 适中 0.8 / 繁华 1.05） */
   cityDensity = 0.8;
+  /** 昼夜时钟：0-24 小时（浮点）；auto 模式下按 timeSpeed 推进（×1 = 8 分钟一天） */
+  timeOfDay = 10;
+  timeAuto = true;
+  timeSpeed = 1;
+  /** 当前明暗曲线（0=白昼 1=深夜；晨暮暖色强度） */
+  private dayNight = { dark: 0, warm: 0 };
+  private lastInvalT = 0;
+  private lampSp: Sprite | null = null;
+  private lampNight: Sprite | null = null;
+  private lampPool: HTMLCanvasElement | null = null;
+  private carPool: HTMLCanvasElement | null = null;
+  /** 背景缓存（日间点阵 / 夜间星月），避免每帧数千次 fillRect */
+  private bgDay: HTMLCanvasElement | null = null;
+  private bgNight: HTMLCanvasElement | null = null;
+  private bgW = 0;
+  private bgH = 0;
   beeper: Beeper;
   hooks: EngineHooks = {};
 
@@ -102,6 +118,10 @@ export class Engine {
   async init(onProgress: (frac: number, label: string) => void): Promise<void> {
     await this.book.init(onProgress);
     this.treeSprites = [0, 1, 2, 3, 4, 5].map(v => renderModel(genTree(v).model));
+    this.lampSp = renderModel(lampModel());
+    this.lampNight = renderModel(lampModel(), { night: true });
+    this.lampPool = glowPool(28, 16);
+    this.carPool = glowPool(16, 10);
     this.actors.ensureSprites();
     this.map.random((Math.random() * 1e9) | 0);
     this.center();
@@ -197,6 +217,51 @@ export class Engine {
     this.actors.setPedTarget(auto, n);
   }
 
+  // ---------------- 昼夜时钟 ----------------
+
+  /** 直接跳转时刻（保持当前模式） */
+  setTimeOfDay(h: number): void {
+    this.timeOfDay = ((h % 24) + 24) % 24;
+    this.recomputeDayNight();
+    this.actors.invalidate();
+  }
+
+  /** 昼夜模式：auto=自动循环；speed ∈ {1,2,4}（×1 = 8 分钟一天） */
+  setDayNight(auto: boolean, speed: number): void {
+    this.timeAuto = auto;
+    this.timeSpeed = Math.max(1, Math.min(4, Math.round(speed)));
+  }
+
+  clockText(): string {
+    const hh = Math.floor(this.timeOfDay) % 24;
+    const mm = Math.floor((this.timeOfDay % 1) * 60);
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  }
+
+  phaseChar(): string {
+    const t = this.timeOfDay;
+    if (t >= 5 && t < 8) return '晨';
+    if (t >= 8 && t < 17) return '昼';
+    if (t >= 17 && t < 20) return '暮';
+    return '夜';
+  }
+
+  private recomputeDayNight(): void {
+    const t = this.timeOfDay;
+    let dark = 0;
+    if (t >= 20 || t < 4.5) dark = 1;
+    else if (t >= 17) dark = (t - 17) / 3;
+    else if (t < 7) dark = 1 - (t - 4.5) / 2.5;
+    let warm = 0;
+    if (t > 4.8 && t < 7.6) warm = Math.sin(((t - 4.8) / 2.8) * Math.PI);
+    else if (t > 16.6 && t < 19.8) warm = Math.sin(((t - 16.6) / 3.2) * Math.PI);
+    dark *= 1 - 0.45 * warm;
+    this.dayNight = {
+      dark: Math.max(0, Math.min(1, dark)),
+      warm: Math.max(0, Math.min(1, warm)),
+    };
+  }
+
   crowdCount(): { peds: number; cars: number } {
     return { peds: this.actors.peds, cars: this.actors.cars };
   }
@@ -242,6 +307,15 @@ export class Engine {
     if (this.keys.has('ArrowRight') || this.keys.has('KeyD')) this.cam.x += pan;
     if (this.keys.has('ArrowUp') || this.keys.has('KeyW')) this.cam.y -= pan;
     if (this.keys.has('ArrowDown') || this.keys.has('KeyS')) this.cam.y += pan;
+    if (this.timeAuto && dt > 0) {
+      this.timeOfDay = (this.timeOfDay + (dt / 1000) * 0.05 * this.timeSpeed) % 24;
+      this.recomputeDayNight();
+    }
+    this.actors.dayness = 1 - this.dayNight.dark;
+    if (now - this.lastInvalT > 2500) {
+      this.lastInvalT = now;
+      this.actors.invalidate();
+    }
     if (this.crowds) this.actors.tick(dt / 1000, this.map);
     this.render(now);
     if (this.map.version !== this.lastSaveVer && now - this.lastSaveT > 25000) {
@@ -273,18 +347,24 @@ export class Engine {
   private render(t: number): void {
     const ctx = this.lctx;
     const { lw, lh } = this;
+    const dk = this.dayNight.dark;
+    const wm = this.dayNight.warm;
 
-    // 背景虚空（深海蓝 + 稀疏星点抖动）
-    ctx.fillStyle = '#0B0F24';
+    // 背景虚空（缓存绘制：日间点阵 + 夜间星月）
+    this.ensureBg(lw, lh);
+    ctx.fillStyle = dk > 0.5 ? '#070B1C' : '#0B0F24';
     ctx.fillRect(0, 0, lw, lh);
-    ctx.fillStyle = '#182142';
-    for (let y = 0; y < lh; y += 8) {
-      for (let x = ((y >> 3) % 2) * 8; x < lw; x += 16) ctx.fillRect(x + 3, y + 5, 1, 1);
+    if (this.bgDay) ctx.drawImage(this.bgDay, 0, 0);
+    if (dk > 0.25 && this.bgNight) {
+      ctx.globalAlpha = Math.min(1, (dk - 0.25) * 2.2);
+      ctx.drawImage(this.bgNight, 0, 0);
+      ctx.globalAlpha = 1;
     }
 
     const vr = this.visibleRange();
     const wf = Math.floor(t / 620) % 2;
     const items: RenderItem[] = [];
+    const glowJobs: Array<() => void> = [];
     const m = this.map;
 
     // ---- Pass 1：地面 ----
@@ -313,6 +393,25 @@ export class Engine {
         if (m.road[i]) {
           const g = getGround('road', { road: this.roadMask(tx, ty), variant: Math.floor(hash2(tx, ty, 5) * 4) });
           ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
+          // 路灯：直道与路口按哈希点缀；昼间灯杆，夜间灯头发光 + 地面光池
+          if (this.lampSp && this.lampNight && this.lampPool) {
+            const mask = this.roadMask(tx, ty);
+            if ((mask === 5 || mask === 10 || mask === 15) && hash2(tx, ty, 911) < 0.085) {
+              const lsx = Math.round(sx + this.lampSp.ox);
+              const lsy = Math.round(sy + this.lampSp.oy);
+              items.push({
+                key: tx + ty + 0.5,
+                draw: () => ctx.drawImage(this.lampSp!.cv, lsx, lsy),
+              });
+              if (dk > 0.02) {
+                const ns = this.lampNight, pool = this.lampPool;
+                glowJobs.push(() => {
+                  ctx.drawImage(ns.cv, lsx, lsy);
+                  ctx.drawImage(pool, Math.round(sx) - 14, Math.round(sy) - 6);
+                });
+              }
+            }
+          }
         } else {
           const k = m.terr[i];
           const v = Math.floor(hash2(tx, ty, 9) * 4);
@@ -400,6 +499,22 @@ export class Engine {
               }
             },
           });
+          // 夜光：建筑发光精灵 + 航标灯 halo
+          if (dk > 0.02) {
+            const ns = bs.spNight;
+            const nbx = bx, nby = by;
+            glowJobs.push(() => ctx.drawImage(ns.cv, nbx, nby));
+            if (blk) {
+              const blx = Math.round(lx), bly = Math.round(ly);
+              glowJobs.push(() => {
+                if (!blinkOn) return;
+                ctx.fillStyle = '#E05548';
+                ctx.fillRect(blx - 2, bly - 2, 4, 4);
+                ctx.fillStyle = '#F4F2E8';
+                ctx.fillRect(blx - 1, bly - 1, 2, 2);
+              });
+            }
+          }
         }
       }
     }
@@ -420,24 +535,52 @@ export class Engine {
         if (sx < -80 || sx > lw + 80 || sy < -60 || sy > lh + 60) continue;
         const key = (wx + wy) / 16;
         if (a.kind === 0) {
-          const d = ActorSystem.dirOf(a);
-          const fr = Math.floor(t / 220 + a.phase) % 2;
-          const cv = this.actors.personCv(d as 'dr' | 'dl' | 'ur' | 'ul', fr, a.look);
-          if (!cv) continue;
-          const dx = Math.round(sx - 3), dy = Math.round(sy - 12);
-          items.push({ key, draw: () => ctx.drawImage(cv, dx, dy) });
+          const d = ActorSystem.dirOf(a) as Facing;
+          const fr = Math.floor(t / 190 + a.phase) % 4;
+          const ps = this.actors.personSp(d, fr, a.look, a.body);
+          if (!ps) continue;
+          const dx = Math.round(sx + ps.ox), dy = Math.round(sy + ps.oy);
+          items.push({ key, draw: () => ctx.drawImage(ps.cv, dx, dy) });
         } else {
-          const d = ActorSystem.dirOf(a);
-          const sp = this.actors.carSp(d as 'e' | 'w' | 's' | 'n', a.look);
+          const d = ActorSystem.dirOf(a) as CarDir;
+          const sp = this.actors.carSp(d, a.look);
           if (!sp) continue;
           const dx = Math.round(sx + sp.ox), dy = Math.round(sy + sp.oy);
           items.push({ key, draw: () => ctx.drawImage(sp.cv, dx, dy) });
+          if (dk > 0.02 && this.carPool) {
+            const fsx = Math.round(sx + (a.dx - a.dy) * 13);
+            const fsy = Math.round(sy + (a.dx + a.dy) * 6.5 + 3);
+            const pool = this.carPool;
+            glowJobs.push(() => {
+              ctx.drawImage(pool, fsx - 8, fsy - 5);
+              ctx.fillStyle = '#F4F2E8';
+              ctx.fillRect(fsx - 3, fsy, 2, 2);
+              ctx.fillRect(fsx + 1, fsy, 2, 2);
+            });
+          }
         }
       }
     }
 
     items.sort((p, q) => p.key - q.key);
     for (const it of items) it.draw();
+
+    // ---- 昼夜色调：暮色暖光 → 夜幕压暗 → 夜光加色（lighter）----
+    if (wm > 0.02) {
+      ctx.fillStyle = `rgba(224,138,56,${(0.16 * wm).toFixed(3)})`;
+      ctx.fillRect(0, 0, lw, lh);
+    }
+    if (dk > 0.02) {
+      ctx.fillStyle = `rgba(13,17,42,${(0.58 * dk).toFixed(3)})`;
+      ctx.fillRect(0, 0, lw, lh);
+      if (glowJobs.length) {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = Math.min(1, dk * 1.25);
+        for (const g of glowJobs) g();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+      }
+    }
 
     // ---- Pass 3：光标 + 幽灵 ----
     this.drawCursor(ctx);
@@ -457,6 +600,40 @@ export class Engine {
     }
 
     this.renderMini();
+  }
+
+  /** 预渲染背景层（日间点阵 / 夜间星月），尺寸变化时才重建 */
+  private ensureBg(lw: number, lh: number): void {
+    if (this.bgW === lw && this.bgH === lh && this.bgDay && this.bgNight) return;
+    this.bgW = lw; this.bgH = lh;
+    const day = document.createElement('canvas');
+    day.width = lw; day.height = lh;
+    const d2 = day.getContext('2d')!;
+    d2.fillStyle = '#182142';
+    for (let y = 0; y < lh; y += 8) {
+      for (let x = ((y >> 3) % 2) * 8; x < lw; x += 16) d2.fillRect(x + 3, y + 5, 1, 1);
+    }
+    const ngt = document.createElement('canvas');
+    ngt.width = lw; ngt.height = lh;
+    const n2 = ngt.getContext('2d')!;
+    n2.fillStyle = '#D6E9F5';
+    for (let y = 0; y < lh; y += 8) {
+      for (let x = ((y >> 3) % 2) * 8 + 6; x < lw; x += 16) n2.fillRect(x, y + 2, 1, 1);
+    }
+    const mx = Math.round(lw * 0.14), my = Math.round(lh * 0.15);
+    n2.beginPath();
+    n2.arc(mx, my, 5.5, 0, 6.3);
+    n2.fillStyle = '#F4F2E8';
+    n2.fill();
+    n2.beginPath();
+    n2.arc(mx + 2.4, my + 1.6, 5.0, 0, 6.3);
+    n2.fillStyle = '#0B0F24';
+    n2.fill();
+    n2.fillStyle = '#C3C7CC';
+    n2.fillRect(mx - 2, my - 2, 1, 1);
+    n2.fillRect(mx + 1, my + 2, 1, 1);
+    this.bgDay = day;
+    this.bgNight = ngt;
   }
 
   private roadMask(tx: number, ty: number): number {

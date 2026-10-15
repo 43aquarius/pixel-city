@@ -69,6 +69,9 @@ export const RAMPS: readonly Ramp[] = [
   [65],                // 24 OUTLINE
   [17, 18],            // 25 WATER2 水面浅两档（动画用）
   [66, 67],            // 26 SAKURA 樱花
+  [62],                // 27 NEONR 霓虹红（日间=红，夜间模式视作发光体）
+  [63],                // 28 NEONC 霓虹青（日间=青）
+  [64, 61],            // 29 LAMP 暖灯（夜光模式：亮白暖→黄）
 ];
 
 const RAMP_LIT = {
@@ -76,7 +79,7 @@ const RAMP_LIT = {
   ASPH: 7, PAINTY: 8, SIDE: 9, CREAM: 10, TAN: 11, BRICK: 12,
   PBLUE: 13, RFRED: 14, RFSLATE: 15, RFGRAY: 16, RFTEAL: 17,
   GLASS: 18, METAL: 19, YELLOW: 20, RED: 21, CYAN: 22, WHITE: 23,
-  OUTLINE: 24, WATER2: 25, SAKURA: 26,
+  OUTLINE: 24, WATER2: 25, SAKURA: 26, NEONR: 27, NEONC: 28, LAMP: 29,
 } as const;
 
 /** 带名 ramp 索引（值一律 number，避免字面量类型传染函数签名） */

@@ -7,9 +7,9 @@
 // 输出透明背景精灵（HTMLCanvasElement + 锚点偏移）。
 // ============================================================
 
-import { RAMPS, LUT, EMPTY, DARK, bayer } from './palette';
+import { RAMPS, RAMP, LUT, EMPTY, DARK, bayer } from './palette';
 import type { Model, Face } from './geo';
-import type { PatFn } from './patterns';
+import type { PatFn, PatCell } from './patterns';
 
 export type Sprite = {
   cv: HTMLCanvasElement;
@@ -43,12 +43,31 @@ export type RenderOpts = {
   outline?: boolean;   // 1px 暗色轮廓（默认开）
   shadow?: boolean;    // 足印接触阴影（默认开）
   shadowT?: number;    // 阴影密度
+  night?: boolean;     // 夜光模式：只保留发光像素（窗/灯/霓虹），
+                       // 轮廓与阴影自动关闭；与日间精灵同尺寸同锚点，
+                       // 夜间以 lighter 叠加即得点亮的窗户效果
 };
+
+/** 夜光映射：发光 ramp → 夜间发光色 ramp；其余 → 透明 */
+function nightPat(pat: PatFn): PatFn {
+  return (u, v, px, py) => {
+    const c: PatCell = pat(u, v, px, py);
+    if (c.r < 0) return c;
+    let g = -1;
+    if (c.r === RAMP.GLASS) g = RAMP.LAMP;       // 玻璃窗 → 暖黄光
+    else if (c.r === RAMP.YELLOW) g = RAMP.LAMP;  // 已亮灯 → 暖黄光
+    else if (c.r === RAMP.NEONR) g = RAMP.RED;    // 霓虹红 → 红光
+    else if (c.r === RAMP.NEONC) g = RAMP.CYAN;   // 霓虹青 → 青光
+    else return { r: -1, l: 0 };                 // 夜色中熄灭
+    return { r: g, l: c.l, dl: c.dl, t: c.t };
+  };
+}
 
 /** 把一个 Model 渲染为透明背景精灵 */
 export function renderModel(m: Model, opts: RenderOpts = {}): Sprite {
-  const outline = opts.outline !== false;
-  const shadow = opts.shadow !== false;
+  const night = opts.night === true;
+  const outline = opts.outline !== false && !night;
+  const shadow = opts.shadow !== false && !night;
   const shadowT = opts.shadowT ?? 0.30;
 
   const faces = m.faces.filter(isVisible).sort((a, b) => a.depth - b.depth);
@@ -75,7 +94,8 @@ export function renderModel(m: Model, opts: RenderOpts = {}): Sprite {
   for (const f of faces) {
     const den = f.nx + f.ny + f.nz;
     if (Math.abs(den) < 0.02) continue;  // 几乎垂直视线
-    const { nx, ny, nz, d, o, tu, tv, lvl, pat } = f;
+    const { nx, ny, nz, d, o, tu, tv, lvl } = f;
+    const pat = night ? nightPat(f.pat) : f.pat;
 
     const y0 = Math.max(0, Math.floor(f.y0 - by0));
     const y1 = Math.min(h - 1, Math.ceil(f.y1 - by0));

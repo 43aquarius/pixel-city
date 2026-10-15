@@ -46,7 +46,7 @@ export function genMachiya(seed: number): BuildResult {
   });
   // 挑灯灯笼（+X 檐角）
   box(faces, x1 + 0.6, y1 - 2.4, x1 + 2.0, y1 - 1.0, 7.8, 9.4, {
-    right: pWall(P.RED), left: pWall(P.RED), top: () => cell(P.YELLOW, 0),
+    right: pWall(P.NEONR), left: pWall(P.NEONR), top: () => cell(P.YELLOW, 0),
   });
   return { model: buildModel(faces, 16, 16) };
 }
@@ -89,7 +89,7 @@ export function genDanchi(seed: number): BuildResult {
 export function genIzakaya(seed: number): BuildResult {
   const r = mulberry32(seed);
   const wall = r() < 0.4 ? P.TAN : r() < 0.7 ? P.BRICK : P.CREAM;
-  const sign = r() < 0.5 ? P.RED : P.CYAN;
+  const sign = r() < 0.5 ? P.NEONR : P.NEONC;
   const faces: Face[] = [];
   const x0 = 3.0, y0 = 3.0, x1 = 13.0, y1 = 13.0;
   const h = 12;
@@ -102,7 +102,7 @@ export function genIzakaya(seed: number): BuildResult {
   for (let i = 0; i < 3; i++) {
     const lx = x0 + 2.2 + i * 3.4;
     box(faces, lx, y1 + 0.7, lx + 1.4, y1 + 2.1, 6.4, 8.2, {
-      left: pWall(P.RED), right: pWall(P.RED), top: () => cell(P.YELLOW, 0),
+      left: pWall(P.NEONR), right: pWall(P.NEONR), top: () => cell(P.YELLOW, 0),
     });
   }
   // 竖式霓虹招牌（+X 面）
@@ -134,9 +134,9 @@ export function genCinema(seed: number): BuildResult {
     left: pSign(P.YELLOW, seed), right: pSign(P.YELLOW, seed),
     top: pFlatRoof(P.RFRED, 2),
   });
-  // 立式招牌塔
+  // 立式招牌塔（夜光红霓虹）
   box(faces, 23.5, 19, 27, 23.5, 0, 32, {
-    right: pSign(P.RED, seed ^ 9), left: pSign(P.RED, seed ^ 11),
+    right: pSign(P.NEONR, seed ^ 9), left: pSign(P.NEONR, seed ^ 11),
     top: pFlatRoof(P.RFGRAY, 4),
   });
   // 塔顶霓虹星
