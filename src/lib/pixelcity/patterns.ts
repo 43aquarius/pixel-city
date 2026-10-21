@@ -39,25 +39,36 @@ export function pWall(ramp: number): PatFn {
   };
 }
 
-/** 砖墙：3px 砖层 + 错缝 + 点状风化 */
+/** 砖墙：3px 砖层 + 错缝 + 逐砖色差 + 凹缝阴影 + 风化 */
 export function pBrick(ramp: number): PatFn {
   return (u, v, px, py) => {
     const row = Math.floor(v / 3);
     const fv = v - row * 3;
-    const fu = u - Math.floor(u / 5) * 5 + (row % 2) * 2.5;
-    if (fv < 0.9 || fu < 0.9) return cell(ramp, 1);          // 灰缝
-    if (bayer(px, py, 0.10)) return cell(ramp, 0, 1, 0.5);   // 砖面微差
+    const bu = u + (row % 2) * 2.5;
+    const fu = bu - Math.floor(bu / 5) * 5;
+    if (fv < 0.9 || fu < 0.9) {
+      // 灰缝：凹陷更暗 + 点状风化返碱
+      return bayer(px, py, 0.18) ? cell(ramp, 1) : cell(ramp, 2);
+    }
+    const h = hash2(Math.floor(bu / 5), row, 13);
+    if (h < 0.22) return cell(ramp, 1);                        // 深色砖
+    if (h > 0.86) return bayer(px, py, 0.5) ? cell(ramp, 0) : cell(ramp, 1);  // 浅色砖
+    if (bayer(px, py, 0.10)) return cell(ramp, 0, 1, 0.5);     // 砖面微差
     return cell(ramp, 0);
   };
 }
 
-/** 波纹金属墙（仓库）：2px 竖向瓦楞 */
+/** 波纹金属墙（仓库）：三档瓦楞明暗 + 板缝铆钉 */
 export function pCorrugated(ramp: number): PatFn {
   return (u, v, px, py) => {
     if (v < 1.5) return cell(ramp, 1);
-    const s = (u % 4) < 2 ? 0 : 1;
-    if (bayer(px, py, 0.08)) return cell(ramp, Math.min(2, s + 1));
-    return cell(ramp, s);
+    const s = u % 4;
+    const pn = u % 12;
+    if (pn < 0.8) return cell(ramp, 2);                        // 板缝
+    if (pn > 1.0 && pn < 1.9 && v % 6 < 1) return cell(ramp, 2); // 铆钉
+    const l = s < 1.3 ? 0 : s < 2.6 ? 1 : 2;                   // 峰/坡/谷
+    if (bayer(px, py, 0.08)) return cell(ramp, Math.min(2, l + 1));
+    return cell(ramp, l);
   };
 }
 
@@ -70,9 +81,11 @@ export type WindowOpts = {
   door?: boolean;    // 底层中央开门
   base?: number;     // 底部裙房高（不画窗）
   doorW?: number;
+  ac?: number;       // 窗下空调外机比例（默认 0.16）
 };
 
-/** 格栅窗墙：像素窗 + 少量暖黄亮灯 + 底层门 */
+/** 格栅窗墙 v2：像素窗 + 暖黄亮灯（部分垂帘）+ 斜角天光反射 +
+ *  窗台线 + 随机空调外机 + 裙房石砌基座 + 底层门 */
 export function pWindows(ramp: number, o: WindowOpts = {}): PatFn {
   const floorH = o.floorH ?? 7;
   const winW = o.winW ?? 2;
@@ -82,15 +95,17 @@ export function pWindows(ramp: number, o: WindowOpts = {}): PatFn {
   const seed = o.seed ?? 0;
   const base = o.base ?? 0;
   const doorW = o.doorW ?? 3;
+  const acR = o.ac ?? 0.16;
   return (u, v, px, py) => {
     if (v < 1.5) return cell(ramp, 1);   // 勒脚
     if (v < base) {
-      // 裙房：深色基座
+      // 裙房：石砌基座 + 横向拼缝
+      if (v % 3 < 0.6) return cell(ramp, 2);
       return bayer(px, py, 0.12) ? cell(ramp, 1) : cell(ramp, 0);
     }
     const fl = Math.floor((v - base) / floorH);
     const fv = v - base - fl * floorH;
-    if (fv < 1.6 || fv > 1.6 + winH + 0.9) {
+    if (fv < 1.6 || fv > 1.6 + winH + 1.15) {
       // 楼板带
       return bayer(px, py, 0.08) ? cell(ramp, 1) : cell(ramp, 0);
     }
@@ -108,34 +123,61 @@ export function pWindows(ramp: number, o: WindowOpts = {}): PatFn {
         return cell(P.DIRT, 1);
       }
     }
-    if (fu > 0.9 && fu < 0.9 + winW + 0.2 && fv > 1.6 && fv < 1.6 + winH + 0.4) {
+    if (fu > 0.9 && fu < 0.9 + winW + 0.2) {
       const fx = fu - 0.9, fy = fv - 1.6;
-      const inWin = fx > 0.7 && fx < winW + 0.3 && fy > 0.7 && fy < winH + 0.3;
-      if (inWin) {
-        const h = hash3(col, fl, seed, 31);
-        if (h < lit) return cell(P.YELLOW, 0);
-        // 玻璃：Bayer 微光斑
-        if (bayer(px, py, 0.15)) return cell(P.GLASS, 0);
-        return cell(P.GLASS, 1);
+      if (fy < winH + 0.3) {
+        // 窗本体
+        const inWin = fx > 0.7 && fx < winW + 0.3 && fy > 0.7;
+        if (inWin) {
+          const h = hash3(col, fl, seed, 31);
+          if (h < lit) {
+            // 亮灯：暖黄；约四成拉了半帘（下帘透出昏黄）
+            const cur = hash3(col, fl, seed, 47);
+            if (cur < 0.40 && fy > winH * 0.5) {
+              return bayer(px, py, 0.3) ? cell(P.TAN, 1) : cell(P.TAN, 2);
+            }
+            if (bayer(px, py, 0.18)) return cell(P.WHITE, 0);   // 亮芯
+            return cell(P.YELLOW, 0);
+          }
+          // 日间纱帘（少数）
+          if (h > 0.965) return bayer(px, py, 0.25) ? cell(P.CREAM, 1) : cell(P.CREAM, 0);
+          // 玻璃：左上斜角天光 + 窗底映地暗带
+          if (fx + fy < winW * 0.55) return cell(P.GLASS, 0);
+          if (fy > winH - 0.75) return cell(P.GLASS, 2);
+          if (bayer(px, py, 0.35)) return cell(P.GLASS, 0);
+          return cell(P.GLASS, 1);
+        }
+        return cell(ramp, 1); // 窗框
       }
-      return cell(ramp, 1); // 窗框
+      // 窗台线 + 台下空调外机
+      if (fy < winH + 0.62) {
+        return bayer(px, py, 0.35) ? cell(ramp, 0) : cell(ramp, 1);   // 台面受光
+      }
+      const hasAc = winW >= 2 && hash3(col, fl, seed, 91) < acR;
+      if (hasAc && fx > 1.3 && fx < 2.8 && fy < winH + 1.02) {
+        return (fy < winH + 0.78) ? cell(P.METAL, 1) : cell(P.METAL, 2);
+      }
+      return cell(ramp, 1);
     }
     if (bayer(px, py, 0.07)) return cell(ramp, 1);
     return cell(ramp, 0);
   };
 }
 
-/** 玻璃幕墙：4×7 单元，金属竖梃 + 楼层线 + 随机反光单元 */
+/** 玻璃幕墙 v2：竖梃铆钉 + 深色玻璃横带（shadow box）+
+ *  斜向天光反射带 + 随机高反单元 */
 export function pGlassCurtain(seed = 0, ramp = P.GLASS): PatFn {
   return (u, v, px, py) => {
     const col = Math.floor(u / 4), row = Math.floor(v / 7);
     const fu = u - col * 4, fv = v - row * 7;
-    if (fu < 1 || fv < 1) return cell(P.METAL, 1);            // 竖梃/横梁
-    if (fv < 2) return cell(P.METAL, 2);                      // 楼层带
+    if (fu < 1) return (v % 6 < 1) ? cell(P.METAL, 2) : cell(P.METAL, 1);  // 竖梃 + 铆点
+    if (fv < 1.6) return cell(P.GLASS, 3);                                 // 深色横带
+    // 斜向天光带（跨单元连续）
+    if (((u + v * 2.2) % 30) < 6.5 && fv > 2.1) return cell(P.GLASS, 0);
     const h = hash3(col, row, seed, 77);
-    if (h < 0.10) return cell(P.GLASS, 0);                    // 高反光
-    if (h > 0.86) return cell(P.GLASS, 2);
-    if (bayer(px, py, 0.10)) return cell(ramp, 0, 1, 0.6);
+    if (h < 0.08) return cell(P.GLASS, 0);                    // 高反光
+    if (h > 0.9) return cell(P.GLASS, 2);
+    if (bayer(px, py, 0.28)) return cell(ramp, 0);
     return cell(ramp, 1);
   };
 }
@@ -167,25 +209,37 @@ export function pAwning(accent: number): PatFn {
 // 屋顶
 // ------------------------------------------------------------
 
-/** 平屋顶：边缘压边 + 通风斑点 + 屋面杂点 */
+/** 平屋顶 v2：压边 + 伸缩缝 + 砾石屋面 + 污渍 + 屋面积水 */
 export function pFlatRoof(ramp: number, seed = 0): PatFn {
   return (u, v, px, py) => {
-    const h = hash2(Math.floor(u / 4), Math.floor(v / 4), seed);
     if (u < 1.2 || v < 1.2) return cell(ramp, 1);
-    if (h < 0.10) return cell(ramp, 2);   // 污渍/设备
+    if (u % 8 < 0.7 || v % 8 < 0.7) return cell(ramp, 2);   // 伸缩缝
+    const h = hash2(Math.floor(u / 5), Math.floor(v / 5), seed);
+    if (h < 0.07) {
+      // 屋面积水（亮斑闪烁）
+      if (bayer(px, py, 0.12)) return cell(P.WATER, 0);
+      if (bayer(px, py, 0.75)) return cell(P.WATER, 1);
+      return cell(P.WATER, 2);
+    }
+    if (h < 0.16) return cell(ramp, 2);   // 污渍/设备痕
     if (bayer(px, py, 0.18)) return cell(ramp, 1);
     return cell(ramp, 0);
   };
 }
 
-/** 坡屋面瓦：3px 横向瓦垄 + 错缝瓦钉 */
+/** 坡屋面瓦 v2：3px 瓦垄错缝 + 逐瓦色差 + 瓦缘反光 */
 export function pShingle(ramp: number): PatFn {
   return (u, v, px, py) => {
     const row = Math.floor(v / 3);
     const fv = v - row * 3;
-    if (fv < 0.8) return cell(ramp, 1);
-    const tab = (u + row * 2.5) % 5;
-    if (tab < 0.8) return cell(ramp, 1);
+    const tu = u + row * 2.5;
+    const tab = tu % 5;
+    if (fv < 0.8) return cell(ramp, 1);            // 瓦垄阴影
+    if (tab < 0.8) return cell(ramp, 1);           // 错缝
+    const h = hash2(Math.floor(tu / 5), row, 29);
+    if (h < 0.16) return cell(ramp, 1);            // 深色瓦
+    if (h > 0.92) return cell(ramp, 0, 1, 0.55);   // 受光瓦
+    if (fv > 2.55 && bayer(px, py, 0.35)) return cell(ramp, 0, 1, 0.4);  // 瓦缘反光
     if (bayer(px, py, 0.12)) return cell(ramp, 1);
     return cell(ramp, 0);
   };

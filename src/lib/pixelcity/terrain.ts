@@ -38,6 +38,14 @@ type GroundPat = (X: number, Y: number, px: number, py: number, c: GroundCtx) =>
 const P = RAMP;
 const ramp = (r: number, l: number): number => RAMPS[r][l];
 
+/** 草簇位置（每变体 3 处，模块加载时定型） */
+const TUFT_POS: Array<Array<[number, number]>> = [0, 1, 2, 3].map(vi =>
+  [0, 1, 2].map(k => [
+    1.5 + hash2(vi * 9 + 1, k * 3 + 1, 31) * 12,
+    1.5 + hash2(vi * 7 + 2, k * 5 + 2, 33) * 12,
+  ] as [number, number]),
+);
+
 // ------------------------------------------------------------
 // 基础地形图案
 // ------------------------------------------------------------
@@ -50,7 +58,7 @@ function grassBase(X: number, Y: number, px: number, py: number, c: GroundCtx): 
 }
 
 const grassPat: GroundPat = (X, Y, px, py, c) => {
-  // 装饰：小花 / 石子（变体 2/3）
+  // 装饰：小花（黄/白/红） / 石子（变体 2/3）
   if (c.variant === 2) {
     const fx = 2 + hash2(1, 2, 9) * 12, fy = 2 + hash2(3, 4, 9) * 12;
     if (Math.abs(X - fx) < 0.6 && Math.abs(Y - fy) < 0.6) {
@@ -58,9 +66,17 @@ const grassPat: GroundPat = (X, Y, px, py, c) => {
     }
     const fx2 = 2 + hash2(5, 6, 9) * 12, fy2 = 2 + hash2(7, 8, 9) * 12;
     if (Math.abs(X - fx2) < 0.6 && Math.abs(Y - fy2) < 0.6) return ramp(P.WHITE, 0);
+    const fx3 = 2 + hash2(9, 10, 9) * 12, fy3 = 2 + hash2(11, 12, 9) * 12;
+    if (Math.abs(X - fx3) < 0.6 && Math.abs(Y - fy3) < 0.6) return ramp(P.RED, 0);
   } else if (c.variant === 3) {
     const sx = 3 + hash2(11, 12, 9) * 10, sy = 3 + hash2(13, 14, 9) * 10;
     if (Math.abs(X - sx) < 0.7 && Math.abs(Y - sy) < 0.7) return ramp(P.SIDE, 1);
+  }
+  // 草簇：三两处深色草叶（所有变体，左亮右暗）
+  for (const [tx, ty] of TUFT_POS[c.variant]) {
+    if (X >= tx && X < tx + 1.6 && Y >= ty && Y < ty + 2.6) {
+      return (X - tx) < 0.8 ? ramp(P.GRASS, 2) : ramp(P.GRASS, 3);
+    }
   }
   // 水岸 → 沙滩过渡带
   const bands: Array<[number, number]> = [
@@ -91,6 +107,8 @@ const waterPat: GroundPat = (X, Y, px, py, c) => {
   const f = c.frame;
   const n = vnoise(X / 6 + f * 1.31, Y / 6 + f * 0.7, 77);
   const n2 = vnoise(X / 2.5, Y / 2.5, 78 + f);
+  // 波光：随帧闪炼的白色亮斑
+  if (n2 > 0.93) return ramp(P.FOAM, 0);
   const v = 0.46 + (n - 0.5) * 0.34 + (n2 - 0.5) * 0.12;
   let base = ramp(P.WATER, dquant(v, px, py, 4));
   // 岸边泡沫
@@ -118,6 +136,8 @@ const roadPat: GroundPat = (X, Y, px, py, c) => {
   const cN = m & 1, cE = m & 2, cS = m & 4, cW = m & 8;
   const dN = Y, dS = 16 - Y, dW = X, dE = 16 - X;
   const b = (BAYER8[(py & 7) * 8 + (px & 7)] + 0.5) / 64;
+  const straightNS = cN && cS && !cE && !cW;
+  const straightEW = cE && cW && !cN && !cS;
 
   // 侧石（路面边缘一圈深色）
   const curb =
@@ -142,14 +162,31 @@ const roadPat: GroundPat = (X, Y, px, py, c) => {
     return r;
   }
 
+  // 窨井盖（部分直路，偏离中线）
+  if ((straightNS || straightEW) && c.variant === 1) {
+    const mx = straightNS ? 6.2 : 9.5;
+    const my = straightNS ? 9.5 : 6.2;
+    const dxr = (X - mx) / 1.7, dyr = (Y - my) / 1.7;
+    const rr = dxr * dxr + dyr * dyr;
+    if (rr < 1) return ramp(P.ASPH, 2);
+    if (rr < 1.5) return b < 0.5 ? ramp(P.ASPH, 0) : ramp(P.ASPH, 1);
+  }
+
   // 中线虚线（仅直路）
-  const straightNS = cN && cS && !cE && !cW;
-  const straightEW = cE && cW && !cN && !cS;
   if (straightNS && Math.abs(X - 8) < 0.85 && (Y % 7) < 3.4) {
     return b < 0.25 ? ramp(P.PAINTY, 1) : ramp(P.PAINTY, 0);
   }
   if (straightEW && Math.abs(Y - 8) < 0.85 && (X % 7) < 3.4) {
     return b < 0.25 ? ramp(P.PAINTY, 1) : ramp(P.PAINTY, 0);
+  }
+
+  // 龟裂细线（斜向）
+  if (c.variant === 2 && straightNS && Math.abs(X + Y * 0.55 - 15) < 0.35) return ramp(P.ASPH, 2);
+  if (c.variant === 2 && straightEW && Math.abs(Y + X * 0.55 - 14) < 0.35) return ramp(P.ASPH, 2);
+
+  // 沥青修补疤（深色补丁，边缘虚化）
+  if (c.variant === 3 && X > 9.6 && X < 14.2 && Y > 2.4 && Y < 6.8) {
+    return b < 0.6 ? ramp(P.ASPH, 1) : ramp(P.ASPH, 2);
   }
 
   // 沥青路面：磨耗斑点

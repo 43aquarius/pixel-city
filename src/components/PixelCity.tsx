@@ -156,7 +156,7 @@ export default function PixelCity() {
   const [tool, setTool] = useState<Tool>({ t: 'view' });
   const [subCat, setSubCat] = useState<SubCat>('terr');
   const [stats, setStats] = useState({ pop: 0, buildings: 0, roads: 0, trees: 0 });
-  const [crowd, setCrowd] = useState({ peds: 0, cars: 0, pets: 0 });
+  const [crowd, setCrowd] = useState({ peds: 0, cars: 0, pets: 0, birds: 0 });
   const [hover, setHover] = useState<{ tx: number; ty: number } | null>(null);
   const [fps, setFps] = useState(0);
   const [zoom, setZoom] = useState(2);
@@ -548,8 +548,8 @@ export default function PixelCity() {
               onClick={() => setPeds(false, prev => prev - PED_STEP)}>
               −
             </button>
-            <span className="pxc-num" title="当前行人目标数（含职业角色；宠物另计）">
-              {ui.pedsAuto ? `自动·${crowd.peds}${crowd.pets ? `+${crowd.pets}宠` : ''}` : `${ui.pedsN}`}
+            <span className="pxc-num" title="当前行人目标数（含职业角色；宠物/鸽群另计）">
+              {ui.pedsAuto ? `自动·${crowd.peds}${crowd.pets ? `+${crowd.pets}宠` : ''}${crowd.birds ? `+${crowd.birds}鸽` : ''}` : `${ui.pedsN}`}
             </span>
             <button className="pxc-btn mini" aria-label="增加行人"
               disabled={ui.pedsAuto || ui.pedsN >= PED_MAX}
@@ -626,7 +626,7 @@ export default function PixelCity() {
           <div style={{ fontSize: 11, lineHeight: 1.7, color: '#3d434e' }}>
             一切画面均由代码程序化生成：{CATALOG.length} 类 {CATALOG.reduce((s, d) => s + d.variants, 0)} 变体建筑，
             256×256 大地图 · 10 种地形 · 一键城市（密度三档可调）·
-            行人车辆（五职业 · 遛狗与流浪猫狗 · 结伴出行，智能寻路，数量可调）·
+            行人车辆（九职业 · 遛狗与流浪猫狗 · 广场鸽群 · 结伴出行，智能寻路，数量可调）·
             昼夜循环（入夜点亮万家灯火、路灯与霓虹），
             经固定 2:1 等距正交投影离线光栅化为透明精灵，
             叠加 {PALETTE.length} 色有限色板、Bayer 有序抖动、
@@ -678,7 +678,7 @@ export default function PixelCity() {
               <img src={iu('zoomin')} alt="" width={12} height={12} />
             </button>
             <button className={`pxc-winbtn${ui.crowds ? ' on' : ''}`}
-              title={ui.crowds ? `行人车辆：开（行人 ${crowd.peds} · 宠物 ${crowd.pets} · 车辆 ${crowd.cars}）` : '行人车辆：关'}
+              title={ui.crowds ? `行人车辆：开（行人 ${crowd.peds} · 宠物 ${crowd.pets} · 鸽群 ${crowd.birds} · 车辆 ${crowd.cars}）` : '行人车辆：关'}
               aria-label="行人车辆开关" onClick={toggleCrowds}>
               <img src={iu(ui.crowds ? 'person' : 'personoff')} alt="" width={12} height={12} />
             </button>
@@ -746,7 +746,7 @@ export default function PixelCity() {
           )}
 
           <div className="pxc-badge">
-            ZOOM ×{zoom} · {fps} FPS{ui.crowds ? ` · 行人 ${crowd.peds}${crowd.pets ? ` +${crowd.pets} 宠` : ''}` : ''}
+            ZOOM ×{zoom} · {fps} FPS{ui.crowds ? ` · 行人 ${crowd.peds}${crowd.pets ? ` +${crowd.pets} 宠` : ''}${crowd.birds ? ` +${crowd.birds} 鸽` : ''}` : ''}
           </div>
 
           {toast && <div key={toast.id} className="pxc-toast" role="status">{toast.msg}</div>}
@@ -805,7 +805,7 @@ export default function PixelCity() {
           <div><b>道路</b> {stats.roads}</div>
           <div><b>树木</b> {stats.trees}</div>
           <div><b>时间</b> {clock.text} {clock.ph}</div>
-          {ui.crowds && <div><b>行人</b> {crowd.peds} · {crowd.pets} 宠 · {crowd.cars} 车</div>}
+          {ui.crowds && <div><b>行人</b> {crowd.peds} · {crowd.pets} 宠 · {crowd.birds} 鸽 · {crowd.cars} 车</div>}
         </div>
       )}
 
@@ -844,7 +844,7 @@ export default function PixelCity() {
               <span className="t">建 造 中 心</span>
               <span className="s">
                 人口 {stats.pop} · 建筑 {stats.buildings}
-                {ui.crowds ? ` · 行人 ${crowd.peds}${crowd.pets ? `+${crowd.pets}宠` : ''}` : ''} · {clock.text}
+                {ui.crowds ? ` · 行人 ${crowd.peds}${crowd.pets ? `+${crowd.pets}宠` : ''}${crowd.birds ? `+${crowd.birds}鸽` : ''}` : ''} · {clock.text}
               </span>
             </button>
             {ui.drawer && (
@@ -914,7 +914,7 @@ export default function PixelCity() {
                     <tr><td>双指捏合</td><td>缩放（×1 / ×2 / ×3），也可用顶栏 ±</td></tr>
                     <tr><td>底栏</td><td>工具横滑切换；▲ 展开建造中心抽屉</td></tr>
                     <tr><td>面板</td><td>所有面板都能点标题栏 ▾ / ▸ 收起展开</td></tr>
-                    <tr><td>行人</td><td>建造中心 → 市政操作，可自动或手动 0-300 人；街头另有警察/邮递员/学生/主厨/慢跑者与猫狗宠物出没</td></tr>
+                    <tr><td>行人</td><td>建造中心 → 市政操作，可自动或手动 0-300 人；街头另有警察/邮递员/学生/主厨/慢跑者/医生/消防员/环卫工/游客出没，猫狗宠物与广场鸽群相伴</td></tr>
                     <tr><td>昼夜</td><td>市政操作：自动循环（×1/×2/×4）或跳转 晨/午/暮/夜</td></tr>
                   </tbody>
                 </table>

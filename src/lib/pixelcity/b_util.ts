@@ -25,7 +25,7 @@ export function roofDeck(
   });
 }
 
-/** 烟囱（含顶部黑洞口） */
+/** 烟囱 v2：砖身 + 混凝土顶盖板 + 陶土排烟口（顶部黑洞） */
 export function chimney(
   faces: Face[], x: number, y: number, z0: number, z1: number,
   size = 2.4,
@@ -33,33 +33,70 @@ export function chimney(
   box(faces, x, y, x + size, y + size, z0, z1, {
     right: pBands(P.BRICK, 5),
     left: pBands(P.BRICK, 5),
+  });
+  // 混凝土顶盖板（略外挑）
+  box(faces, x - 0.3, y - 0.3, x + size + 0.3, y + size + 0.3, z1, z1 + 0.7, {
+    top: () => cell(P.OUTLINE, 0),
+    right: pWall(P.SIDE),
+    left: pWall(P.SIDE),
+  });
+  // 陶土排烟口
+  box(faces, x + size * 0.32, y + size * 0.32, x + size * 0.68, y + size * 0.68, z1 + 0.7, z1 + 1.5, {
+    right: pWall(P.TAN),
+    left: pWall(P.TAN),
     top: () => cell(P.OUTLINE, 0),
   });
 }
 
-/** 屋顶水箱 */
+/** 屋顶水箱 v2：四支腿 + 罐体 + 顶部通气管 */
 export function waterTank(faces: Face[], cx: number, cy: number, z0: number, z1: number): void {
+  // 支腿
+  const L = 1.7;
+  for (const [ox, oy] of [[-L, -L], [L, -L], [-L, L], [L, L]] as const) {
+    box(faces, cx + ox, cy + oy, cx + ox + 0.9, cy + oy + 0.9, z0 - 1.5, z0 + 0.3, {
+      right: pWall(P.METAL), left: pWall(P.METAL),
+      top: () => cell(P.METAL, 1),
+    });
+  }
   prism(faces, cx, cy, 2.3, z0, z1, {
     side: (u, v, px, py) => pTankShell()(u, v, px, py),
     top: pFlatRoof(P.METAL, 4),
   }, 8);
+  // 顶部通气管（红帽）
+  box(faces, cx + 1.3, cy + 1.3, cx + 2.0, cy + 2.0, z1, z1 + 0.9, {
+    right: pWall(P.METAL), left: pWall(P.METAL),
+    top: () => cell(P.RED, 0),
+  });
 }
 
-/** 屋顶空调机组 / 通风口 */
+/** 屋顶空调机组 v2：顶面风扇格栅（同心圆）+ 侧向散热百叶 */
 export function acUnit(faces: Face[], x: number, y: number, z: number, s = 3): void {
+  const topPat: PatFn = (u, v, px, py) => {
+    const d = Math.hypot(u - s / 2, v - s / 2);
+    if (d < s * 0.26) return cell(P.OUTLINE, 0);        // 风扇轴心
+    if (d < s * 0.4) return cell(P.METAL, 2);           // 格栅环
+    return pFlatRoof(P.METAL, 9)(u, v, px, py);
+  };
   box(faces, x, y, x + s, y + s, z, z + 1.8, {
-    top: pFlatRoof(P.METAL, 9),
-    right: pWall(P.METAL),
+    top: topPat,
+    right: (u, v) => ((u % 1.7) < 0.85 ? cell(P.METAL, 1) : cell(P.METAL, 2)),  // 百叶
     left: pWall(P.METAL),
   });
 }
 
-/** 细天线杆 */
+/** 细天线杆 v2：杆身 + 电视天线双横枝 + 红色航标 */
 export function antenna(faces: Face[], x: number, y: number, z0: number, z1: number): void {
   box(faces, x, y, x + 1, y + 1, z0, z1, {
     right: pWall(P.METAL),
     left: pWall(P.METAL),
     top: () => cell(P.RED, 0),
+  });
+  // 电视天线横枝（上长下短）
+  box(faces, x - 1.6, y + 0.15, x + 2.6, y + 0.85, z1 - 2.6, z1 - 2.1, {
+    right: pWall(P.METAL), left: pWall(P.METAL), top: () => cell(P.METAL, 1),
+  });
+  box(faces, x - 0.9, y + 0.2, x + 1.9, y + 0.8, z1 - 4.0, z1 - 3.6, {
+    right: pWall(P.METAL), left: pWall(P.METAL), top: () => cell(P.METAL, 1),
   });
 }
 

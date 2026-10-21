@@ -1,14 +1,16 @@
 // ============================================================
-// actors.ts — 街头角色系统 v3：精细行人 + 职业 + 宠物 + 车辆
+// actors.ts — 街头角色系统 v4：精细行人 + 职业 + 宠物 + 鸽群 + 车辆
 //
 // 行人：10×17 / 9×14 多部件像素画（发型/肤色/上衣/上衣暗面/
 //       裤子/鞋/眼睛/书包/手杖），三种体型（成人/儿童/长者），
 //       14 套配色，4 朝向 × 双步态；足印接触阴影纳入精灵。
-// 职业：警察/邮递员/学生/主厨/慢跑者 —— 制服网格手术
-//       （大檐帽+徽章/绿帽+肩带邮包/水手领/厨师高帽+围裙/
-//       运动发带+短裤裸腿），专属速度与巡弋节奏。
+// 职业：警察/邮递员/学生/主厨/慢跑者/医生/消防员/环卫工/游客
+//       —— 制服网格手术（大檐帽+徽章/绿帽+肩带邮包/水手领/
+//       厨师高帽+围裙/运动发带+短裤/白大褂+红十字/红盔+反光条/
+//       橙背心+扫帚/草帽+相机），专属速度与巡弋节奏。
 // 宠物：狗（跟随主人遛狗/流浪）、猫（流浪，走走停停会坐
 //       下）—— 全新四足像素精灵，4 朝向 × 双步态 + 坐姿。
+// 鸽群：广场鸽 —— 集群出没、低头啄食、行人靠近受惊急窜。
 // 结伴：情侣/朋友成对生成，同路径并排出行。
 // 行为：BFS 路径寻路 + 路口停顿 + 到达逗留，夜间（dayness）
 //       人口自动回落；车辆目的地路径行驶。
@@ -145,17 +147,24 @@ const LOOKS: PersonLook[] = [
 export const LOOK_N = LOOKS.length;
 
 // ------------------------------------------------------------
-// 职业角色（v3）：制服覆盖 + 专属配色
+// 职业角色（v4）：制服覆盖 + 专属配色
 //   0 市民 / 1 警察 / 2 邮递员 / 3 学生(少年) / 4 主厨 / 5 慢跑者
+//   6 医生 / 7 消防员 / 8 环卫工 / 9 游客
 // ------------------------------------------------------------
 
-export type Role = 0 | 1 | 2 | 3 | 4 | 5;
+export type Role = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 const NAVY = '#2C3E5E', NAVY_D = '#1C2A44';
 const PGRN = '#3F7A4C', PGRN_D = '#2A5636';
 const GOLD = '#F2D24B';
 
-/** 职业网格手术：在基础网格上叠加制服元素（帽/领/围裙/邮包/发带） */
+/** 在网格行指定列写入符号（越界安全） */
+function setCol(row: string, col: number, ch: string): string {
+  if (col < 0 || col >= row.length) return row;
+  return row.slice(0, col) + ch + row.slice(col + 1);
+}
+
+/** 职业网格手术：在基础网格上叠加制服元素（帽/领/围裙/邮包/发带/白大褂/扫帚…） */
 function applyRole(g: Grid, role: Role, body: Body, back: boolean): Grid {
   const out = g.slice();
   if (role === 1) {            // 警察：大檐帽 + 前徽章
@@ -193,6 +202,27 @@ function applyRole(g: Grid, role: Role, body: Body, back: boolean): Grid {
   } else if (role === 5) {     // 慢跑者：运动发带 + 短裤裸腿
     out[1] = '.TTTTTTTT.';
     if (!back) out[11] = '...RRRRR..';
+  } else if (role === 6) {     // 医生：白大褂 + 藏青领 + 左胸红十字
+    out[5] = '...WWWWW..';
+    out[6] = back ? '..WWWNWWW.' : '..xWWNWWW.';
+    out[7] = back ? '..WWWNWWW.' : '..xWWNWWW.';
+    out[9] = '...WWWWW..';
+  } else if (role === 7) {     // 消防员：红盔护檐 + 藏青制服 + 腰部金色反光条
+    out[0] = '..TTTTTT..';
+    out[1] = '.TTTTTTTT.';
+    out[2] = out[2].replace('HH', 'TT');
+    out[9] = '...YYYY...';
+  } else if (role === 8) {     // 环卫工：橙背心反光条 + 手持扫帚
+    out[6] = '..vvRRvv..';
+    out[7] = '..vvYYvv..';
+    for (let y = 8; y <= 13; y++) out[y] = setCol(out[y], 9, 'C');   // 帚柄
+    out[14] = out[14].slice(0, 7) + 'CCC';                            // 帚毛
+    out[15] = out[15].slice(0, 7) + 'CCC';
+  } else if (role === 9) {     // 游客：宽檐草帽 + 胸前相机 + 花衬衫
+    out[0] = '..TTTTTT..';
+    out[1] = '.TTTTTTTT.';
+    out[2] = out[2].replace('HH', 'T');
+    if (!back) out[5] = '...KYYK...';
   }
   return out;
 }
@@ -204,7 +234,7 @@ function roleColors(role: Role, look: PersonLook, body: Body, lookI: number, v: 
     H: hair, S: v === 1 ? SKIN_TAN : SKIN_LIGHT, E: NIGHTC,
     R: look.shirt, r: look.shirtDark, P: look.pants, K: NIGHTC,
     C: CANE, B: BAG, T: NIGHTC, Y: GOLD, W: '#F4F2E8', N: NAVY,
-    g: PGRN_D, e: NIGHTC,
+    g: PGRN_D, e: NIGHTC, x: '#E05548', v: '#E0742C',
   };
   if (role === 1) { c.R = NAVY; c.r = NAVY_D; c.P = NAVY_D; c.T = NAVY; c.B = '#F4F2E8'; }
   if (role === 2) { c.R = PGRN; c.r = PGRN_D; c.P = '#4A5A6E'; c.T = PGRN; c.B = '#8A5A36'; }
@@ -214,10 +244,20 @@ function roleColors(role: Role, look: PersonLook, body: Body, lookI: number, v: 
     const jog = [['#E05548', '#9C4433'], ['#5BC8B8', '#28635F'], ['#F2D24B', '#C4A93E'], ['#4A86C8', '#264F8C']][v % 4];
     c.R = jog[0]; c.r = jog[1]; c.T = jog[0]; c.P = c.S;   // 短裤同衣色，腿为肤色
   }
+  if (role === 6) { c.R = '#F4F2E8'; c.r = '#C3C7CC'; c.P = '#23252E'; }         // 医生白大褂
+  if (role === 7) { c.R = '#2C3E5E'; c.r = '#1C2A44'; c.P = '#23252E'; c.T = '#E05548'; }  // 消防员红盔藏青衣
+  if (role === 8) { c.R = '#5F6169'; c.r = '#3B3D46'; c.P = '#3B3D46'; c.C = '#8A6F4C'; }   // 环卫工灰衣橙背心
+  if (role === 9) {  // 游客花衬衫 + 卡其短裤
+    const aloha = [['#5BC8B8', '#28635F'], ['#E05548', '#9C4433']][v % 2];
+    c.R = aloha[0]; c.r = aloha[1]; c.T = '#E8D5A3'; c.P = '#8A6F4C'; c.Y = '#F2D24B';
+  }
   return c;
 }
 
-const ROLE_BODIES: Record<number, Body[]> = { 1: [0], 2: [0], 3: [1], 4: [0], 5: [0] };
+const ROLE_BODIES: Record<number, Body[]> = {
+  1: [0], 2: [0], 3: [1], 4: [0], 5: [0],
+  6: [0], 7: [0], 8: [0], 9: [0],
+};
 const FACINGS: Facing[] = ['dr', 'dl', 'ur', 'ul'];
 
 // ------------------------------------------------------------
@@ -326,6 +366,71 @@ export function petSpOf(
   return m.get(`${kind}#${li}#${facing}#${pose}`) ?? null;
 }
 
+// ------------------------------------------------------------
+// 鸽子（v4）：广场鸽 —— 8×5 像素（头高/迈步/低头啄食三姿态）
+// ------------------------------------------------------------
+
+function birdGrid(pose: 0 | 1): Grid {
+  return pose === 0 ? [
+    '.....DD.',
+    '..BBBDDD',
+    'BBBBBDDE',
+    'WBBBBB.O',
+    '..O...O.',
+  ] : [
+    '.....DD.',
+    '..BBBDDD',
+    'BBBBBDDE',
+    'WBBBBB.O',
+    '...O.O..',
+  ];
+}
+
+/** 啄食：头部压低到地面 */
+function birdPeck(): Grid {
+  return [
+    '........',
+    '..BBB...',
+    'BBBBBBD.',
+    'WBBBBDDO',
+    '...O.O..',
+  ];
+}
+
+const BIRD_LOOKS = [
+  { B: '#9BA0A7', D: '#6B7078', W: '#C3C7CC' },   // 蓝灰羽
+  { B: '#8A6F4C', D: '#6B543A', W: '#B3A17A' },   // 褐羽
+];
+
+export function buildBirdSprites(): Map<string, PersonSprite> {
+  const m = new Map<string, PersonSprite>();
+  for (let li = 0; li < BIRD_LOOKS.length; li++) {
+    const colors: Record<string, string> = {
+      ...BIRD_LOOKS[li], E: NIGHTC, O: '#E0954B',
+    };
+    const put = (g: Grid, pose: string) => {
+      const w = g[0].length, h = g.length;
+      const ox = -Math.floor(w / 2), oy = -(h - 1);
+      for (const f of FACINGS) {
+        const gg = f === 'dl' || f === 'ul' ? mirror(g) : g;
+        m.set(`bird#${li}#${f}#${pose}`, { cv: gridToCanvasC(gg, colors), ox, oy });
+      }
+    };
+    put(birdGrid(0), '0');
+    put(birdGrid(1), '1');
+    put(birdPeck(), 'peck');
+  }
+  return m;
+}
+
+export function birdSpOf(
+  m: Map<string, PersonSprite>, facing: Facing, frame: number, look: number, pecking: boolean,
+): PersonSprite | null {
+  const pose = pecking ? 'peck' : String(frame % 2);
+  const li = ((look % 2) + 2) % 2;
+  return m.get(`bird#${li}#${facing}#${pose}`) ?? null;
+}
+
 export type Facing = 'dr' | 'dl' | 'ur' | 'ul';
 export type Body = 0 | 1 | 2;   // 0 成人 / 1 儿童 / 2 长者
 
@@ -409,8 +514,8 @@ export function buildPersonSprites(): Map<string, PersonSprite> {
       }
     }
   }
-  // 职业制服精灵：警1/邮2/厨4/跑5 为成人，学3 为少年；每职业 2 肤色变体（跑者 4 衣色）
-  for (let role = 1; role <= 5; role++) {
+  // 职业制服精灵：警1/邮2/厨4/跑5/医6/消7/环8/游9 为成人，学3 为少年；每职业 2 变体（跑者 4 衣色）
+  for (let role = 1; role <= 9; role++) {
     const variants = role === 5 ? 4 : 2;
     for (let v = 0; v < variants; v++) {
       const look = LOOKS[(v * 5 + role) % LOOKS.length];
@@ -522,12 +627,12 @@ export function carSpriteKey(dir: CarDir, look: number): string {
 // ------------------------------------------------------------
 
 export type Actor = {
-  kind: 0 | 1 | 2 | 3;     // 0 行人 / 1 车辆 / 2 狗 / 3 猫
+  kind: 0 | 1 | 2 | 3 | 4; // 0 行人 / 1 车辆 / 2 狗 / 3 猫 / 4 鸽子
   fx: number; fy: number; // 当前出发格
   dx: number; dy: number; // 行进方向
   t: number;              // 0..1 行进进度
   speed: number;          // 格 / 秒
-  look: number;           // 配色（行人=衣装；宠物=毛色 0-3）
+  look: number;           // 配色（行人=衣装；宠物=毛色 0-3；鸽=羽色 0-1）
   body: Body;             // 行人体型
   role: Role;             // 行人职业（0 市民）
   phase: number;          // 步态相位偏移
@@ -536,6 +641,9 @@ export type Actor = {
   wait: number;           // 停留秒数
   master: Actor | null;   // 狗的主人（流浪为 null）
   gone: boolean;          // 已移除标记（供跟随者检测）
+  home?: [number, number] | null;  // 鸽群活动中心
+  flee?: number;          // 鸽子受惊剩余秒
+  thx?: number; thy?: number;      // 威胁来源坐标（受惊时记录）
 };
 
 const DIRS: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -607,6 +715,7 @@ export class ActorSystem {
   peds = 0;
   cars = 0;
   pets = 0;
+  birds = 0;
   enabled = true;
   pedAuto = true;
   pedManual = 80;
@@ -614,22 +723,26 @@ export class ActorSystem {
   static readonly PED_AUTO_MAX = 220;
   static readonly CAR_MAX = 40;
   static readonly PET_MAX = 40;
+  static readonly BIRD_MAX = 14;
   /** 0=深夜 1=白昼（引擎每帧回写；自动模式下人口随之消长） */
   dayness = 1;
   private targetP = 0;
   private targetC = 0;
   private targetPet = 0;
+  private targetBird = 0;
   private dirty = true;
   private spawnCd = 0;
 
   private persons: Map<string, PersonSprite> | null = null;
   private carsMap: Map<string, Sprite> | null = null;
   private petSprites: Map<string, PersonSprite> | null = null;
+  private birdSprites: Map<string, PersonSprite> | null = null;
 
   ensureSprites(): void {
     if (!this.persons) this.persons = buildPersonSprites();
     if (!this.carsMap) this.carsMap = buildCarSprites();
     if (!this.petSprites) this.petSprites = buildPetSprites();
+    if (!this.birdSprites) this.birdSprites = buildBirdSprites();
   }
 
   personSp(facing: Facing, frame: number, look: number, body: Body, role: Role = 0): PersonSprite | null {
@@ -638,6 +751,10 @@ export class ActorSystem {
 
   petSp(kind: PetKind, facing: Facing, frame: number, look: number, sitting: boolean): PersonSprite | null {
     return this.petSprites ? petSpOf(this.petSprites, kind, facing, frame, look, sitting) : null;
+  }
+
+  birdSp(facing: Facing, frame: number, look: number, pecking: boolean): PersonSprite | null {
+    return this.birdSprites ? birdSpOf(this.birdSprites, facing, frame, look, pecking) : null;
   }
 
   carSp(dir: CarDir, look: number): Sprite | null {
@@ -664,6 +781,8 @@ export class ActorSystem {
     }
     this.targetC = Math.max(2, Math.round(Math.max(4, Math.min(ActorSystem.CAR_MAX, Math.floor(st.roads / 55))) * carK));
     this.targetPet = Math.min(ActorSystem.PET_MAX, Math.round(this.targetP * 0.16));
+    this.targetBird = Math.max(0, Math.min(ActorSystem.BIRD_MAX,
+      Math.round(this.targetP * 0.055 * (0.35 + 0.65 * this.dayness))));   // 鸽群夜间归巢
     this.dirty = false;
   }
 
@@ -692,13 +811,18 @@ export class ActorSystem {
     if (kind === 1) {
       speed = 2.0 + Math.random() * 0.9;
     } else {
-      // 职业分布：61% 市民 / 8% 警察 / 7% 邮递员 / 11% 学生 / 5% 主厨 / 8% 慢跑者
+      // 职业分布：40% 市民 / 8% 警 / 7% 邮 / 11% 学生 / 5% 厨 / 8% 跑 /
+      //           5% 医生 / 4% 消防员 / 5% 环卫工 / 7% 游客
       const rr = Math.random();
       if (rr < 0.08) { role = 1; body = 0; speed = 0.72 + Math.random() * 0.2; }        // 警察巡弋
       else if (rr < 0.15) { role = 2; body = 0; speed = 0.95 + Math.random() * 0.22; }  // 邮递员赶路
       else if (rr < 0.26) { role = 3; body = 1; speed = 0.78 + Math.random() * 0.3; }   // 学生结伴上学
       else if (rr < 0.31) { role = 4; body = 0; speed = 0.5 + Math.random() * 0.2; }    // 主厨踱步
       else if (rr < 0.39) { role = 5; body = 0; speed = 1.3 + Math.random() * 0.35; }  // 慢跑者
+      else if (rr < 0.44) { role = 6; body = 0; speed = 0.62 + Math.random() * 0.18; }  // 医生巡诊
+      else if (rr < 0.48) { role = 7; body = 0; speed = 0.72 + Math.random() * 0.25; }  // 消防员巡查
+      else if (rr < 0.53) { role = 8; body = 0; speed = 0.48 + Math.random() * 0.18; }  // 环卫工慢扫
+      else if (rr < 0.60) { role = 9; body = 0; speed = 0.46 + Math.random() * 0.2; }   // 游客闲逛
       else {
         const bb = Math.random();
         body = bb < 0.70 ? 0 : bb < 0.88 ? 1 : 2;
@@ -766,6 +890,31 @@ export class ActorSystem {
     this.pets++;
   }
 
+  /** 鸽群：在道路/广场周围成群生成（3-6 只），以出生点为活动中心 */
+  private spawnFlock(map: CityMap): void {
+    const spot = this.randomRoad(map);
+    if (!spot) return;
+    const n = 3 + Math.floor(Math.random() * 4);
+    for (let k = 0; k < n && this.birds < ActorSystem.BIRD_MAX; k++) {
+      const x = spot[0] + Math.floor(Math.random() * 3) - 1;
+      const y = spot[1] + Math.floor(Math.random() * 3) - 1;
+      if (!map.inB(x, y) || !map.road[map.idx(x, y)]) continue;
+      const opts = DIRS.filter(([dx, dy]) =>
+        map.inB(x + dx, y + dy) && map.road[map.idx(x + dx, y + dy)]);
+      if (!opts.length) continue;
+      const d = opts[Math.floor(Math.random() * opts.length)];
+      this.actors.push({
+        kind: 4, fx: x, fy: y, dx: d[0], dy: d[1], t: Math.random() * 0.5,
+        speed: 0.3 + Math.random() * 0.16, look: Math.floor(Math.random() * 2),
+        body: 0, role: 0, phase: Math.random() * 1000,
+        offX: (Math.random() - 0.5) * 9, offY: (Math.random() - 0.5) * 9,
+        path: null, wait: Math.random() * 1.2, master: null, gone: false,
+        home: [spot[0], spot[1]], flee: 0, thx: 0, thy: 0,
+      });
+      this.birds++;
+    }
+  }
+
   /** 遛狗：在主人身后一格生成，追主人的行进方向 */
   private spawnDogAt(map: CityMap, master: Actor): void {
     const bx = master.fx - master.dx, by = master.fy - master.dy;
@@ -802,6 +951,40 @@ export class ActorSystem {
   }
 
   private pickNext(map: CityMap, a: Actor): boolean {
+    // —— 鸽子分支（v4）——
+    if (a.kind === 4) {
+      // 受惊：远离威胁源直线急窜
+      if ((a.flee ?? 0) > 0 && a.thx !== undefined) {
+        let best: [number, number] | null = null;
+        let bd = -1;
+        for (const [dx, dy] of DIRS) {
+          const nx = a.fx + dx, ny = a.fy + dy;
+          if (!map.inB(nx, ny) || !map.road[map.idx(nx, ny)]) continue;
+          const sc = Math.abs(nx - a.thx!) + Math.abs(ny - a.thy!);
+          if (sc > bd) { bd = sc; best = [dx, dy]; }
+        }
+        if (best) { a.dx = best[0]; a.dy = best[1]; return true; }
+      }
+      // 常态：家园附近随性踱步（不掉头）
+      const opts: Array<[number, number]> = [];
+      for (const [dx, dy] of DIRS) {
+        if (dx === -a.dx && dy === -a.dy) continue;
+        const nx = a.fx + dx, ny = a.fy + dy;
+        if (!map.inB(nx, ny) || !map.road[map.idx(nx, ny)]) continue;
+        if (a.home && Math.abs(nx - a.home[0]) + Math.abs(ny - a.home[1]) > 5) continue;
+        opts.push([dx, dy]);
+      }
+      if (!opts.length) {
+        if (map.inB(a.fx - a.dx, a.fy - a.dy) && map.road[map.idx(a.fx - a.dx, a.fy - a.dy)]) {
+          a.dx = -a.dx; a.dy = -a.dy;
+          return true;
+        }
+        return false;
+      }
+      const chosen = opts[Math.floor(Math.random() * opts.length)];
+      a.dx = chosen[0]; a.dy = chosen[1];
+      return true;
+    }
     // —— 宠物分支（v3）——
     if (a.kind >= 2) {
       // 狗：追主人的行进目标格（尽量不掉头）
@@ -922,10 +1105,22 @@ export class ActorSystem {
         if (Math.random() < 0.55) this.spawnPet(map);
       } else if (deficitPet < 0) {
         for (let k = 0; k < Math.min(3, -deficitPet); k++) {
-          const i = this.actors.findIndex(x => x.kind >= 2 && !x.master);
+          const i = this.actors.findIndex(x => x.kind >= 2 && x.kind <= 3 && !x.master);
           if (i < 0) break;
           this.actors[i].gone = true;
           this.actors.splice(i, 1); this.pets--;
+        }
+      }
+      // 鸽群：成群补减
+      const deficitBird = this.targetBird - this.birds;
+      if (deficitBird > 0) {
+        if (Math.random() < 0.22) this.spawnFlock(map);
+      } else if (deficitBird < 0) {
+        for (let k = 0; k < Math.min(2, -deficitBird); k++) {
+          const i = this.actors.findIndex(x => x.kind === 4);
+          if (i < 0) break;
+          this.actors[i].gone = true;
+          this.actors.splice(i, 1); this.birds--;
         }
       }
     }
@@ -933,7 +1128,13 @@ export class ActorSystem {
     for (let i = this.actors.length - 1; i >= 0; i--) {
       const a = this.actors[i];
       if (a.wait > 0) { a.wait -= dt; continue; }
-      a.t += a.speed * dt;
+      // 鸽子：受惊倒计时 + 急窜加速
+      let spMul = 1;
+      if (a.kind === 4 && (a.flee ?? 0) > 0) {
+        a.flee = (a.flee ?? 0) - dt;
+        spMul = 3.4;
+      }
+      a.t += a.speed * spMul * dt;
       let stepped = false;
       while (a.t >= 1) {
         a.t -= 1;
@@ -942,7 +1143,7 @@ export class ActorSystem {
         stepped = true;
         if (!map.inB(a.fx, a.fy) || !map.road[map.idx(a.fx, a.fy)]) {
           a.gone = true;
-          if (a.kind === 0) this.peds--; else if (a.kind === 1) this.cars--; else this.pets--;
+          if (a.kind === 0) this.peds--; else if (a.kind === 1) this.cars--; else if (a.kind === 4) this.birds--; else this.pets--;
           this.actors.splice(i, 1);
           stepped = false;
           break;
@@ -953,15 +1154,33 @@ export class ActorSystem {
           const m = a.master;
           const dist = Math.abs(a.fx - (m.fx + m.dx)) + Math.abs(a.fy - (m.fy + m.dy));
           if (dist <= 1 && Math.random() < 0.22) a.wait = 0.4 + Math.random() * 0.8;   // 狗在主人脚边嗅探
+        } else if (a.kind === 4) {
+          // 鸽子：扫描威胁（附近 2 格行人/车）→ 受惊；否则低头啄食
+          let threat: Actor | null = null;
+          for (const o of this.actors) {
+            if (o.kind > 1) continue;
+            if (Math.abs(o.fx - a.fx) + Math.abs(o.fy - a.fy) <= 2) { threat = o; break; }
+          }
+          if (threat) {
+            a.flee = 1.6 + Math.random() * 1.2;
+            a.thx = threat.fx; a.thy = threat.fy;
+          } else if (Math.random() < 0.32) {
+            a.wait = 0.5 + Math.random() * 1.4;           // 低头啄食
+          }
+        } else if (a.kind === 0 && a.role === 8 && Math.random() < 0.30) {
+          a.wait = 1.0 + Math.random() * 1.6;             // 环卫工：驻足清扫
         }
-        // 到达路口：偶尔停一停（儿童不停，长者停更久）
+        // 到达路口：偶尔停一停（儿童不停，长者停更久；游客驻足拍照更久）
         const nb = this.roadNeighbors(map, a.fx, a.fy);
         if (nb >= 3 && a.kind === 0 && Math.random() < (a.body === 2 ? 0.22 : 0.12)) {
           a.wait = a.body === 2 ? 0.5 + Math.random() * 1.2 : 0.3 + Math.random() * 0.6;
         }
+        if (nb >= 3 && a.kind === 0 && a.role === 9 && Math.random() < 0.35) {
+          a.wait = 1.2 + Math.random() * 2.0;             // 游客：举起相机取景
+        }
         if (!this.pickNext(map, a)) {
           a.gone = true;
-          if (a.kind === 0) this.peds--; else if (a.kind === 1) this.cars--; else this.pets--;
+          if (a.kind === 0) this.peds--; else if (a.kind === 1) this.cars--; else if (a.kind === 4) this.birds--; else this.pets--;
           this.actors.splice(i, 1);
           stepped = false;
           break;
@@ -988,6 +1207,7 @@ export class ActorSystem {
     this.peds = 0;
     this.cars = 0;
     this.pets = 0;
+    this.birds = 0;
     this.dirty = true;
   }
 

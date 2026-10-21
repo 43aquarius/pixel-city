@@ -262,8 +262,11 @@ export class Engine {
     };
   }
 
-  crowdCount(): { peds: number; cars: number; pets: number } {
-    return { peds: this.actors.peds, cars: this.actors.cars, pets: this.actors.pets };
+  crowdCount(): { peds: number; cars: number; pets: number; birds: number } {
+    return {
+      peds: this.actors.peds, cars: this.actors.cars,
+      pets: this.actors.pets, birds: this.actors.birds,
+    };
   }
 
   cycleZoom(dir: number): void {
@@ -541,6 +544,14 @@ export class Engine {
           if (!ps) continue;
           const dx = Math.round(sx + ps.ox), dy = Math.round(sy + ps.oy);
           items.push({ key, draw: () => ctx.drawImage(ps.cv, dx, dy) });
+        } else if (a.kind === 4) {
+          // 鸽子：等待时低头啄食
+          const d = ActorSystem.dirOf(a) as Facing;
+          const fr = Math.floor(t / 150 + a.phase) % 4;
+          const ps = this.actors.birdSp(d, fr, a.look, a.wait > 0);
+          if (!ps) continue;
+          const dx = Math.round(sx + ps.ox), dy = Math.round(sy + ps.oy);
+          items.push({ key: key - 0.02, draw: () => ctx.drawImage(ps.cv, dx, dy) });
         } else if (a.kind >= 2) {
           // 宠物：狗 / 猫（等待时坐姿）
           const d = ActorSystem.dirOf(a) as Facing;
