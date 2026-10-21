@@ -1009,3 +1009,118 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
   width: 200px;
 }
 .pxc.m .pxc-fgrid { grid-template-columns: 1fr; }
+
+/* ---------------- Task 13：民生指数条 + 科技研究院 ---------------- */
+
+/* 第二条 HUD（粮仓 / 智慧 / 科技点 / 宜居） */
+.pxc-hud2 {
+  top: 46px;
+}
+.pxc-hud2 .chip {
+  cursor: pointer;
+  font-family: inherit;
+}
+.pxc-hud2 .chip:hover { background: #1a2350; }
+.pxc-hud2 .chip em {
+  font-style: normal;
+  font-size: 10px;
+  margin-left: 1px;
+}
+.pxc-hud2 .chip em.up { color: #8fd48a; }
+.pxc-hud2 .chip em.dn { color: #ff8d80; }
+
+/* 建筑格子的「需研究」徽标 */
+.pxc-cell .pxc-lv.tech {
+  background: #3f2e6e;
+  border-color: #5BC8B8;
+  color: #a9f0e6;
+}
+
+/* 科技研究院 */
+.pxc-tech { width: min(760px, calc(100vw - 32px)); }
+.pxc-tech .pxc-body { padding: 10px; }
+.pxc-techbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 5px 8px;
+  margin-bottom: 8px;
+  background: var(--navy);
+  border: 2px solid;
+  border-color: var(--navy-line) var(--gold) var(--gold) var(--navy-line);
+  color: #f4f2e8;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.pxc-techbar img { width: 13px; height: 13px; image-rendering: pixelated; vertical-align: -2px; }
+.pxc-techbar .sp { font-weight: 700; color: var(--gold); }
+.pxc-techbar .rate { color: #8fd48a; }
+.pxc-techbar .wis { color: #a9f0e6; }
+.pxc-techbar .done { margin-left: auto; opacity: 0.75; }
+
+.pxc-ttree {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.pxc-tbranch .bh {
+  font-size: 12px;
+  font-weight: 700;
+  color: #8a6d1a;
+  padding: 2px 4px;
+  border-bottom: 2px solid var(--gold);
+  margin-bottom: 6px;
+}
+.pxc-tbranch .bh i {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 10px;
+  color: #8b8e96;
+  margin-left: 4px;
+}
+.pxc-tcard {
+  background: var(--silver);
+  border: 2px solid;
+  border-color: var(--silver-lt) var(--silver-shadow) var(--silver-shadow) var(--silver-lt);
+  padding: 5px 6px;
+  margin-bottom: 6px;
+}
+.pxc-tcard .tname {
+  font-size: 12px;
+  font-weight: 700;
+  color: #23252e;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.pxc-tcard .tier {
+  font-size: 10px;
+  font-weight: 400;
+  color: #6b6f78;
+}
+.pxc-tcard .tdesc {
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: #3d434e;
+  margin: 3px 0;
+}
+.pxc-tcard .trow { display: flex; align-items: center; min-height: 22px; }
+.pxc-tcard .ok { font-size: 11px; font-weight: 700; color: #1e7a34; }
+.pxc-tcard .need { font-size: 10.5px; color: #99503c; line-height: 1.4; }
+.pxc-tcard.done { opacity: 0.72; border-color: #1e7a34; }
+.pxc-tcard.done .tname { color: #1e7a34; }
+.pxc-tcard.lock { opacity: 0.66; }
+.pxc-btn.mini.dis { opacity: 0.55; cursor: not-allowed; }
+
+/* 移动端：指数条与科技树 */
+.pxc.m .pxc-hud2 {
+  top: 40px;
+  left: 8px;
+  right: 8px;
+  transform: none;
+  justify-content: center;
+  gap: 3px;
+  padding: 3px;
+}
+.pxc.m .pxc-ttree { grid-template-columns: repeat(2, 1fr); }
+.pxc.m .pxc-techbar { gap: 8px; font-size: 11px; }

@@ -8,6 +8,7 @@
 
 import { RAMPS, RAMP, LUT, BAYER8 } from './palette';
 import { vnoise, hash2 } from './rng';
+import { HSTEP } from './map';
 import type { Sprite } from './softrender';
 
 export type GroundKind =
@@ -532,4 +533,113 @@ export function getGround(kind: GroundKind, o: GroundOpts = {}): Sprite {
 /** 清空地面缓存（切换色板/尺寸时用，一般不需要） */
 export function clearGroundCache(): void {
   cache.clear();
+  cliffCache.clear();
+}
+
+// ------------------------------------------------------------
+// 悬崖立面（高度地形）：tile 顶面抬升后，东南 / 西南 两侧的
+// 垂直剖面精灵。几何为 16px 宽的平行四边形（沿菱形边 + 下延 D px）。
+// ------------------------------------------------------------
+
+export type CliffStyle = 'earth' | 'rock' | 'sand' | 'snow' | 'dry';
+
+const cliffCache = new Map<number, Sprite>();
+
+/** 面内纹理：depth = 距顶边深度（0..D），lit = 受光侧 */
+type CliffPat = (px: number, py: number, depth: number, lit: number) => number;
+
+const cliffEarth: CliffPat = (px, py, depth, lit) => {
+  // 草皮檐口（顶部 2.5px 草色）
+  if (depth < 2.5) return ramp(P.GRASS, Math.min(2, lit + (depth < 1 ? 0 : 1)));
+  // 偶发石块嵌入
+  if (hash2(px >> 1, py >> 1, 61) < 0.05) return ramp(P.SIDE, Math.min(2, lit + 1));
+  // 根须（浅层深色细条纹）
+  if (depth < 7 && hash2(px, 7, 62) < 0.10 && (py & 1) === 0) return ramp(P.DIRT, 2);
+  // 土层带（5px 分层 + 边界抖动 + 横向摆动）
+  const wob = Math.sin(px * 0.72) * 1.15;
+  const band = Math.floor((depth + wob) / 5);
+  const q = ((depth + wob) % 5) < 1.1 ? 1 : 0;
+  return ramp(P.DIRT, Math.max(0, Math.min(2, lit + (band & 1) + q)));
+};
+
+const cliffRock: CliffPat = (px, py, depth, lit) => {
+  // 竖向裂纹（固定 x 位置的暗色断线）
+  const cr = hash2(Math.floor(px / 4), 3, 63) < 0.22;
+  if (cr && hash2(px, py >> 2, 64) < 0.5) return ramp(P.OUTLINE, 0);
+  // 坚硬岩层：4px 平缓层理（0→1→2 循环渐变，岩层越深越暗）
+  const band = Math.floor((depth + Math.sin(px * 0.55 + depth * 0.12) * 1.4) / 4);
+  const v = ((band % 3) + 3) % 3;
+  if (hash2(px >> 1, py >> 1, 65) < 0.035) return ramp(P.ASPH, 2);   // 暗色矿斑
+  return ramp(P.SIDE, Math.max(0, Math.min(2, lit + v)));
+};
+
+const cliffSand: CliffPat = (px, _py, depth, lit) => {
+  const band = Math.floor((depth + Math.sin(px * 0.6) * 1.2) / 4.5);
+  const q = ((depth + Math.sin(px * 0.6) * 1.2) % 4.5) < 1.2 ? 1 : 0;
+  if (hash2(px >> 1, _py >> 1, 66) < 0.04) return ramp(P.DIRT, 1);
+  return ramp(P.SAND, Math.max(0, Math.min(2, lit + (band & 1) + q - 1)));
+};
+
+const cliffDry: CliffPat = (px, py, depth, lit) => {
+  // 龟裂旱土崖
+  const cr = vnoise(px / 3.2, py / 3.2, 67);
+  if (Math.abs(cr - 0.5) < 0.06) return ramp(P.DIRT, 2);
+  const band = Math.floor(depth / 5);
+  return ramp(P.DIRT, Math.max(0, Math.min(2, lit + (band & 1))));
+};
+
+const cliffSnow: CliffPat = (px, py, depth, lit) => {
+  if (depth < 4) {
+    // 积雪檐：亮白 + 青灰抖动流痕
+    const b = (BAYER8[(py & 7) * 8 + (px & 7)] + 0.5) / 64;
+    return b < 0.18 && depth > 1.5 ? ramp(P.PBLUE, 0) : ramp(P.WHITE, 0);
+  }
+  if (depth < 8) {
+    // 冰壳过渡
+    const b = (BAYER8[(py & 7) * 8 + (px & 7)] + 0.5) / 64;
+    return b < (depth - 4) / 4 ? ramp(P.SIDE, Math.min(2, lit + 1)) : ramp(P.PBLUE, 0);
+  }
+  // 深处岩体
+  return cliffRock(px, py, depth - 5, lit);
+};
+
+const CLIFF_PATS: Record<CliffStyle, CliffPat> = {
+  earth: cliffEarth, rock: cliffRock, sand: cliffSand,
+  snow: cliffSnow, dry: cliffDry,
+};
+
+/**
+ * 生成（或取缓存）悬崖立面精灵。
+ * side='E'：东南向立面（画布 x 与世界 x 同向，受光）；
+ * side='SW'：西南向立面（画布 x 反映世界 x，背光暗一档）。
+ * 画布 W=16、H=8+delta*HSTEP；顶边为菱形边线。
+ */
+export function getCliff(style: CliffStyle, delta: number, side: 'E' | 'SW'): Sprite {
+  const d = Math.max(1, Math.min(15, Math.round(delta)));
+  const key = (d << 5) | ((side === 'E' ? 1 : 0) << 4) |
+    { earth: 0, rock: 1, sand: 2, snow: 3, dry: 4 }[style];
+  const hit = cliffCache.get(key);
+  if (hit) return hit;
+
+  const W = 16, H = 8 + d * HSTEP;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d')!;
+  const img = ctx.createImageData(W, H);
+  const u32 = new Uint32Array(img.data.buffer);
+  const pat = CLIFF_PATS[style];
+  const lit = side === 'E' ? 0 : 1;          // 西南向背光
+
+  for (let py = 0; py < H; py++) {
+    for (let px = 0; px < W; px++) {
+      const yTop = side === 'E' ? 8 - px / 2 : px / 2;
+      if (py < yTop || py > yTop + d * HSTEP) continue;     // 平行四边形外透明
+      const depth = py - yTop;
+      u32[py * W + px] = LUT[pat(px, py, depth, lit)] ?? 0;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const sp: Sprite = { cv, ox: 0, oy: 0, w: W, h: H };
+  cliffCache.set(key, sp);
+  return sp;
 }

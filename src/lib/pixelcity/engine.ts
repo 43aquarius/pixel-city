@@ -5,10 +5,10 @@
 
 import {
   CityMap, TERR_WATER, TERR_SAND, TERR_FARM, TERR_ROCK, MAP_N,
-  TERR_SNOW, TERR_FLOWER, TERR_DRY, TERR_SWAMP, TERR_AUTUMN,
+  TERR_SNOW, TERR_FLOWER, TERR_DRY, TERR_SWAMP, TERR_AUTUMN, HMAX, HSTEP,
 } from './map';
 import { SpriteBook, defById } from './catalog';
-import { getGround } from './terrain';
+import { getGround, getCliff, type CliffStyle } from './terrain';
 import { ghostSprite, renderModel, type Sprite } from './softrender';
 import { genTree } from './b_civ';
 import { PALETTE } from './palette';
@@ -16,7 +16,10 @@ import type { Beeper } from './audio';
 import { hash2 } from './rng';
 import { generateCity, type GenReport } from './citygen';
 import { ActorSystem, lampModel, glowPool, type Facing, type CarDir } from './actors';
-import { Tycoon, ECON, CHUNK, CHUNKS, ROAD_COST, TREE_COST, ROAD_REFUND, TREE_REFUND, REFUND_RATE, type EconView } from './tycoon';
+import {
+  Tycoon, ECON, CHUNK, CHUNKS, TREE_COST, ROAD_REFUND, TREE_REFUND,
+  REFUND_RATE, LIFT_COST, WATER_COST, FLAT_FEE, techNameOf, type EconView,
+} from './tycoon';
 
 export type Tool =
   | { t: 'view' }
@@ -24,6 +27,8 @@ export type Tool =
   | { t: 'tree' }
   | { t: 'road' }
   | { t: 'build'; id: string; variant: number }
+  | { t: 'lift' }
+  | { t: 'sink' }
   | { t: 'doze' };
 
 const ZOOMS = [1, 2, 3];
@@ -193,11 +198,50 @@ export class Engine {
   private w2sx(wx: number, wy: number): number { return (wx - wy) * 16 - this.cam.x + this.lw / 2; }
   private w2sy(wx: number, wy: number): number { return (wx + wy) * 8 - this.cam.y + this.lh / 2; }
 
-  /** 鼠标 CSS 坐标 → 格坐标 */
+  /** 格高度（0=水面；越界视为 0） */
+  hAt(tx: number, ty: number): number {
+    return this.map.inB(tx, ty) ? this.map.h[this.map.idx(tx, ty)] : 0;
+  }
+
+  /** 高度 → 屏幕像素偏移（负数 = 向上抬升） */
+  hOfs(tx: number, ty: number): number { return -this.hAt(tx, ty) * HSTEP; }
+
+  /** 浮点格坐标处的地面高度像素（双线性插值：行人 / 车辆平滑爬坡） */
+  groundHpx(fx: number, fy: number): number {
+    const n = this.map.n;
+    const x0 = Math.max(0, Math.min(n - 1, Math.floor(fx)));
+    const y0 = Math.max(0, Math.min(n - 1, Math.floor(fy)));
+    const x1 = Math.min(n - 1, x0 + 1), y1 = Math.min(n - 1, y0 + 1);
+    const tx = Math.min(1, Math.max(0, fx - x0)), ty = Math.min(1, Math.max(0, fy - y0));
+    const h00 = this.map.h[y0 * n + x0], h10 = this.map.h[y0 * n + x1];
+    const h01 = this.map.h[y1 * n + x0], h11 = this.map.h[y1 * n + x1];
+    const h = h00 * (1 - tx) * (1 - ty) + h10 * tx * (1 - ty) + h01 * (1 - tx) * ty + h11 * tx * ty;
+    return -h * HSTEP;
+  }
+
+  /** 鼠标 CSS 坐标 → 格坐标（高度感知：由近及远逐对角线检测抬升后的菱形） */
   tileAt(cssX: number, cssY: number): { tx: number; ty: number } {
     const sx = cssX / this.zoom, sy = cssY / this.zoom;
     const ax = sx + this.cam.x - this.lw / 2;   // = (X−Y)*16
-    const ay = sy + this.cam.y - this.lh / 2;   // = (X+Y)*8
+    const ay = sy + this.cam.y - this.lh / 2;   // = (X+Y)*8 − h·HSTEP
+    const a = ax / 16;                           // X−Y（浮点）
+    const n = this.map.n;
+    const k0 = Math.floor(ay / 8);
+    const kTop = Math.min(2 * n - 2, k0 + Math.ceil(HMAX * HSTEP / 8) + 2);
+    const j0 = Math.floor(a);
+    for (let k = kTop; k >= Math.max(0, k0 - 2); k--) {
+      for (let j = j0; j <= j0 + 1; j++) {
+        if (Math.abs(a - j) > 1) continue;
+        if (((j + k) & 1) !== 0) continue;       // 需整数格坐标
+        const tx = (j + k) / 2, ty = (k - j) / 2;
+        if (tx < 0 || ty < 0 || tx >= n || ty >= n) continue;
+        const hh = this.map.h[ty * n + tx];
+        const eta = ay + hh * HSTEP - k * 8;     // 菱形内局部 y ∈ [0,16)
+        const xi = (a - j) * 16 + 16;            // 菱形内局部 x ∈ [0,32)
+        if (Math.abs(xi - 16) / 16 + Math.abs(eta - 8) / 8 <= 1) return { tx, ty };
+      }
+    }
+    // 兜底：平面反投影
     const X = ax / 32 + ay / 16;
     const Y = ay / 16 - ax / 32;
     return { tx: Math.floor(X), ty: Math.floor(Y) };
@@ -289,17 +333,17 @@ export class Engine {
 
   setZoom(z: number, focusCss?: { x: number; y: number }): void {
     if (z === this.zoom) return;
-    let keep: { gx: number; gy: number } | null = null;
+    let keep: { gx: number; gy: number; gz: number } | null = null;
     if (focusCss) {
       const t = this.tileAt(focusCss.x, focusCss.y);
-      keep = { gx: t.tx + 0.5, gy: t.ty + 0.5 };
+      keep = { gx: t.tx + 0.5, gy: t.ty + 0.5, gz: this.hAt(t.tx, t.ty) };
     }
     this.zoom = z;
     this.resize();
     if (keep && focusCss) {
       const sx = focusCss.x / z, sy = focusCss.y / z;
       this.cam.x = (keep.gx - keep.gy) * 16 - sx + this.lw / 2;
-      this.cam.y = (keep.gx + keep.gy) * 8 - sy + this.lh / 2;
+      this.cam.y = (keep.gx + keep.gy) * 8 + keep.gz * HSTEP - sy + this.lh / 2;
     }
     this.beeper.play('zoom');
     this.hooks.onZoom?.(z);
@@ -363,10 +407,11 @@ export class Engine {
       minX = Math.min(minX, Math.floor(X)); maxX = Math.max(maxX, Math.ceil(X));
       minY = Math.min(minY, Math.floor(Y)); maxY = Math.max(maxY, Math.ceil(Y));
     }
-    const pad = 4;
+    // 高地地形可从更远的行「探出头来」，纵向多预留若干行
+    const padX = 5, padY = Math.ceil(HMAX * HSTEP / 8) + 4;
     return {
-      x0: Math.max(0, minX - pad), y0: Math.max(0, minY - pad),
-      x1: Math.min(n - 1, maxX + pad), y1: Math.min(n - 1, maxY + pad),
+      x0: Math.max(0, minX - padX), y0: Math.max(0, minY - padY),
+      x1: Math.min(n - 1, maxX + padX), y1: Math.min(n - 1, maxY + padY),
     };
   }
 
@@ -393,12 +438,32 @@ export class Engine {
     const glowJobs: Array<() => void> = [];
     const m = this.map;
 
-    // ---- Pass 1：地面 ----
+    // ---- Pass 1：地面（顶面随高度抬升 + 两侧崖壁）----
     for (let ty = vr.y0; ty <= vr.y1; ty++) {
       for (let tx = vr.x0; tx <= vr.x1; tx++) {
         const i = m.idx(tx, ty);
-        const sx = this.w2sx(tx, ty), sy = this.w2sy(tx, ty);
-        if (sx < -96 || sx > lw + 96 || sy < -160 || sy > lh + 96) continue;
+        const hgt = m.h[i] * HSTEP;
+        const sx = this.w2sx(tx, ty), syF = this.w2sy(tx, ty);
+        const sy = syF - hgt;
+        if (sx < -96 || sx > lw + 96 || syF < -110 || syF > lh + 110) continue;
+
+        // 崖壁：东 / 南邻格更低时，绘制垂直剖面（世界坐标 y = syF+8−h·HSTEP 起）
+        if (hgt > 0) {
+          const hE = m.inB(tx + 1, ty) ? m.h[m.idx(tx + 1, ty)] * HSTEP : hgt;
+          const hS = m.inB(tx, ty + 1) ? m.h[m.idx(tx, ty + 1)] * HSTEP : hgt;
+          if (hgt > hE || hgt > hS) {
+            const style = this.cliffStyleAt(i);
+            const by = Math.round(syF + 8 - hgt);
+            if (hgt > hE) {
+              const c = getCliff(style, (hgt - hE) / HSTEP, 'E');
+              ctx.drawImage(c.cv, Math.round(sx), by);
+            }
+            if (hgt > hS) {
+              const c = getCliff(style, (hgt - hS) / HSTEP, 'SW');
+              ctx.drawImage(c.cv, Math.round(sx - 16), by);
+            }
+          }
+        }
 
         const a = m.occ[i];
         let groundDrawn = false;
@@ -480,12 +545,12 @@ export class Engine {
     // ---- Pass 1.5：经营领地迷雾（整块菱形覆盖：可购浅 / 远锁深 + 金色虚线）----
     if (this.tycoon) this.drawTerritoryFog(ctx, vr);
 
-    // ---- Pass 2：树木 + 建筑（按前角深度排序）----
+    // ---- Pass 2：树木 + 建筑（按前角深度排序；随所在高度抬升）----
     const seen = new Set<number>();
     for (let ty = vr.y0; ty <= vr.y1; ty++) {
       for (let tx = vr.x0; tx <= vr.x1; tx++) {
         const i = m.idx(tx, ty);
-        const sx = this.w2sx(tx, ty), sy = this.w2sy(tx, ty);
+        const sx = this.w2sx(tx, ty), sy = this.w2sy(tx, ty) + this.hOfs(tx, ty);
         if (sx < -160 || sx > lw + 160 || sy < -300 || sy > lh + 160) continue;
 
         const tv = m.tree[i];
@@ -504,7 +569,8 @@ export class Engine {
           const d = defById(o.id);
           const bs = this.book.get(o.id, o.v);
           const sp = bs.sp;
-          const bsx = this.w2sx(o.ax, o.ay), bsy = this.w2sy(o.ax, o.ay);
+          const bsx = this.w2sx(o.ax, o.ay);
+          const bsy = this.w2sy(o.ax, o.ay) + this.hOfs(o.ax, o.ay);
           const key = (o.ax + d.w - 1) + (o.ay + d.h - 1);
           const blinkOn = Math.floor(t / 640) % 2 === 0;
           const smokeFr = Math.floor(t / 300) % 3;
@@ -548,7 +614,7 @@ export class Engine {
         }
       }
     }
-    // ---- 行人 / 车辆（与建筑同序参与深度排序）----
+    // ---- 行人 / 车辆（与建筑同序参与深度排序；贴地随高度）----
     if (this.crowds) {
       for (const a of this.actors.actors) {
         const px = a.fx + a.dx * a.t, py = a.fy + a.dy * a.t;
@@ -561,7 +627,7 @@ export class Engine {
           wy = (py + 0.5) * 16 + a.offY;
         }
         const sx = (wx - wy) - this.cam.x + lw / 2;
-        const sy = (wx + wy) / 2 - this.cam.y + lh / 2;
+        const sy = (wx + wy) / 2 - this.cam.y + lh / 2 + this.groundHpx(px, py);
         if (sx < -80 || sx > lw + 80 || sy < -60 || sy > lh + 60) continue;
         const key = (wx + wy) / 16;
         if (a.kind === 0) {
@@ -696,6 +762,18 @@ export class Engine {
     return v;
   }
 
+  /** 悬崖立面风格：按地表类型（路堤一律土坡） */
+  private cliffStyleAt(i: number): CliffStyle {
+    const m = this.map;
+    if (m.road[i]) return 'earth';
+    const k = m.terr[i];
+    if (k === TERR_SNOW) return 'snow';
+    if (k === TERR_ROCK) return 'rock';
+    if (k === TERR_SAND) return 'sand';
+    if (k === TERR_DRY) return 'dry';
+    return 'earth';
+  }
+
   private waterEdge(tx: number, ty: number): number {
     const m = this.map;
     let v = 0;
@@ -815,14 +893,15 @@ export class Engine {
     return X >= 0 && X <= 16 * w && Y >= 0 && Y <= 16 * h;
   }
 
-  /** 尘土粒子：等距椭圆环扩散 + 有序抖动，复古尘雾感 */
+  /** 尘土粒子：等距椭圆环扩散 + 有序抖动，复古尘雾感（贴地随高度） */
   private drawPuffs(ctx: CanvasRenderingContext2D, now: number): void {
     for (let i = this.puffs.length - 1; i >= 0; i--) {
       const p = this.puffs[i];
       const life = p.big ? 560 : 380;
       const age = (now - p.t0) / life;
       if (age >= 1) { this.puffs.splice(i, 1); continue; }
-      const cx = this.w2sx(p.x, p.y), cy = this.w2sy(p.x, p.y) - (p.big ? 8 : 3);
+      const cx = this.w2sx(p.x, p.y);
+      const cy = this.w2sy(p.x, p.y) + this.groundHpx(p.x, p.y) - (p.big ? 8 : 3);
       const R = (p.big ? 13 : 7) * (0.4 + age * 0.9);
       ctx.globalAlpha = 1 - age * age;
       for (let yy = -R; yy <= R; yy++) {
@@ -838,7 +917,7 @@ export class Engine {
     }
   }
 
-  /** 浮动文字：金币增减 / 拆除返还，上浮渐隐 */
+  /** 浮动文字：金币增减 / 拆除返还，上浮渐隐（贴地随高度） */
   private drawFloats(ctx: CanvasRenderingContext2D, now: number): void {
     if (!this.floats.length) return;
     ctx.font = 'bold 8px monospace';
@@ -847,7 +926,8 @@ export class Engine {
       const f = this.floats[i];
       const age = (now - f.t0) / 1300;
       if (age >= 1) { this.floats.splice(i, 1); continue; }
-      const cx = this.w2sx(f.x, f.y), cy = this.w2sy(f.x, f.y) - 12 - age * 15;
+      const cx = this.w2sx(f.x, f.y);
+      const cy = this.w2sy(f.x, f.y) + this.groundHpx(f.x, f.y) - 12 - age * 15;
       ctx.globalAlpha = age < 0.65 ? 1 : (1 - age) / 0.35;
       const w = ctx.measureText(f.text).width + 6;
       ctx.fillStyle = 'rgba(11,15,36,0.92)';
@@ -868,6 +948,52 @@ export class Engine {
       const d = defById(tool.id);
       w = d.w; hh = d.h;
     }
+    // ---- 抬升 / 降低：海拔指示光标 ----
+    if (tool.t === 'lift' || tool.t === 'sink') {
+      const i = this.map.idx(h.tx, h.ty);
+      const cur = this.map.h[i];
+      const up = tool.t === 'lift';
+      const can = this.map.canTerra(h.tx, h.ty);
+      const eco = this.tycoon;
+      let label: string;
+      let col = '#8CE38C';
+      if (!can) { label = '需空地（先拆除设施）'; col = '#E05548'; }
+      else if (up && cur >= HMAX) { label = `已达最高海拔 ${HMAX}`; col = '#E05548'; }
+      else if (!up && cur <= 0) { label = '已是海平面'; col = '#E05548'; }
+      else {
+        const water = (up && cur === 0) || (!up && cur === 1);
+        const cost = eco ? (water ? WATER_COST : LIFT_COST) : 0;
+        label = `海拔 ${cur} → ${up ? cur + 1 : cur - 1}` +
+          (water ? (up ? ' · 填海成陆' : ' · 化为水域') : '') +
+          (cost ? ` · ${cost}G` : '');
+        if (eco && eco.coins < cost) { col = '#E05548'; }
+      }
+      const x0 = this.w2sx(h.tx, h.ty), y0 = this.w2sy(h.tx, h.ty) + this.hOfs(h.tx, h.ty);
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x0 + 16, y0 + 8);
+      ctx.lineTo(x0, y0 + 16);
+      ctx.lineTo(x0 - 16, y0 + 8);
+      ctx.closePath();
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 2]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = 'bold 8px monospace';
+      const tw = ctx.measureText(label).width + 10;
+      const mx = x0, my = y0 - 6;
+      ctx.fillStyle = 'rgba(11,15,36,0.92)';
+      ctx.fillRect(Math.round(mx - tw / 2), Math.round(my - 8), Math.round(tw), 14);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(Math.round(mx - tw / 2) + 0.5, Math.round(my - 8) + 0.5, Math.round(tw) - 1, 13);
+      ctx.fillStyle = col;
+      ctx.textAlign = 'center';
+      ctx.fillText(label, Math.round(mx), Math.round(my + 2));
+      ctx.textAlign = 'left';
+      return;
+    }
     // ---- 拆除模式：目标整格红框 + 建筑足迹红色警示 ----
     if (tool.t === 'doze') {
       const i = this.map.idx(h.tx, h.ty);
@@ -880,11 +1006,12 @@ export class Engine {
         target = o.id;
       }
       const has = !!target || this.map.tree[i] >= 0 || !!this.map.road[i];
-      const x0 = this.w2sx(h.tx, h.ty), y0 = this.w2sy(h.tx, h.ty);
+      const x0 = this.w2sx(h.tx, h.ty), y0 = this.w2sy(h.tx, h.ty) + this.hOfs(h.tx, h.ty);
       if (target) {
         // 建筑锚点足迹（o.ax/o.ay 为锚点，hover 可能在足迹内任意格）
         const o = this.map.objs.get(a)!;
-        const ax = this.w2sx(o.ax, o.ay), ay = this.w2sy(o.ax, o.ay);
+        const ax = this.w2sx(o.ax, o.ay);
+        const ay = this.w2sy(o.ax, o.ay) + this.hOfs(o.ax, o.ay);
         ctx.beginPath();
         ctx.moveTo(ax, ay);
         ctx.lineTo(ax + 16 * w, ay + 8 * w);
@@ -933,7 +1060,7 @@ export class Engine {
       }
       return;
     }
-    const x0 = this.w2sx(h.tx, h.ty), y0 = this.w2sy(h.tx, h.ty);
+    const x0 = this.w2sx(h.tx, h.ty), y0 = this.w2sy(h.tx, h.ty) + this.hOfs(h.tx, h.ty);
     ctx.beginPath();
     ctx.moveTo(x0, y0);
     ctx.lineTo(x0 + 16 * w, y0 + 8 * w);
@@ -950,9 +1077,28 @@ export class Engine {
     if (tool.t === 'build') {
       const bs = this.book.get(tool.id, tool.variant);
       const g = ghostSprite(bs.sp);
+      const eco0 = this.tycoon;
+      let fee = 0;
+      if (eco0) fee = this.map.flatCount(h.tx, h.ty, w, hh) * FLAT_FEE;
       const ok = this.map.canPlace(tool.id, h.tx, h.ty) &&
-        (!this.tycoon || this.tycoon.gateBuild(tool.id, h.tx, h.ty) === 'ok');
+        (!eco0 || eco0.gateBuild(tool.id, h.tx, h.ty, fee) === 'ok');
       ctx.drawImage(g, Math.round(x0 + bs.sp.ox), Math.round(y0 + bs.sp.oy));
+      if (fee > 0) {
+        // 整地费提示：足迹高度不齐时自动平整
+        const label = `整地 +${fee}G`;
+        ctx.font = 'bold 8px monospace';
+        const tw = ctx.measureText(label).width + 10;
+        const mx = x0 + 8 * (w - hh), my = y0 + 4 * (w + hh) - 16;
+        ctx.fillStyle = 'rgba(30,24,8,0.92)';
+        ctx.fillRect(Math.round(mx - tw / 2), Math.round(my - 8), Math.round(tw), 14);
+        ctx.strokeStyle = '#F2D24B';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(Math.round(mx - tw / 2) + 0.5, Math.round(my - 8) + 0.5, Math.round(tw) - 1, 13);
+        ctx.fillStyle = '#F2D24B';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, Math.round(mx), Math.round(my + 2));
+        ctx.textAlign = 'left';
+      }
       if (!ok) {
         ctx.fillStyle = 'rgba(224,85,72,0.55)';
         const W = 16 * (w + hh), H = 8 * (w + hh) + 2;
@@ -1025,6 +1171,20 @@ export class Engine {
         res: abgr('#C25B44'), com: abgr('#E8CC4C'), ind: abgr('#9BA0A7'), civ: abgr('#5BC8B8'),
         lockNear: abgr('#2B3355'), lockFar: abgr('#12172E'),
       };
+      // 高度明暗：海拔越高越亮（快速拉出地形立体感）
+      const shadeCache = new Map<number, number[]>();
+      const shadeOf = (base: number, hh: number): number => {
+        const band = hh >= 8 ? 3 : hh >= 5 ? 2 : hh >= 3 ? 1 : 0;
+        if (band === 0) return base;
+        let arr = shadeCache.get(base);
+        if (!arr) { arr = [base, base, base, base]; shadeCache.set(base, arr); }
+        if (arr[band] !== base) return arr[band];
+        const f = [0, 0.10, 0.20, 0.30][band];
+        const r = base & 255, g = (base >>> 8) & 255, b = (base >>> 16) & 255;
+        const r2 = Math.round(r + (244 - r) * f), g2 = Math.round(g + (246 - g) * f), b2 = Math.round(b + (240 - b) * f);
+        arr[band] = (255 << 24) | (b2 << 16) | (g2 << 8) | r2;
+        return arr[band];
+      };
       for (let y = 0; y < n; y++) {
         for (let x = 0; x < n; x++) {
           const i = this.map.idx(x, y);
@@ -1035,6 +1195,8 @@ export class Engine {
             : k === 8 ? C.swamp : k === 9 ? C.autumn : C.grass;
           if (this.map.tree[i] >= 0) cv = this.map.tree[i] === 3 ? C.sakura : C.tree;
           if (this.map.road[i]) cv = C.road;
+          // 海拔明暗（建筑与迷雾不着色，保持辨识度）
+          if (this.map.occ[i] < 0 && this.map.h[i] > 0) cv = shadeOf(cv, this.map.h[i]);
           const a = this.map.occ[i];
           if (a >= 0) {
             const o = this.map.objs.get(a)!;
@@ -1295,17 +1457,55 @@ export class Engine {
         }
         if (this.map.setTerr(tx, ty, t.k)) this.beeper.play('paint');
         break;
+      case 'lift':
+      case 'sink': {
+        const up = t.t === 'lift';
+        if (eco && !eco.ownedAt(tx, ty)) { this.landGateFail(tx, ty); return; }
+        const inB = this.map.inB(tx, ty);
+        const cur = inB ? this.map.h[this.map.idx(tx, ty)] : -1;
+        const water = (up && cur === 0) || (!up && cur === 1);
+        const cost = eco ? (water ? WATER_COST : LIFT_COST) : 0;
+        if (eco && eco.coins < cost) {
+          if (!this.dragMode) {
+            eco.msg?.(`金币不足：改造地形需要 ${cost}G/格`);
+            this.beeper.play('error');
+          }
+          return;
+        }
+        const r = up ? this.map.liftAt(tx, ty) : this.map.sinkAt(tx, ty);
+        if (r === 'ok') {
+          this.beeper.play('paint');
+          if (eco) {
+            eco.coins -= cost;
+            eco.addXp(1);
+            this.floatAt(tx, ty, `−${cost}G`, '#E8E4D8');
+          }
+        } else if (!this.dragMode) {
+          if (r === 'blocked') {
+            eco?.msg?.('地形改造需空地：先拆除该格的建筑 / 道路 / 树木');
+          } else if (r === 'max') {
+            eco?.msg?.(`已达最高海拔 ${HMAX} 级`);
+          } else if (r === 'bedrock') {
+            eco?.msg?.('已是海平面，无法再降低');
+          }
+          this.beeper.play('error');
+        }
+        break;
+      }
       case 'road': {
         if (eco) {
           if (!eco.ownedAt(tx, ty)) { this.landGateFail(tx, ty); return; }
-          if (eco.coins < ROAD_COST) {
-            if (!this.dragMode) { eco.msg?.(`金币不足：修路需要 ${ROAD_COST}G/格`); this.beeper.play('error'); }
+          const rc = eco.roadCost();
+          if (eco.coins < rc) {
+            if (!this.dragMode) { eco.msg?.(`金币不足：修路需要 ${rc}G/格`); this.beeper.play('error'); }
             return;
           }
-        }
-        if (this.map.setRoad(tx, ty, true)) {
+          if (this.map.setRoad(tx, ty, true)) {
+            this.beeper.play('paint');
+            eco.coins -= rc; eco.roadsBuilt++; eco.addXp(1);
+          }
+        } else if (this.map.setRoad(tx, ty, true)) {
           this.beeper.play('paint');
-          if (eco) { eco.coins -= ROAD_COST; eco.roadsBuilt++; eco.addXp(1); }
         }
         break;
       }
@@ -1358,16 +1558,19 @@ export class Engine {
         break;
       }
       case 'build': {
+        const d = defById(t.id);
+        const flatN = eco ? this.map.flatCount(tx, ty, d.w, d.h) : 0;
+        const fee = flatN * FLAT_FEE;
         if (eco) {
-          const gate = eco.gateBuild(t.id, tx, ty);
+          const gate = eco.gateBuild(t.id, tx, ty, fee);
           if (gate !== 'ok') {
             if (gate === 'land') {
               this.landGateFail(tx, ty);
             } else if (!this.dragMode) {
-              const d = defById(t.id);
               const e = ECON[t.id];
               if (gate === 'locked') eco.msg?.(`「${d.name}」需要市政厅 LV${e.unlock} 解锁`);
-              else eco.msg?.(`金币不足：「${d.name}」需要 ${e.cost}G`);
+              else if (gate === 'tech') eco.msg?.(`「${d.name}」需要在科技研究院研究「${techNameOf(eco.techGateOf(t.id))}」后解锁`);
+              else eco.msg?.(`金币不足：「${d.name}」需要 ${e.cost + fee}G${fee ? `（含整地 ${fee}G）` : ''}`);
               this.beeper.play('error');
             }
             return;
@@ -1377,8 +1580,8 @@ export class Engine {
           this.beeper.play('place');
           this.puffAt(tx, ty, false);
           if (eco) {
-            eco.payBuild(t.id);
-            const c = ECON[t.id]?.cost ?? 0;
+            eco.payBuild(t.id, fee);
+            const c = (ECON[t.id]?.cost ?? 0) + fee;
             if (c > 0) this.floatAt(tx, ty, `−${c}G`, '#E8E4D8');
           }
         } else if (!this.dragMode && this.map.inB(tx, ty)) {
@@ -1495,6 +1698,11 @@ export class Engine {
     this.tycoon = null;
     this.hooks.onEcon?.(null);
     this.map.onChange?.();
+  }
+
+  /** 研究科技（科技面板点击） */
+  research(id: string): 'ok' | 'sp' | 'lock' | 'none' {
+    return this.tycoon ? this.tycoon.research(id) : 'none';
   }
 
   loadAuto(): boolean {

@@ -15,7 +15,7 @@ import { genShop, genOffice, genTower } from './b_com';
 import { genFactory, genWarehouse, genTankfarm } from './b_ind';
 import {
   genPark, genTree, genPlaza, genSchool, genHospital,
-  genTemple, genStadium, genRadioTower, genMonument, genCityhall,
+  genTemple, genStadium, genRadioTower, genMonument, genCityhall, genLibrary,
 } from './b_civ';
 import {
   genManor, genResTower, genConvenience, genHotel, genMall, genParking,
@@ -139,6 +139,8 @@ export const CATALOG: Def[] = [
     gen: genPlaza, ground: 'plaza', desc: '棋格铺装与八角喷泉' },
   { id: 'school', name: '学校', cat: 'civ', w: 2, h: 2, variants: 1, pop: 60,
     gen: genSchool, ground: 'school', desc: '红瓦双翼校舍与钟塔' },
+  { id: 'library', name: '图书馆', cat: 'civ', w: 2, h: 1, variants: 1, pop: 20,
+    gen: genLibrary, desc: '廊柱山花的知识殿堂：教育 +35 · 科技点 +2/分' },
   { id: 'hospital', name: '医院', cat: 'civ', w: 2, h: 2, variants: 1, pop: 90,
     gen: genHospital, desc: '白色主楼，楼顶红十字' },
   { id: 'temple', name: '神社', cat: 'civ', w: 2, h: 2, variants: 1, pop: 15,

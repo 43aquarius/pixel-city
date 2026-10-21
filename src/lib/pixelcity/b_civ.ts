@@ -424,3 +424,68 @@ export function genMonument(_seed: number): BuildResult {
   }
   return { model: buildModel(faces, 16, 16) };
 }
+
+/** 图书馆（2×1）：新古典阅读殿堂 —— 石砌基座 + 高窗主殿 + 廊柱山花门廊 + 石板坡顶 */
+export function genLibrary(seed: number): BuildResult {
+  const faces: Face[] = [];
+  const stone: PatFn = (u, v, px, py) => pStone(P.CREAM)(u, v, px, py);
+  const slate: PatFn = (u, v, px, py) => pShingle(P.RFSLATE)(u, v, px, py);
+
+  // 石砌基座（全足印）+ 正面两级台阶
+  box(faces, 1.5, 1.5, 30.5, 14.5, 0, 2, { right: stone, left: stone, top: stone });
+  box(faces, 9, 14.5, 23, 16.2, 0, 1, { right: stone, left: stone, top: stone });
+  box(faces, 10, 16.2, 22, 17.4, 0, 0.5, { right: stone, left: stone, top: stone });
+
+  // 主殿：米色高墙 + 两层大窗（夜间半数亮灯，书香灯海）
+  const hall = pWindows(P.CREAM, { seed, lit: 0.55, floorH: 4.4, gapX: 3.8, winH: 2.6, winW: 2.2 });
+  const hall2 = pWindows(P.CREAM, { seed: seed ^ 11, lit: 0.55, floorH: 4.4, gapX: 4.2, winH: 2.6, winW: 2.2 });
+  box(faces, 4, 2.6, 28, 13.4, 2, 11, { right: hall2, left: hall });
+
+  // 石板双坡顶（屋脊沿 X）+ 两端山花
+  gableRoof(faces, 3.2, 1.8, 28.8, 14.2, 11, 16.2, 'x', {
+    front: slate, back: slate,
+    endX: (u, v, px, py) => bayer(px, py, 0.15) ? cell(P.CREAM, 1) : cell(P.CREAM, 0),
+  });
+  // 屋脊饰 + 中央采光亭
+  box(faces, 14.5, 7.2, 17.5, 8.8, 16.2, 17, { right: stone, left: stone, top: stone });
+  box(faces, 15.5, 7.7, 16.5, 8.3, 17, 18.6, {
+    right: () => cell(P.YELLOW, 0), left: () => cell(P.YELLOW, 0), top: () => cell(P.YELLOW, 0),
+  });
+
+  // 门廊：四柱 + 檐口 + 山花（+Y 正面）
+  for (let i = 0; i < 4; i++) {
+    const cx = 8.6 + i * 4.9;
+    prism(faces, cx, 14.2, 1.05, 2, 9.2, {
+      side: (u, v, px, py) => stone(u, v, px, py),
+      top: stone,
+    }, 8);
+  }
+  box(faces, 6.4, 13.6, 26.6, 15.9, 9.2, 11.2, {
+    right: stone, left: stone, top: stone,
+  });
+  gableRoof(faces, 6.4, 13.6, 26.6, 15.9, 11.2, 13.6, 'x', {
+    front: (u, v, px, py) => bayer(px, py, 0.12) ? cell(P.CREAM, 1) : cell(P.CREAM, 0),
+    endX: stone,
+  });
+
+  // 双开门（+Y 面，深色木门 + 门环）
+  box(faces, 14, 13.3, 19, 14.1, 2, 7.4, {
+    left: (u, v, px, py) =>
+      (Math.abs(u - 2.5) < 0.5 || Math.abs(u - 5.1) < 0.5) && v > 2 && v < 5
+        ? cell(P.YELLOW, 0) : cell(P.DIRT, 1),
+    top: () => cell(P.DIRT, 1),
+  });
+
+  // 基座四角石球 + 门前庭院灯 ×2
+  for (const [x, y] of [[2.6, 2.6], [28.9, 2.6]] as const) {
+    prism(faces, x + 0.8, y + 0.8, 1.1, 2, 4.6, {
+      side: (u, v, px, py) => stone(u, v, px, py), top: stone,
+    }, 8);
+  }
+  for (const x of [6.5, 25.5] as const) {
+    box(faces, x, 16.4, x + 1, 17.4, 0, 7.5, {
+      right: pWall(P.METAL), left: pWall(P.METAL), top: () => cell(P.LAMP, 0),
+    });
+  }
+  return { model: buildModel(faces, 32, 16) };
+}

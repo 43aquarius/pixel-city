@@ -21,6 +21,9 @@ export const TERR_AUTUMN = 9;
 export const MAP_N = 256;
 /** 树木种类数（0 阔叶 / 1 松 / 2 灌木 / 3 樱花 / 4 棕榈 / 5 高乔木） */
 export const TREE_KINDS = 6;
+/** 地形高度上限（级）；每级在屏幕上抬升 HSTEP 像素（engine 侧） */
+export const HMAX = 13;
+export const HSTEP = 6;
 
 /** 游程编码：[run, v, run, v, ...]（大地图存档/撤销体积优化） */
 function rleEnc(a: ArrayLike<number>): number[] {
@@ -50,6 +53,8 @@ export class CityMap {
   road: Uint8Array;
   tree: Int16Array;      // -1 无树
   occ: Int32Array;       // 每格指向锚点索引（-1 空）
+  /** 地形高度（0=水面，陆地 1..HMAX）；v3 存档新增 */
+  h: Uint8Array;
   objs = new Map<number, Obj>();   // 锚点索引 → 对象
   version = 0;
   onChange: (() => void) | null = null;
@@ -61,6 +66,7 @@ export class CityMap {
     this.road = new Uint8Array(n * n);
     this.tree = new Int16Array(n * n).fill(-1);
     this.occ = new Int32Array(n * n).fill(-1);
+    this.h = new Uint8Array(n * n);
   }
 
   idx(x: number, y: number): number { return y * this.n + x; }
@@ -82,13 +88,17 @@ export class CityMap {
 
   setTerr(x: number, y: number, k: number): boolean {
     if (!this.inB(x, y) || this.terr[this.idx(x, y)] === k) return false;
+    const i = this.idx(x, y);
     // 水淹规则：水域清除该格上的一切
     if (k === TERR_WATER) {
       this.removeAt(x, y, true);
-      this.road[this.idx(x, y)] = 0;
-      this.tree[this.idx(x, y)] = -1;
+      this.road[i] = 0;
+      this.tree[i] = -1;
+      this.h[i] = 0;                       // 水面即基准高度
+    } else if (this.terr[i] === TERR_WATER) {
+      this.h[i] = Math.max(1, this.h[i]);  // 填水成陆：至少抬到岸上
     }
-    this.terr[this.idx(x, y)] = k;
+    this.terr[i] = k;
     this.touch();
     return true;
   }
@@ -162,10 +172,41 @@ export class CityMap {
     return true;
   }
 
+  /** 足迹内高度不齐的格数（建造整地费预估；target 缺省取锚点高度） */
+  flatCount(x: number, y: number, w: number, hh: number, target?: number): number {
+    if (!this.inB(x, y)) return 0;
+    const t = target ?? this.h[this.idx(x, y)];
+    let c = 0;
+    for (let dy = 0; dy < hh; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        if (!this.inB(x + dx, y + dy)) continue;
+        if (this.h[this.idx(x + dx, y + dy)] !== t) c++;
+      }
+    }
+    return c;
+  }
+
+  /** 把足迹整平到 target 高度（返回改动格数） */
+  flatten(x: number, y: number, w: number, hh: number, target?: number): number {
+    if (!this.inB(x, y)) return 0;
+    const t = target ?? this.h[this.idx(x, y)];
+    let c = 0;
+    for (let dy = 0; dy < hh; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        if (!this.inB(x + dx, y + dy)) continue;
+        const i = this.idx(x + dx, y + dy);
+        if (this.h[i] !== t) { this.h[i] = t; c++; }
+      }
+    }
+    if (c > 0) this.touch();
+    return c;
+  }
+
   place(id: string, variant: number, x: number, y: number, seed = Math.floor(Math.random() * 1e9)): boolean {
     if (!this.canPlace(id, x, y)) return false;
     const d = defById(id);
     const a = this.idx(x, y);
+    this.flatten(x, y, d.w, d.h);          // 施工整地：足迹统一到锚点高度
     this.objs.set(a, { id, v: variant % d.variants, seed, ax: x, ay: y });
     for (let dy = 0; dy < d.h; dy++) {
       for (let dx = 0; dx < d.w; dx++) {
@@ -236,6 +277,7 @@ export class CityMap {
     this.road.fill(0);
     this.tree.fill(-1);
     this.occ.fill(-1);
+    this.h.fill(1);
     this.objs.clear();
     this.touch();
   }
@@ -246,20 +288,42 @@ export class CityMap {
     this.road.fill(0);
     this.tree.fill(-1);
     this.occ.fill(-1);
+    this.h.fill(0);
     this.objs.clear();
     for (let y = 0; y < n; y++) {
       for (let x = 0; x < n; x++) {
-        const e = fbm(x / 13.5, y / 13.5, seed);
-        // 中心抬升，保证出生点为陆地
-        const dc = Math.hypot((x - c) / n, (y - c) / n);
-        const lift = Math.max(0, 0.22 - dc * 0.5);
-        const v = e + lift;
         const i = this.idx(x, y);
-        if (v < 0.34) this.terr[i] = TERR_WATER;
-        else if (v < 0.385) this.terr[i] = TERR_SAND;
-        else if (v > 0.615 && dc > 0.2) this.terr[i] = TERR_ROCK;   // 远离中心的岩石高地
+        const dc = Math.hypot((x - c) / n, (y - c) / n);
 
-        // ---- 气候带（仅草地）：北部雪原 / 南部秋原 ----
+        // ---- 高度场：大尺度起伏 + 山脊噪声，中心保持平缓谷地 ----
+        const e = fbm(x / 13.5, y / 13.5, seed);                       // 基础起伏（水系）
+        const lift = Math.max(0, 0.22 - dc * 0.5);                     // 中心抬升：出生点为陆地
+        const v = e + lift;
+        // 山脊噪声（锐化）：只在外围成山，越远越高
+        const rg = 1 - Math.abs(2 * fbm(x / 23 + 500, y / 23 + 500, seed ^ 0x71D6) - 1);
+        const mFac = Math.max(0, Math.min(1, (dc - 0.16) / 0.30));     // 环径 0.16 以内不出山
+        const mtn = Math.pow(rg, 1.7) * mFac * (10 + 3 * fbm(x / 40 + 900, y / 40 + 900, seed ^ 0x3D3D));
+        // 缓丘：低海拔的柔和起伏（1..3 级）
+        const hill = Math.max(0, (v - 0.36)) * 9 + fbm(x / 18 + 700, y / 18 + 700, seed ^ 0x9ACD) * 2.2;
+
+        let hh: number;
+        if (v < 0.34) hh = 0;                                           // 水面
+        else hh = 1 + Math.floor(Math.max(0, Math.min(HMAX - 1, hill * 0.55 + mtn)));
+        this.h[i] = hh;
+
+        // ---- 地表类型（由高度 + 原气候带共同决定）----
+        if (hh === 0) this.terr[i] = TERR_WATER;
+        else if (hh >= 11) this.terr[i] = TERR_SNOW;                    // 雪线之上的皑皑峰顶
+        else if (hh >= 7) this.terr[i] = TERR_ROCK;                     // 裸岩高山
+        else if (hh >= 5) {
+          // 高地草甸与碎石坡
+          this.terr[i] = fbm(x / 9 + 404, y / 9 + 404, seed ^ 0x5CA7) > 0.52 ? TERR_ROCK : TERR_DRY;
+        } else {
+          if (v < 0.385) this.terr[i] = TERR_SAND;                      // 临水浅滩
+          else this.terr[i] = TERR_GRASS;
+        }
+
+        // ---- 气候带（仅低地草地）：北部雪原 / 南部秋原 ----
         const cy = y / n;
         if (this.terr[i] === TERR_GRASS) {
           if (cy < 0.22 && fbm(x / 12 + 200, y / 12 + 200, seed ^ 0xC01D) > 0.50) {
@@ -298,10 +362,50 @@ export class CityMap {
           this.tree[i] = hash2(x, y, 31) < 0.7 ? 1 : 5;   // 雪原以松/高乔木为主
         } else if (t0 === TERR_AUTUMN && forest > 0.60 && hash2(x, y, seed) < 0.42) {
           this.tree[i] = hash2(x, y, 31) < 0.5 ? 0 : 5;   // 秋原阔叶疏林
+        } else if (t0 === TERR_ROCK && hh >= 6 && hh <= 9 &&
+                   forest > 0.66 && hash2(x, y, seed) < 0.16) {
+          this.tree[i] = 1;                                // 高山疏林：岩坡孤松
         }
       }
     }
     this.touch();
+  }
+
+  // ---------------- 地形改造（抬升 / 降低） ----------------
+
+  /** 该格是否可改造高度（空地：无建筑 / 无道路 / 无树） */
+  canTerra(x: number, y: number): boolean {
+    if (!this.inB(x, y)) return false;
+    const i = this.idx(x, y);
+    return this.occ[i] < 0 && !this.road[i] && this.tree[i] < 0;
+  }
+
+  /** 抬升：陆地 +1 级（上限 HMAX）；水面 → 填成草地陆地。返回 'ok'|'max'|'blocked' */
+  liftAt(x: number, y: number): 'ok' | 'max' | 'blocked' {
+    if (!this.canTerra(x, y)) return 'blocked';
+    const i = this.idx(x, y);
+    if (this.h[i] >= HMAX) return 'max';
+    if (this.h[i] === 0) {
+      this.terr[i] = TERR_GRASS;   // 填海成陆
+      this.h[i] = 1;
+    } else {
+      this.h[i]++;
+    }
+    this.touch();
+    return 'ok';
+  }
+
+  /** 降低：陆地 −1 级；降到 0 变水域（会淹没该格）。返回 'ok'|'bedrock'|'blocked' */
+  sinkAt(x: number, y: number): 'ok' | 'bedrock' | 'blocked' {
+    if (!this.canTerra(x, y)) return 'blocked';
+    const i = this.idx(x, y);
+    if (this.h[i] <= 0) return 'bedrock';
+    this.h[i]--;
+    if (this.h[i] === 0) {
+      this.terr[i] = TERR_WATER;   // 挖到海平面以下 → 成水域
+    }
+    this.touch();
+    return 'ok';
   }
 
   /** 清除全部道路/树木/建筑，保留地形（一键城市用） */
@@ -319,10 +423,11 @@ export class CityMap {
     const objs: Array<[number, string, number, number]> = [];
     for (const [a, o] of this.objs) objs.push([a, o.id, o.v, o.seed]);
     return JSON.stringify({
-      v: 2, n: this.n,
+      v: 3, n: this.n,
       terr: rleEnc(this.terr),
       road: rleEnc(this.road),
       tree: rleEnc(this.tree),
+      h: rleEnc(this.h),
       objs,
     });
   }
@@ -354,6 +459,7 @@ export class CityMap {
       const T = this.expandArr(d.terr, dn);
       const R = this.expandArr(d.road, dn);
       const Tr = this.expandArr(d.tree, dn);
+      const H = d.h ? this.expandArr(d.h, dn) : null;   // v3 起才有高度场
       if (!T || !R || !Tr) return false;
 
       // 小地图居中迁移：旧尺寸存档放大后居中摆放
@@ -362,6 +468,7 @@ export class CityMap {
       this.road.fill(0);
       this.tree.fill(-1);
       this.occ.fill(-1);
+      this.h.fill(0);
       this.objs.clear();
 
       for (let y = 0; y < dn; y++) {
@@ -373,6 +480,9 @@ export class CityMap {
           this.road[di] = R[si] ? 1 : 0;
           const tv = Tr[si];
           this.tree[di] = (tv >= 0 && tv <= TREE_KINDS - 1) ? (tv | 0) : -1;
+          // 高度：v3 直读；v2 旧档推导（水 0 / 陆 1，保持旧世界平坦可玩）
+          const hv = H ? H[si] : (this.terr[di] === TERR_WATER ? 0 : 1);
+          this.h[di] = Math.max(0, Math.min(HMAX, hv | 0));
         }
       }
       for (const it of d.objs ?? []) {

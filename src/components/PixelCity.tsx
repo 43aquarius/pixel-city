@@ -17,7 +17,8 @@ import { CATALOG, defById, type Cat, type Def } from '@/lib/pixelcity/catalog';
 import { PALETTE } from '@/lib/pixelcity/palette';
 import { iconURI } from '@/lib/pixelcity/icons';
 import {
-  Tycoon, ECON, costOf, unlockOf, fmtG, QUESTS, type EconView,
+  Tycoon, ECON, costOf, unlockOf, fmtG, QUESTS, TECHS, BRANCHES, TECH_GATE, techNameOf,
+  type EconView,
 } from '@/lib/pixelcity/tycoon';
 
 const ICON_NAMES = [
@@ -28,6 +29,7 @@ const ICON_NAMES = [
   'person', 'personoff', 'menu',
   'snow', 'flower', 'dry', 'swamp', 'autumn',
   'coin', 'people', 'bolt', 'smile', 'star', 'lock', 'flag', 'land', 'chart',
+  'wheat', 'book', 'flask', 'heart', 'up', 'down',
 ];
 
 type Phase = 'loading' | 'ready';
@@ -71,6 +73,8 @@ const TOOLBAR: Array<{ icon: string; label: string; tool: Tool; cat?: Cat; hot: 
   { icon: 'tree', label: '植树', tool: { t: 'tree' }, hot: '2' },
   { icon: 'road', label: '道路', tool: { t: 'road' }, hot: '3' },
   { icon: 'grass', label: '地形', tool: { t: 'terr', k: 0 }, hot: '4' },
+  { icon: 'up', label: '抬升', tool: { t: 'lift' }, hot: '0' },
+  { icon: 'down', label: '降低', tool: { t: 'sink' }, hot: '-' },
   { icon: 'house', label: '住宅', tool: { t: 'build', id: 'house', variant: 0 }, cat: 'res', hot: '5' },
   { icon: 'shop', label: '商业', tool: { t: 'build', id: 'shop', variant: 0 }, cat: 'com', hot: '6' },
   { icon: 'factory', label: '工业', tool: { t: 'build', id: 'factory', variant: 0 }, cat: 'ind', hot: '7' },
@@ -149,6 +153,8 @@ function toolHint(t: Tool): string {
     case 'terr': return `按住拖动画画「${TERR_OPTS[t.k]?.label ?? '地形'}」（水域会淹没地上物）`;
     case 'tree': return '点击或拖动，种下随机小树（共 6 种，含樱花与棕榈）';
     case 'road': return '按住拖出路网，转角自动拼接';
+    case 'lift': return '上帝之手：抬升地形造山（海拔 0→1 为填海成陆；经营模式 5G/级）';
+    case 'sink': return '上帝之手：降低地形挖谷（海拔 1→0 化为水域；经营模式 5G/级）';
     case 'doze': return '拆除建筑 / 道路 / 树木：经营模式返还造价 50%，道路与树木近全额返还';
     case 'build': {
       const d = defById(t.id);
@@ -167,7 +173,7 @@ export default function PixelCity() {
   const [hover, setHover] = useState<{ tx: number; ty: number } | null>(null);
   const [fps, setFps] = useState(0);
   const [zoom, setZoom] = useState(2);
-  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal'>('none');
+  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech'>('none');
   const [econ, setEcon] = useState<EconView | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
@@ -301,6 +307,8 @@ export default function PixelCity() {
         Digit7: { t: 'build', id: 'factory', variant: 0 },
         Digit8: { t: 'build', id: 'park', variant: 0 },
         Digit9: { t: 'doze' },
+        Digit0: { t: 'lift' },
+        Minus: { t: 'sink' },
       };
       const t = map[e.code];
       if (t) {
@@ -356,7 +364,7 @@ export default function PixelCity() {
     pickTool({ t: 'build', id, variant: v });
   }, [pickTool]);
 
-  const openModal = useCallback((m: 'save' | 'help' | 'fiscal') => {
+  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech') => {
     if (m === 'save') {
       setSlotMeta([0, 1, 2].map(i => Engine.slotMeta(i)));
     }
@@ -467,9 +475,15 @@ export default function PixelCity() {
     if (d.cat === 'res') bits.push(`容纳${d.pop}人`);
     else if (d.cat === 'com' || d.cat === 'ind') bits.push(`${d.pop}岗位`);
     if (e.earn > 0) bits.push(`+${e.earn}G/分`);
+    if (e.food) bits.push(`粮+${e.food}/分`);
+    if (e.foodCap) bits.push(`粮仓+${e.foodCap}`);
+    if (e.edu) bits.push(`教育+${e.edu}`);
+    if (e.sp) bits.push(`科按+${e.sp}/分`);
     if (e.upk > 0) bits.push(`维护${e.upk}G/分`);
     if (e.amenity > 0) bits.push(`宜居+${e.amenity}`);
     if (e.pollute > 0) bits.push(`污染${e.pollute}`);
+    const tg = TECH_GATE[d.id];
+    if (tg) bits.push(`需研究「${techNameOf(tg)}」`);
     return ` ｜ ${bits.join(' · ')}`;
   };
 
@@ -506,6 +520,26 @@ export default function PixelCity() {
     say('新城已奠基：一块全新的荒地，等你书写传奇');
     beeperRef.current?.play('open');
   }, [say]);
+
+  /** 研究科技（科技面板） */
+  const doResearch = useCallback((id: string) => {
+    const eng = engineRef.current;
+    if (!eng) return;
+    const t = TECHS.find(x => x.id === id);
+    if (!t) return;
+    const r = eng.research(id);
+    if (r === 'ok') {
+      say(`研究完成「${t.name}」：${t.desc}`);
+      beeperRef.current?.play('quest');
+    } else if (r === 'sp') {
+      say(`科技点不足：「${t.name}」需要 ${t.cost} SP（建图书馆 / 学校 / 博物馆加速积累）`);
+    } else if (r === 'lock') {
+      const missing = t.req.filter(x => !econ?.techs.includes(x));
+      if (missing.length) say(`前置未满足：需先研究「${techNameOf(missing[0])}」`);
+      else if (econ && t.wis && econ.wisdom < t.wis) say(`智慧指数不足：需 ${t.wis}（当前 ${econ.wisdom}，多建图书馆 / 学校）`);
+      else say('前置未满足');
+    }
+  }, [say, econ]);
 
   // ---------------- 共用分组 ----------------
 
@@ -551,20 +585,24 @@ export default function PixelCity() {
                 const def = defById(c.id);
                 const multi = def.variants > 1;
                 const lk = !!econ && unlockOf(c.id) > econ.level;
+                const tg = TECH_GATE[c.id];
+                const tk = !!econ && !!tg && !econ.techs.includes(tg) && !lk;
                 const cost = costOf(c.id);
                 const poor = !!econ && econ.coins < cost;
                 return (
                   <button key={`${c.id}#${c.v}`}
-                    className={`pxc-cell${on ? ' on' : ''}${lk ? ' lk' : ''}`}
-                    title={`${c.name}${multi ? ` · 变体 ${c.v + 1}` : ''}${econ ? ` · ${cost}G${lk ? ` · LV${unlockOf(c.id)} 解锁` : ''}` : ''}`}
+                    className={`pxc-cell${on ? ' on' : ''}${lk || tk ? ' lk' : ''}`}
+                    title={`${c.name}${multi ? ` · 变体 ${c.v + 1}` : ''}${econ ? ` · ${cost}G${lk ? ` · LV${unlockOf(c.id)} 解锁` : ''}${tk ? ` · 需研究「${techNameOf(tg)}」` : ''}` : ''}`}
                     aria-label={`${c.name}${multi ? `变体${c.v + 1}` : ''}`}
                     onClick={() => {
                       if (lk) { say(`「${c.name}」需要市政厅 LV${unlockOf(c.id)} 解锁`); return; }
+                      if (tk) { say(`「${c.name}」需要先研究科技「${techNameOf(tg)}」`); return; }
                       pickCell(c.id, c.v);
                     }}>
                     <img src={c.uri} alt={c.name} />
                     {econ && <span className={`pxc-cost${poor ? ' poor' : ''}`}>{fmtG(cost)}G</span>}
                     {lk && <span className="pxc-lv">LV{unlockOf(c.id)}</span>}
+                    {tk && <span className="pxc-lv tech">研究</span>}
                     <span className="pxc-cname">{c.name}{multi ? `·${c.v + 1}` : ''}</span>
                   </button>
                 );
@@ -740,7 +778,8 @@ export default function PixelCity() {
         <div className="pxc-gbody">
           <div style={{ fontSize: 11, lineHeight: 1.7, color: '#3d434e' }}>
             <b style={{ color: '#8a6d1a' }}>经营模式</b>：上帝视角从一块荒地起步 —— 修路建房、人口迁入、电力供需、
-            幸福度治理、购地扩张、18 环任务与 12 级市政厅解锁（沙盒模式随时切换）。
+            粮仓与饥荒、智慧/科技点/宜居度三大民生指数、16 项四分支科技树、购地扩张、任务引导与等级解锁（沙盒模式随时切换）；
+            地图具有真实海拔起伏：山脉、丘陵、谷地与岸线，抬升/降低工具随心造山填海。
             一切画面均由代码程序化生成：{CATALOG.length} 类 {CATALOG.reduce((s, d) => s + d.variants, 0)} 变体建筑，
             256×256 大地图 · 10 种地形 · 一键城市（密度三档可调）·
             行人车辆（九职业 · 遛狗与流浪猫狗 · 广场鸽群 · 结伴出行，智能寻路，数量可调）·
@@ -880,7 +919,7 @@ export default function PixelCity() {
                 title={`电力：供给 ${econ.powerSup}MW / 需求 ${econ.powerDem}MW${econ.powerDem > econ.powerSup ? ' —— 缺电！收入大幅打折' : ''}`}>
                 <img src={iu('bolt')} alt="" /><b>{econ.powerSup}<i>/{econ.powerDem}</i></b>
               </div>
-              <div className="chip" title="幸福度：公共设施加分、工业污染减分，影响税收与迁入">
+              <div className="chip" title="幸福度：宜居 55% + 粮食 25% + 就业 20%，影响税收与迁入">
                 <img src={iu('smile')} alt="" /><b>{econ.happiness}</b>
               </div>
               <div className={`chip rate${econ.incomeNet < 0 ? ' neg' : ''}`}
@@ -893,6 +932,31 @@ export default function PixelCity() {
                 <span className="xp" aria-hidden>
                   <i style={{ width: `${Math.min(100, Math.round((econ.xp / Math.max(1, econ.xpMax)) * 100))}%` }} />
                 </span>
+              </button>
+            </div>
+          )}
+
+          {/* 民生指数条（粮仓 / 智慧 / 科技点 / 宜居） */}
+          {econ && (
+            <div className="pxc-hud pxc-hud2" role="status" aria-label="民生指数">
+              <button className={`chip${econ.famine ? ' warn' : ''}`}
+                onClick={() => openModal('fiscal')}
+                title={`粮仓：库存 ${econ.food}/${econ.foodCap} · 产量 ${rinc(econ.foodProd)}/分 − 口粮 ${rinc(econ.foodEat)}/分 = ${rincS(econ.foodNet)}/分${econ.famine ? ' —— 饥荒！快建温室大棚' : ''}`}>
+                <img src={iu('wheat')} alt="" /><b>{econ.food}<i>/{econ.foodCap}</i></b>
+                <em className={econ.foodNet < 0 ? 'dn' : 'up'}>{rincS(econ.foodNet)}</em>
+              </button>
+              <button className="chip" onClick={() => openModal('tech')}
+                title={`智慧指数：教育容量 ${econ.eduCap} 覆盖人口 ${econ.pop} 人（建图书馆 / 学校 / 博物馆提升）——智慧越高，科技点产出越快`}>
+                <img src={iu('book')} alt="" /><b>{econ.wisdom}</b>
+              </button>
+              <button className="chip" onClick={() => openModal('tech')}
+                title={`科技点：存量 ${econ.sp} SP · 产出 ${rinc(econ.spRate)}/分（点击打开科技研究院）`}>
+                <img src={iu('flask')} alt="" /><b>{fmtG(econ.sp)}</b>
+                <em className="up">+{rinc(econ.spRate)}</em>
+              </button>
+              <button className="chip" onClick={() => openModal('fiscal')}
+                title={`宜居度：设施供需与污染决定的环境指数，是幸福度的最大成分（55%）`}>
+                <img src={iu('heart')} alt="" /><b>{econ.livability}</b>
               </button>
             </div>
           )}
@@ -1114,8 +1178,24 @@ export default function PixelCity() {
                     </tr>
                     <tr><td>供电率</td><td>{Math.round(econ.powerMult * 100)}%</td></tr>
                     <tr><td>幸福度</td><td>{econ.happiness} / 100</td></tr>
+                    <tr><td>宜居度</td><td>{econ.livability} / 100</td></tr>
                     <tr><td>宜居 供/需</td><td>{econ.amenitySup} / {econ.amenityNeed}</td></tr>
                     <tr><td>工业污染</td><td>{econ.pollute} 点</td></tr>
+                  </tbody></table>
+                </section>
+                <section>
+                  <h3>粮食与科技</h3>
+                  <table><tbody>
+                    <tr className={econ.famine ? 'bad' : ''}>
+                      <td>粮仓 库存/容量</td><td>{econ.food} / {econ.foodCap}</td>
+                    </tr>
+                    <tr><td>产量 / 口粮</td><td>{rinc(econ.foodProd)} / {rinc(econ.foodEat)} 粮每分</td></tr>
+                    <tr className={econ.foodNet < 0 ? 'bad' : ''}>
+                      <td>粮食净额</td><td>{rincS(econ.foodNet)} 粮/分</td>
+                    </tr>
+                    <tr><td>智慧指数</td><td>{econ.wisdom} / 100（教育容量 {econ.eduCap}）</td></tr>
+                    <tr><td>科技点</td><td>{fmtG(econ.sp)} SP（+{rinc(econ.spRate)}/分）</td></tr>
+                    <tr><td>已研究科技</td><td>{econ.techs.length} / {TECHS.length} 项</td></tr>
                   </tbody></table>
                 </section>
                 <section>
@@ -1131,7 +1211,13 @@ export default function PixelCity() {
               {econ.powerDem > econ.powerSup && (
                 <div className="pxc-fwarn">缺电警告：建造火电厂（LV4）或风车磨坊（LV3）可恢复供电，否则收入大幅打折！</div>
               )}
+              {econ.famine > 0 && (
+                <div className="pxc-fwarn">饥荒警告：粮仓见底！市民正在迁离 —— 立即建造温室大棚（粮仓 +4/分）或筒仓（粮仓 +60）！</div>
+              )}
               <div className="pxc-row" style={{ marginTop: 10 }}>
+                <button className="pxc-btn primary" onClick={() => openModal('tech')}>
+                  <img src={iu('flask')} alt="" />科技研究院
+                </button>
                 <button className="pxc-btn" onClick={switchMode}>
                   <img src={iu('view')} alt="" />切换沙盒模式
                 </button>
@@ -1143,6 +1229,69 @@ export default function PixelCity() {
                     window.setTimeout(() => setConfirmReset(false), 3200);
                   }}>重开新游戏</button>
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 科技研究院模态（经营模式） */}
+      {modal === 'tech' && econ && (
+        <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
+          <div className="pxc-modal pxc-tech" role="dialog" aria-label="科技研究院">
+            <header>
+              科 技 研 究 院
+              <button className="pxc-x" onClick={() => setModal('none')} aria-label="关闭">×</button>
+            </header>
+            <div className="pxc-body">
+              <div className="pxc-techbar">
+                <span className="sp"><img src={iu('flask')} alt="" />{fmtG(econ.sp)} SP</span>
+                <span className="rate">+{rinc(econ.spRate)}/分</span>
+                <span className="wis"><img src={iu('book')} alt="" />智慧 {econ.wisdom}</span>
+                <span className="done">已研究 {econ.techs.length}/{TECHS.length}</span>
+              </div>
+              <div className="pxc-ttree">
+                {BRANCHES.map(br => (
+                  <div className="pxc-tbranch" key={br.key}>
+                    <div className="bh">{br.name}<i>{br.note}</i></div>
+                    {TECHS.filter(t => t.br === br.key).map(t => {
+                      const doneT = econ.techs.includes(t.id);
+                      const missing = t.req.filter(r => !econ.techs.includes(r));
+                      const wisOk = t.wis === undefined || econ.wisdom >= t.wis;
+                      const avail = !doneT && missing.length === 0 && wisOk;
+                      const afford = econ.sp >= t.cost;
+                      return (
+                        <div key={t.id}
+                          className={`pxc-tcard${doneT ? ' done' : avail ? ' avail' : ' lock'}`}>
+                          <div className="tname">
+                            {doneT ? '✓ ' : ''}{t.name}
+                            <span className="tier">T{t.tier}</span>
+                          </div>
+                          <div className="tdesc">{t.desc}</div>
+                          <div className="trow">
+                            {doneT ? (
+                              <span className="ok">已研究</span>
+                            ) : !avail ? (
+                              <span className="need">
+                                {missing.length ? `前置：${techNameOf(missing[0])}`
+                                  : `智慧需 ${t.wis}（当前 ${econ.wisdom}）`}
+                              </span>
+                            ) : (
+                              <button className={`pxc-btn mini${afford ? '' : ' dis'}`}
+                                onClick={() => doResearch(t.id)}>
+                                研究 · {t.cost}SP
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+              <div className="pxc-tips" style={{ marginTop: 8 }}>
+                科技点由图书馆 / 学校 / 博物馆 / 天文台等产出，智慧指数（教育容量 ÷ 人口）决定产出倍率；
+                建筑工程学、冶金工艺等科技还会解锁摩天大楼、炼油厂等高级建筑。
               </div>
             </div>
           </div>
@@ -1179,9 +1328,10 @@ export default function PixelCity() {
                     <tr><td>滚轮</td><td>以光标为中心缩放（×1 / ×2 / ×3）</td></tr>
                     <tr><td>W A S D / 方向键</td><td>平移视野</td></tr>
                     <tr><td>空格</td><td>视野居中</td></tr>
-                    <tr><td>1 – 9</td><td>观察 / 植树 / 道路 / 地形 / 住宅 / 商业 / 工业 / 公共 / 拆除</td></tr>
+                    <tr><td>1 – 9 · 0 / −</td><td>观察 / 植树 / 道路 / 地形 / 住宅 / 商业 / 工业 / 公共 / 拆除 / 抬升 / 降低</td></tr>
                     <tr><td>G</td><td>一键生成整座城市（沙盒模式；可反复按，每次全新）</td></tr>
-                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · 幸福度 · <b>设施维护费</b>（收支相抵才是真功夫）；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告；拆除设施可回收部分造价</td></tr>
+                    <tr><td>地形</td><td>真实海拔起伏：抬升造山、降低挖谷（挖到 0 化为水域）；山坡建房自动整地（另付小额费用）；行人车辆会爬坡</td></tr>
+                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>智慧 / 科技点 / 宜居度</b> · 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
                     <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
                     <tr><td>Esc</td><td>切回观察工具</td></tr>
                     <tr><td>收缩</td><td>工具条 / 建造中心可「◀ / 收起」折叠；折叠后点左上角「▶ 工具栏」或右缘「◀ 建造中心」竖签恢复</td></tr>
