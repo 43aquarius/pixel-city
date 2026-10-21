@@ -100,6 +100,24 @@ export class CityMap {
       this.occ[this.idx(x, y)] < 0;
   }
 
+  private roadListCache: Int32Array | null = null;
+  private roadListVer = -1;
+
+  /** 全部道路格索引（版本缓存）——行人/车辆出生点均匀采样用。
+   *  修复：小路网（经营开局仅数格路）在全图 65536 格随机采样几乎必然落空 */
+  roadList(): Int32Array {
+    if (!this.roadListCache || this.roadListVer !== this.version) {
+      let c = 0;
+      for (let i = 0; i < this.road.length; i++) if (this.road[i]) c++;
+      const out = new Int32Array(c);
+      let k = 0;
+      for (let i = 0; i < this.road.length; i++) if (this.road[i]) out[k++] = i;
+      this.roadListCache = out;
+      this.roadListVer = this.version;
+    }
+    return this.roadListCache;
+  }
+
   setRoad(x: number, y: number, on: boolean): boolean {
     if (!this.inB(x, y)) return false;
     if (on) {

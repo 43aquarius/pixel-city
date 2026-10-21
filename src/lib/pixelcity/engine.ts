@@ -16,7 +16,7 @@ import type { Beeper } from './audio';
 import { hash2 } from './rng';
 import { generateCity, type GenReport } from './citygen';
 import { ActorSystem, lampModel, glowPool, type Facing, type CarDir } from './actors';
-import { Tycoon, ECON, CHUNK, CHUNKS, ROAD_COST, TREE_COST, type EconView } from './tycoon';
+import { Tycoon, ECON, CHUNK, CHUNKS, ROAD_COST, TREE_COST, ROAD_REFUND, TREE_REFUND, REFUND_RATE, type EconView } from './tycoon';
 
 export type Tool =
   | { t: 'view' }
@@ -106,6 +106,9 @@ export class Engine {
   private pointers = new Map<number, { x: number; y: number }>();
   private pinchDist = 0;
   private lastPinch: { x: number; y: number } | null = null;
+  // 拆除尘土 / 金币浮字（细节反馈）
+  private puffs: Array<{ x: number; y: number; t0: number; big: boolean }> = [];
+  private floats: Array<{ x: number; y: number; t0: number; text: string; color: string }> = [];
 
   private listeners: Array<[EventTarget, string, EventListener]> = [];
 
@@ -324,6 +327,8 @@ export class Engine {
       this.recomputeDayNight();
     }
     this.actors.dayness = 1 - this.dayNight.dark;
+    // 经营模式：行人密度跟随实际人口（荒地开局无人，市民迁入后街巷渐热闹）
+    this.actors.popNow = this.tycoon ? this.tycoon.pop : null;
     if (now - this.lastInvalT > 2500) {
       this.lastInvalT = now;
       this.actors.invalidate();
@@ -606,6 +611,9 @@ export class Engine {
     items.sort((p, q) => p.key - q.key);
     for (const it of items) it.draw();
 
+    // ---- 拆除/建造尘土（在昼夜调色前，随场景一起压暗）----
+    this.drawPuffs(ctx, t);
+
     // ---- 昼夜色调：暮色暖光 → 夜幕压暗 → 夜光加色（lighter）----
     if (wm > 0.02) {
       ctx.fillStyle = `rgba(224,138,56,${(0.16 * wm).toFixed(3)})`;
@@ -623,8 +631,9 @@ export class Engine {
       }
     }
 
-    // ---- Pass 3：光标 + 幽灵 ----
+    // ---- Pass 3：光标 + 幽灵 + 浮字 ----
     this.drawCursor(ctx);
+    this.drawFloats(ctx, t);
 
     // ---- 上屏（最近邻放大 + 扫描线）----
     const d = this.display;
@@ -777,13 +786,16 @@ export class Engine {
     }
     if (eco.ownedAt(tx, ty)) return;
     const { cx, cy } = eco.chunkOf(tx, ty);
+    const price = eco.priceOf(cx, cy);
     const r = eco.buyChunk(cx, cy);
     if (r === 'adj') {
       eco.msg?.('暂不可购买：只可购买与领地相邻的地块');
       this.beeper.play('error');
     } else if (r === 'coins') {
-      eco.msg?.(`金币不足：这块地需要 ${eco.priceOf(cx, cy)}G`);
+      eco.msg?.(`金币不足：这块地需要 ${price}G`);
       this.beeper.play('error');
+    } else if (r === 'ok') {
+      this.floatAt(cx * CHUNK + 8, cy * CHUNK + 8, `−${price}G`, '#F2D24B');
     }
   }
 
@@ -803,7 +815,50 @@ export class Engine {
     return X >= 0 && X <= 16 * w && Y >= 0 && Y <= 16 * h;
   }
 
-  /** 光标菱形 + 放置幽灵 */
+  /** 尘土粒子：等距椭圆环扩散 + 有序抖动，复古尘雾感 */
+  private drawPuffs(ctx: CanvasRenderingContext2D, now: number): void {
+    for (let i = this.puffs.length - 1; i >= 0; i--) {
+      const p = this.puffs[i];
+      const life = p.big ? 560 : 380;
+      const age = (now - p.t0) / life;
+      if (age >= 1) { this.puffs.splice(i, 1); continue; }
+      const cx = this.w2sx(p.x, p.y), cy = this.w2sy(p.x, p.y) - (p.big ? 8 : 3);
+      const R = (p.big ? 13 : 7) * (0.4 + age * 0.9);
+      ctx.globalAlpha = 1 - age * age;
+      for (let yy = -R; yy <= R; yy++) {
+        for (let xx = -R * 2; xx <= R * 2; xx++) {
+          const d = (xx / (R * 2)) ** 2 + (yy / R) ** 2;
+          if (d > 1 || d < 0.38) continue;          // 空心扩散环
+          if (((xx + yy) & 1) !== 0) continue;      // 交错抖动
+          ctx.fillStyle = d > 0.72 ? '#D8C9A3' : '#B9A172';
+          ctx.fillRect(Math.round(cx + xx), Math.round(cy + yy), 1, 1);
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  /** 浮动文字：金币增减 / 拆除返还，上浮渐隐 */
+  private drawFloats(ctx: CanvasRenderingContext2D, now: number): void {
+    if (!this.floats.length) return;
+    ctx.font = 'bold 8px monospace';
+    ctx.textAlign = 'center';
+    for (let i = this.floats.length - 1; i >= 0; i--) {
+      const f = this.floats[i];
+      const age = (now - f.t0) / 1300;
+      if (age >= 1) { this.floats.splice(i, 1); continue; }
+      const cx = this.w2sx(f.x, f.y), cy = this.w2sy(f.x, f.y) - 12 - age * 15;
+      ctx.globalAlpha = age < 0.65 ? 1 : (1 - age) / 0.35;
+      const w = ctx.measureText(f.text).width + 6;
+      ctx.fillStyle = 'rgba(11,15,36,0.92)';
+      ctx.fillRect(Math.round(cx - w / 2), Math.round(cy - 8), Math.round(w), 11);
+      ctx.fillStyle = f.color;
+      ctx.fillText(f.text, Math.round(cx), Math.round(cy));
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+  }
+
   private drawCursor(ctx: CanvasRenderingContext2D): void {
     const h = this.hover;
     if (!h || !this.map.inB(h.tx, h.ty)) return;
@@ -812,6 +867,71 @@ export class Engine {
     if (tool.t === 'build') {
       const d = defById(tool.id);
       w = d.w; hh = d.h;
+    }
+    // ---- 拆除模式：目标整格红框 + 建筑足迹红色警示 ----
+    if (tool.t === 'doze') {
+      const i = this.map.idx(h.tx, h.ty);
+      const a = this.map.occ[i];
+      let target = '';
+      if (a >= 0) {
+        const o = this.map.objs.get(a)!;
+        const d = defById(o.id);
+        w = d.w; hh = d.h;
+        target = o.id;
+      }
+      const has = !!target || this.map.tree[i] >= 0 || !!this.map.road[i];
+      const x0 = this.w2sx(h.tx, h.ty), y0 = this.w2sy(h.tx, h.ty);
+      if (target) {
+        // 建筑锚点足迹（o.ax/o.ay 为锚点，hover 可能在足迹内任意格）
+        const o = this.map.objs.get(a)!;
+        const ax = this.w2sx(o.ax, o.ay), ay = this.w2sy(o.ax, o.ay);
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(ax + 16 * w, ay + 8 * w);
+        ctx.lineTo(ax + 16 * (w - hh), ay + 8 * (w + hh));
+        ctx.lineTo(ax - 16 * hh, ay + 8 * hh);
+        ctx.closePath();
+        ctx.setLineDash([4, 3]);
+        ctx.strokeStyle = '#E05548';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // 足迹红雾
+        ctx.fillStyle = 'rgba(224,85,72,0.28)';
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x0 + 16 * w, y0 + 8 * w);
+        ctx.lineTo(x0 + 16 * (w - hh), y0 + 8 * (w + hh));
+        ctx.lineTo(x0 - 16 * hh, y0 + 8 * hh);
+        ctx.closePath();
+        ctx.strokeStyle = has ? '#E05548' : 'rgba(8,10,18,0.5)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      // 标签：经营模式显示返还额
+      if (has) {
+        const eco = this.tycoon;
+        let label = '拆除';
+        if (eco) {
+          if (target) label = `拆除 · 返还 ${Math.round(ECON[target].cost * REFUND_RATE)}G`;
+          else label = `拆除 · 返还 ${this.map.road[i] ? ROAD_REFUND : TREE_REFUND}G`;
+        }
+        const mx = x0 + 8 * (w - hh), my = y0 + 4 * (w + hh) - 14;
+        ctx.font = 'bold 8px monospace';
+        const tw = ctx.measureText(label).width + 10;
+        ctx.fillStyle = 'rgba(42,12,12,0.92)';
+        ctx.fillRect(Math.round(mx - tw / 2), Math.round(my - 8), Math.round(tw), 14);
+        ctx.strokeStyle = '#E05548';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(Math.round(mx - tw / 2) + 0.5, Math.round(my - 8) + 0.5, Math.round(tw) - 1, 13);
+        ctx.fillStyle = '#F4D9D4';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, Math.round(mx), Math.round(my + 2));
+        ctx.textAlign = 'left';
+      }
+      return;
     }
     const x0 = this.w2sx(h.tx, h.ty), y0 = this.w2sy(h.tx, h.ty);
     ctx.beginPath();
@@ -1149,6 +1269,18 @@ export class Engine {
 
   // ---------------- 工具应用 ----------------
 
+  /** 拆除尘土粒子（big=整栋建筑，小=道路/树） */
+  private puffAt(tx: number, ty: number, big: boolean): void {
+    if (this.puffs.length > 40) this.puffs.shift();
+    this.puffs.push({ x: tx + 0.5, y: ty + 0.5, t0: performance.now(), big });
+  }
+
+  /** 金币/文字浮动反馈 */
+  private floatAt(tx: number, ty: number, text: string, color: string): void {
+    if (this.floats.length > 24) this.floats.shift();
+    this.floats.push({ x: tx + 0.5, y: ty + 0.5, t0: performance.now(), text, color });
+  }
+
   private applyToolAt(tx: number, ty: number): void {
     const t = this.tool;
     const eco = this.tycoon;
@@ -1193,8 +1325,10 @@ export class Engine {
       }
       case 'doze': {
         let refundId: string | null = null;
+        let isRoad = false, isTree = false;
         if (this.map.inB(tx, ty)) {
-          const a = this.map.occ[this.map.idx(tx, ty)];
+          const i = this.map.idx(tx, ty);
+          const a = this.map.occ[i];
           if (a >= 0) {
             const o = this.map.objs.get(a)!;
             if (eco && o.id === 'cityhall') {
@@ -1202,13 +1336,23 @@ export class Engine {
               return;
             }
             refundId = o.id;
-          }
+          } else if (this.map.tree[i] >= 0) isTree = true;
+          else if (this.map.road[i]) isRoad = true;
         }
         if (this.map.bulldoze(tx, ty)) {
           this.beeper.play('delete');
-          if (eco && refundId) {
-            eco.refundBuild(refundId);
-            eco.msg?.(`拆除 ${defById(refundId).name}：返还 ${Math.round(ECON[refundId].cost * 0.3)}G`);
+          this.puffAt(tx, ty, !!refundId);
+          if (eco) {
+            eco.dozed++;
+            if (refundId) {
+              const back = eco.refundBuild(refundId);
+              this.floatAt(tx, ty, `+${back}G`, '#F2D24B');
+              if (!this.dragMode) eco.msg?.(`拆除 ${defById(refundId).name}：返还 ${back}G（造价 ${Math.round(REFUND_RATE * 100)}%）`);
+            } else if (isRoad) {
+              this.floatAt(tx, ty, `+${eco.refundRoad()}G`, '#F2D24B');
+            } else if (isTree) {
+              this.floatAt(tx, ty, `+${eco.refundTree()}G`, '#F2D24B');
+            }
           }
         }
         break;
@@ -1231,7 +1375,12 @@ export class Engine {
         }
         if (this.map.place(t.id, t.variant, tx, ty)) {
           this.beeper.play('place');
-          if (eco) eco.payBuild(t.id);
+          this.puffAt(tx, ty, false);
+          if (eco) {
+            eco.payBuild(t.id);
+            const c = ECON[t.id]?.cost ?? 0;
+            if (c > 0) this.floatAt(tx, ty, `−${c}G`, '#E8E4D8');
+          }
         } else if (!this.dragMode && this.map.inB(tx, ty)) {
           this.beeper.play('error');
         }

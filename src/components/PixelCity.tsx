@@ -75,7 +75,7 @@ const TOOLBAR: Array<{ icon: string; label: string; tool: Tool; cat?: Cat; hot: 
   { icon: 'shop', label: '商业', tool: { t: 'build', id: 'shop', variant: 0 }, cat: 'com', hot: '6' },
   { icon: 'factory', label: '工业', tool: { t: 'build', id: 'factory', variant: 0 }, cat: 'ind', hot: '7' },
   { icon: 'park', label: '公共', tool: { t: 'build', id: 'park', variant: 0 }, cat: 'civ', hot: '8' },
-  { icon: 'doze', label: '推土', tool: { t: 'doze' }, hot: '9' },
+  { icon: 'doze', label: '拆除', tool: { t: 'doze' }, hot: '9' },
 ];
 
 // ---------------- 界面收缩状态（持久化） ----------------
@@ -149,7 +149,7 @@ function toolHint(t: Tool): string {
     case 'terr': return `按住拖动画画「${TERR_OPTS[t.k]?.label ?? '地形'}」（水域会淹没地上物）`;
     case 'tree': return '点击或拖动，种下随机小树（共 6 种，含樱花与棕榈）';
     case 'road': return '按住拖出路网，转角自动拼接';
-    case 'doze': return '点击拆除：整栋建筑 / 树木 / 道路';
+    case 'doze': return '拆除建筑 / 道路 / 树木：经营模式返还造价 50%，道路与树木近全额返还';
     case 'build': {
       const d = defById(t.id);
       return `点击放置「${d.name}」占地 ${d.w}×${d.h}${d.pop ? ` · 容纳 ${d.pop} 人` : ''}`;
@@ -186,6 +186,7 @@ export default function PixelCity() {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const toastTimer = useRef<number>(0);
   const clockTick = useRef(0);
+  const deficitRef = useRef(false);
 
   const say = useCallback((msg: string) => {
     setToast({ id: Date.now(), msg });
@@ -225,7 +226,15 @@ export default function PixelCity() {
       onZoom: setZoom,
       onTool: setTool,
       onFps: setFps,
-      onEcon: setEcon,
+      onEcon: (e) => {
+        setEcon(e);
+        if (e) {
+          if (e.coins < 0 && !deficitRef.current) {
+            deficitRef.current = true;
+            say('财政赤字！拆除高维护建筑或暂停扩张，等待收支回正');
+          } else if (e.coins >= 0) deficitRef.current = false;
+        }
+      },
       onTycoonMsg: say,
       onHallClick: () => setModal('fiscal'),
     };
@@ -458,13 +467,16 @@ export default function PixelCity() {
     if (d.cat === 'res') bits.push(`容纳${d.pop}人`);
     else if (d.cat === 'com' || d.cat === 'ind') bits.push(`${d.pop}岗位`);
     if (e.earn > 0) bits.push(`+${e.earn}G/分`);
+    if (e.upk > 0) bits.push(`维护${e.upk}G/分`);
     if (e.amenity > 0) bits.push(`宜居+${e.amenity}`);
     if (e.pollute > 0) bits.push(`污染${e.pollute}`);
     return ` ｜ ${bits.join(' · ')}`;
   };
 
-  /** 收入显示：小于 100 保留 1 位小数，更大走 fmtG */
-  const rinc = (n: number): string => (n >= 100 ? fmtG(n) : `${Math.round(n * 10) / 10}`);
+  /** 收入显示：小于 100 保留 1 位小数，更大走 fmtG；负数带负号 */
+  const rinc = (n: number): string =>
+    n >= 100 ? fmtG(n) : `${Math.round(Math.abs(n) * 10) / 10}`;
+  const rincS = (n: number): string => `${n < 0 ? '−' : '+'}${rinc(n)}`;
 
   /** 经营 ⇄ 沙盒切换（经营进度独立存档，互不覆盖） */
   const switchMode = useCallback(() => {
@@ -858,7 +870,7 @@ export default function PixelCity() {
           {/* 经营 HUD（金币/人口/电力/幸福/收入/等级） */}
           {econ && (
             <div className="pxc-hud" role="status" aria-label="经营状态">
-              <div className="chip" title="金币：建造与购地的通货">
+              <div className={`chip${econ.coins < 0 ? ' warn' : ''}`} title="金币：建造与购地的通货。入不敷出会赤字！">
                 <img src={iu('coin')} alt="" /><b>{fmtG(econ.coins)}</b>
               </div>
               <div className="chip" title="人口 / 住房容量（市民逐渐迁入）">
@@ -871,9 +883,9 @@ export default function PixelCity() {
               <div className="chip" title="幸福度：公共设施加分、工业污染减分，影响税收与迁入">
                 <img src={iu('smile')} alt="" /><b>{econ.happiness}</b>
               </div>
-              <div className="chip rate"
-                title={`收入构成（G/分）：税收 ${rinc(econ.incomeTax)} + 商业 ${rinc(econ.incomeCom)} + 工业 ${rinc(econ.incomeInd)}`}>
-                <b>+{rinc(econ.income)}/分</b>
+              <div className={`chip rate${econ.incomeNet < 0 ? ' neg' : ''}`}
+                title={`净收入构成（G/分）：税收 ${rinc(econ.incomeTax)} + 商业 ${rinc(econ.incomeCom)} + 工业 ${rinc(econ.incomeInd)} − 维护 ${rinc(econ.incomeUpk)}${econ.incomeNet < 0 ? ' —— 入不敷出！拆除高维护设施可减负' : ''}`}>
+                <b>{rincS(econ.incomeNet)}/分</b>
               </div>
               <button className="chip lv" onClick={() => openModal('fiscal')}
                 title="财政报告（点击市政厅同样可打开）">
@@ -1074,12 +1086,14 @@ export default function PixelCity() {
             <div className="pxc-body">
               <div className="pxc-fgrid">
                 <section>
-                  <h3>收入（每分钟）</h3>
+                  <h3>收支（每分钟）</h3>
                   <table><tbody>
                     <tr><td>人口税收</td><td className="g">+{rinc(econ.incomeTax)}G</td></tr>
                     <tr><td>商业利润</td><td className="g">+{rinc(econ.incomeCom)}G</td></tr>
                     <tr><td>工业产值</td><td className="g">+{rinc(econ.incomeInd)}G</td></tr>
-                    <tr className="sum"><td>合计</td><td className="g">+{rinc(econ.income)}G</td></tr>
+                    <tr><td>设施维护</td><td className="bad">−{rinc(econ.incomeUpk)}G</td></tr>
+                    <tr className="sum"><td>净收入</td>
+                      <td className={econ.incomeNet < 0 ? 'bad' : 'g'}>{rincS(econ.incomeNet)}G</td></tr>
                   </tbody></table>
                 </section>
                 <section>
@@ -1109,7 +1123,8 @@ export default function PixelCity() {
                   <table><tbody>
                     <tr><td>已购领地</td><td>{econ.chunks} 块（每块 16×16 格）</td></tr>
                     <tr><td>购地方法</td><td>点击迷雾边缘金色虚线框</td></tr>
-                    <tr><td>地价</td><td>随环距递增（150G 起）</td></tr>
+                    <tr><td>地价</td><td>随环距递增（140G 起，越远越贵）</td></tr>
+                    <tr><td>拆除回收</td><td>建筑返还造价 50% · 道路/树木 1G/格</td></tr>
                   </tbody></table>
                 </section>
               </div>
@@ -1164,9 +1179,9 @@ export default function PixelCity() {
                     <tr><td>滚轮</td><td>以光标为中心缩放（×1 / ×2 / ×3）</td></tr>
                     <tr><td>W A S D / 方向键</td><td>平移视野</td></tr>
                     <tr><td>空格</td><td>视野居中</td></tr>
-                    <tr><td>1 – 9</td><td>观察 / 植树 / 道路 / 地形 / 住宅 / 商业 / 工业 / 公共 / 推土</td></tr>
+                    <tr><td>1 – 9</td><td>观察 / 植树 / 道路 / 地形 / 住宅 / 商业 / 工业 / 公共 / 拆除</td></tr>
                     <tr><td>G</td><td>一键生成整座城市（沙盒模式；可反复按，每次全新）</td></tr>
-                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · 幸福度；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告；建筑随市政厅等级逐步解锁</td></tr>
+                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · 幸福度 · <b>设施维护费</b>（收支相抵才是真功夫）；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告；拆除设施可回收部分造价</td></tr>
                     <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
                     <tr><td>Esc</td><td>切回观察工具</td></tr>
                     <tr><td>收缩</td><td>工具条 / 建造中心可「◀ / 收起」折叠；折叠后点左上角「▶ 工具栏」或右缘「◀ 建造中心」竖签恢复</td></tr>

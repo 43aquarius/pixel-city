@@ -818,6 +818,8 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
   61%, 100% { background: var(--navy-deep); }
 }
 .pxc-hud .chip.rate b { color: #8fd48a; }
+.pxc-hud .chip.rate.neg { border-color: #E05548; }
+.pxc-hud .chip.rate.neg b { color: #ff8d80; }
 .pxc-hud .chip.lv {
   cursor: pointer;
   border-color: var(--gold);

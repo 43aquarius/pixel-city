@@ -726,6 +726,8 @@ export class ActorSystem {
   static readonly BIRD_MAX = 14;
   /** 0=深夜 1=白昼（引擎每帧回写；自动模式下人口随之消长） */
   dayness = 1;
+  /** 经营模式实际人口（引擎回写；null=沙盒按建筑容量推导）。人口越多街道越热闹 */
+  popNow: number | null = null;
   private targetP = 0;
   private targetC = 0;
   private targetPet = 0;
@@ -774,8 +776,12 @@ export class ActorSystem {
     const nightK = 0.30 + 0.70 * this.dayness;       // 行人夜间回落至 0.3
     const carK = 0.45 + 0.55 * this.dayness;         // 车辆夜间回落至 0.45
     if (this.pedAuto) {
-      const base = Math.max(10, Math.min(ActorSystem.PED_AUTO_MAX, 10 + Math.floor(st.pop / 60)));
-      this.targetP = Math.max(4, Math.round(base * nightK));
+      // 经营模式：行人密度随实际人口增长（1 人 ≈ 0.33 名路人，直观反馈城市脉动）
+      // 沙盒模式：按建筑容量自适应
+      const base = this.popNow !== null
+        ? Math.floor(this.popNow / 3)
+        : Math.max(10, Math.min(ActorSystem.PED_AUTO_MAX, 10 + Math.floor(st.pop / 60)));
+      this.targetP = base <= 0 ? 0 : Math.max(4, Math.round(base * nightK));
     } else {
       this.targetP = this.pedManual;   // 手动模式：尊重用户设定，不随夜色缩放
     }
@@ -787,12 +793,11 @@ export class ActorSystem {
   }
 
   private randomRoad(map: CityMap): [number, number] | null {
-    for (let i = 0; i < 90; i++) {
-      const x = Math.floor(Math.random() * map.n);
-      const y = Math.floor(Math.random() * map.n);
-      if (map.road[map.idx(x, y)]) return [x, y];
-    }
-    return null;
+    // 从真实道路格列表均匀抽取（支持极小路网：经营开局仅数格路也能出生）
+    const list = map.roadList();
+    if (!list.length) return null;
+    const i = list[(Math.random() * list.length) | 0];
+    return [i % map.n, (i / map.n) | 0];
   }
 
   private spawn(map: CityMap, kind: 0 | 1): void {
