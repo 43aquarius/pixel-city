@@ -231,10 +231,11 @@ const rockPat: GroundPat = (X, Y, px, py, c) => {
     [c.edge & 1, Y], [c.edge & 4, 16 - Y], [c.edge & 2, 16 - X], [c.edge & 8, X],
   ];
   for (const [e, d] of bands) if (e && d < 1.5) return ramp(P.SIDE, 2);
-  // 碎石堆（每变体固定 2 处）
+  // 碎石堆（v4：每变体固定 3 处，大中小梯队）
   const bx = 2.5 + hash2(c.variant, 2, 21) * 11, by = 2.5 + hash2(c.variant, 3, 21) * 11;
   const bx2 = 2.5 + hash2(c.variant, 5, 21) * 11, by2 = 2.5 + hash2(c.variant, 6, 21) * 11;
-  const rocks: Array<[number, number, number]> = [[bx, by, 2.4], [bx2, by2, 1.7]];
+  const bx3 = 2.5 + hash2(c.variant, 8, 21) * 11, by3 = 2.5 + hash2(c.variant, 9, 21) * 11;
+  const rocks: Array<[number, number, number]> = [[bx, by, 2.4], [bx2, by2, 1.7], [bx3, by3, 1.1]];
   for (const [ox, oy, r0] of rocks) {
     const d = Math.hypot(X - ox, Y - oy);
     if (d < r0) {
@@ -242,6 +243,12 @@ const rockPat: GroundPat = (X, Y, px, py, c) => {
       return X < ox ? ramp(P.SIDE, 0) : ramp(P.ASPH, 1);    // 岩顶受光
     }
   }
+  // 斜向节理细线（岩面构造线）
+  if (Math.abs(X + Y * 0.62 - 19) < 0.3 || Math.abs(X * 0.9 + Y - 6) < 0.3) {
+    return ramp(P.SIDE, 2);
+  }
+  // 苔藓点（背阴处零星绿点）
+  if (hash2(Math.floor(X / 2), Math.floor(Y / 2), 23) < 0.03) return ramp(P.GRASS, 2);
   if (hash2(Math.floor(X / 3), Math.floor(Y / 3), 22) < 0.05) return ramp(P.DIRT, 1);
   const n = vnoise(X / 4.2, Y / 4.2, 33);
   return ramp(P.SIDE, dquant(0.5 + (n - 0.5) * 0.3, px, py, 3));
@@ -284,8 +291,9 @@ const snowPat: GroundPat = (X, Y, px, py, c) => {
       return b < t ? ramp(P.CYAN, 0) : ramp(P.WHITE, 0);
     }
   }
-  // 雪面闪光
+  // 雪面闪光 + 露出的灰岩（风蚀斑块）
   if (hash2(Math.floor(X), Math.floor(Y), 93) < 0.012) return ramp(P.CYAN, 0);
+  if (hash2(Math.floor(X / 3), Math.floor(Y / 3), 94) < 0.025) return ramp(P.SIDE, 1);
   const n = vnoise(X / 5.2, Y / 5.2, 91 + c.variant);
   const drift = vnoise(X / 13, Y / 13, 92);
   const v = 0.5 + (n - 0.5) * 0.2 + (drift - 0.5) * 0.34;
@@ -545,42 +553,68 @@ export type CliffStyle = 'earth' | 'rock' | 'sand' | 'snow' | 'dry';
 
 const cliffCache = new Map<number, Sprite>();
 
-/** 面内纹理：depth = 距顶边深度（0..D），lit = 受光侧 */
-type CliffPat = (px: number, py: number, depth: number, lit: number) => number;
+/** 面内纹理：depth = 距顶边深度（0..total），total = 立面总深，lit = 受光侧
+ *  v4 素材精细化：统一「1px 亮檐口 → 主体纹理 → 崖脚压暗/碎石」三段结构 */
+type CliffPat = (px: number, py: number, depth: number, total: number, lit: number) => number;
 
-const cliffEarth: CliffPat = (px, py, depth, lit) => {
-  // 草皮檐口（顶部 2.5px 草色）
-  if (depth < 2.5) return ramp(P.GRASS, Math.min(2, lit + (depth < 1 ? 0 : 1)));
+const cliffEarth: CliffPat = (px, py, depth, total, lit) => {
+  // 顶檐：1px 亮草唇 + 草皮檐口（顶部 2.5px 草色）
+  if (depth < 1) return ramp(P.GRASS, 1);
+  if (depth < 2.5) return ramp(P.GRASS, Math.min(3, lit + 2));
+  // 崖脚：接地暗带（2.5px）+ 根须垂丝
+  if (depth > total - 2.5) {
+    if (hash2(px, 3, 69) < 0.14 && (py & 1) === 0) return ramp(P.DIRT, 1);
+    return ramp(P.DIRT, 2);
+  }
   // 偶发石块嵌入
   if (hash2(px >> 1, py >> 1, 61) < 0.05) return ramp(P.SIDE, Math.min(2, lit + 1));
   // 根须（浅层深色细条纹）
   if (depth < 7 && hash2(px, 7, 62) < 0.10 && (py & 1) === 0) return ramp(P.DIRT, 2);
-  // 土层带（5px 分层 + 边界抖动 + 横向摆动）
+  // 土层带：4.5px 分层 + 边界抖动 + 横向摆动；接缝加宽（1.4）对比更强
   const wob = Math.sin(px * 0.72) * 1.15;
-  const band = Math.floor((depth + wob) / 5);
-  const q = ((depth + wob) % 5) < 1.1 ? 1 : 0;
+  const band = Math.floor((depth + wob) / 4.5);
+  const q = ((depth + wob) % 4.5) < 1.4 ? 1 : 0;
   return ramp(P.DIRT, Math.max(0, Math.min(2, lit + (band & 1) + q)));
 };
 
-const cliffRock: CliffPat = (px, py, depth, lit) => {
+const cliffRock: CliffPat = (px, py, depth, total, lit) => {
+  // 顶檐：1px 亮石唇（受光側亮、背光側中灰）
+  if (depth < 1) return ramp(P.SIDE, Math.min(1, lit));
+  // 崖脚崩积堆：暗色基座上撒亮色碎石（岩屑扇）
+  if (depth > total - 3.4) {
+    if (hash2(px >> 1, (py + 3) >> 1, 68) < 0.32) return ramp(P.SIDE, Math.min(1, lit));
+    return ramp(P.ASPH, 2);
+  }
   // 竖向裂纹（固定 x 位置的暗色断线）
   const cr = hash2(Math.floor(px / 4), 3, 63) < 0.22;
   if (cr && hash2(px, py >> 2, 64) < 0.5) return ramp(P.OUTLINE, 0);
-  // 坚硬岩层：4px 平缓层理（0→1→2 循环渐变，岩层越深越暗）
-  const band = Math.floor((depth + Math.sin(px * 0.55 + depth * 0.12) * 1.4) / 4);
-  const v = ((band % 3) + 3) % 3;
+  // 坚硬岩层：3.6px 强对比两档（亮层 / 暗层交替，棱线分明）
+  const band = Math.floor((depth + Math.sin(px * 0.55 + depth * 0.12) * 1.4) / 3.6);
   if (hash2(px >> 1, py >> 1, 65) < 0.035) return ramp(P.ASPH, 2);   // 暗色矿斑
-  return ramp(P.SIDE, Math.max(0, Math.min(2, lit + v)));
+  return (band & 1) === 0
+    ? ramp(P.SIDE, Math.min(1, lit))     // 亮岩层
+    : ramp(P.SIDE, 2);                   // 暗岩层
 };
 
-const cliffSand: CliffPat = (px, _py, depth, lit) => {
+const cliffSand: CliffPat = (px, _py, depth, total, lit) => {
+  // 顶檐：1px 亮沙唇
+  if (depth < 1) return ramp(P.SAND, 0);
+  // 崖脚：压实暗沙 + 风蚀斑点
+  if (depth > total - 2.5) {
+    if (hash2(px >> 1, _py >> 1, 70) < 0.22) return ramp(P.DIRT, 1);
+    return ramp(P.SAND, 2);
+  }
   const band = Math.floor((depth + Math.sin(px * 0.6) * 1.2) / 4.5);
   const q = ((depth + Math.sin(px * 0.6) * 1.2) % 4.5) < 1.2 ? 1 : 0;
   if (hash2(px >> 1, _py >> 1, 66) < 0.04) return ramp(P.DIRT, 1);
   return ramp(P.SAND, Math.max(0, Math.min(2, lit + (band & 1) + q - 1)));
 };
 
-const cliffDry: CliffPat = (px, py, depth, lit) => {
+const cliffDry: CliffPat = (px, py, depth, total, lit) => {
+  // 顶檐：1px 亮土唇
+  if (depth < 1) return ramp(P.DIRT, 0);
+  // 崖脚：崩土暗带
+  if (depth > total - 2.5) return ramp(P.DIRT, 2);
   // 龟裂旱土崖
   const cr = vnoise(px / 3.2, py / 3.2, 67);
   if (Math.abs(cr - 0.5) < 0.06) return ramp(P.DIRT, 2);
@@ -588,7 +622,8 @@ const cliffDry: CliffPat = (px, py, depth, lit) => {
   return ramp(P.DIRT, Math.max(0, Math.min(2, lit + (band & 1))));
 };
 
-const cliffSnow: CliffPat = (px, py, depth, lit) => {
+const cliffSnow: CliffPat = (px, py, depth, total, lit) => {
+  if (depth < 1) return ramp(P.WHITE, 0);          // 顶檐：纯雪亮唇
   if (depth < 4) {
     // 积雪檐：亮白 + 青灰抖动流痕
     const b = (BAYER8[(py & 7) * 8 + (px & 7)] + 0.5) / 64;
@@ -599,8 +634,8 @@ const cliffSnow: CliffPat = (px, py, depth, lit) => {
     const b = (BAYER8[(py & 7) * 8 + (px & 7)] + 0.5) / 64;
     return b < (depth - 4) / 4 ? ramp(P.SIDE, Math.min(2, lit + 1)) : ramp(P.PBLUE, 0);
   }
-  // 深处岩体
-  return cliffRock(px, py, depth - 5, lit);
+  // 深处岩体（雪檐下探 5px 后接岩层理）
+  return cliffRock(px, py, depth - 5, total - 5, lit);
 };
 
 const CLIFF_PATS: Record<CliffStyle, CliffPat> = {
@@ -635,7 +670,7 @@ export function getCliff(style: CliffStyle, delta: number, side: 'E' | 'SW'): Sp
       const yTop = side === 'E' ? 8 - px / 2 : px / 2;
       if (py < yTop || py > yTop + d * HSTEP) continue;     // 平行四边形外透明
       const depth = py - yTop;
-      u32[py * W + px] = LUT[pat(px, py, depth, lit)] ?? 0;
+      u32[py * W + px] = LUT[pat(px, py, depth, d * HSTEP, lit)] ?? 0;
     }
   }
   ctx.putImageData(img, 0, 0);

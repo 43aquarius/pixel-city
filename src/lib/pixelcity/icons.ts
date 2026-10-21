@@ -708,6 +708,36 @@ const ICONS: Record<string, string[]> = {
     '......KWWK......',
     '.......KK.......',
   ],
+  // 公文包（就业率指标）
+  job: [
+    '................',
+    '.....KKKKKK.....',
+    '.....KwwwwK.....',
+    '.....KwKKwK.....',
+    '..KKKKKKKKKKKK..',
+    '..KwwwwwwwwwwK..',
+    '..KwwwwyywwwwK..',
+    '..KwwwwyywwwwK..',
+    '..KttttttttttK..',
+    '..KttttttttttK..',
+    '..KKKKKKKKKKKK..',
+    '................',
+  ],
+  // 勋章（城市评级指标）
+  medal: [
+    '................',
+    '...rr......rr...',
+    '...rrr....rrr...',
+    '....rrr..rrr....',
+    '.....rrKKrr.....',
+    '......KKKK......',
+    '.....KyyyyK.....',
+    '....KyyyyyyK....',
+    '....KyyKKyyK....',
+    '....KyyKKyyK....',
+    '.....KyyyyK.....',
+    '......KKKK......',
+  ],
 };
 
 const cache = new Map<string, HTMLCanvasElement>();

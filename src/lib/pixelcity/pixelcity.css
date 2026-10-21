@@ -1124,3 +1124,208 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 }
 .pxc.m .pxc-ttree { grid-template-columns: repeat(2, 1fr); }
 .pxc.m .pxc-techbar { gap: 8px; font-size: 11px; }
+
+/* ---------------- Task 14：指数体系 v4 + 税率 + 城市志 ---------------- */
+
+/* 评级徽章色（HUD2 第二条） */
+.pxc-hud2 .chip.rgrade b { min-width: 14px; text-align: center; }
+.pxc-hud2 .chip.rgrade i { font-style: normal; font-size: 10px; margin-left: 2px; }
+.pxc-hud2 .chip.rgrade-S { border-color: #F2D24B; }
+.pxc-hud2 .chip.rgrade-S b { color: #F2D24B; }
+.pxc-hud2 .chip.rgrade-A { border-color: #8fd48a; }
+.pxc-hud2 .chip.rgrade-A b { color: #8fd48a; }
+.pxc-hud2 .chip.rgrade-B { border-color: #5BC8B8; }
+.pxc-hud2 .chip.rgrade-B b { color: #a9f0e6; }
+.pxc-hud2 .chip.rgrade-C { border-color: #CFB379; }
+.pxc-hud2 .chip.rgrade-C b { color: #CFB379; }
+.pxc-hud2 .chip.rgrade-D { border-color: #B96A4E; }
+.pxc-hud2 .chip.rgrade-D b { color: #e2a08c; }
+.pxc-hud2 .chip.rgrade-E { border-color: #E05548; }
+.pxc-hud2 .chip.rgrade-E b { color: #ff8d80; }
+
+/* 财政报告：税率政策区 */
+.pxc-fgrid section.ptax { grid-column: 1 / -1; }
+.ptax .taxrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 6px;
+}
+.ptax .taxrow input[type="range"] {
+  flex: 1;
+  height: 22px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+.ptax .taxrow input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  background: #868c95;
+  border: 1px solid #565b64;
+}
+.ptax .taxrow input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 20px;
+  margin-top: -8px;
+  background: #F2D24B;
+  border: 2px solid;
+  border-color: #fff7d0 #8a6d1a #8a6d1a #fff7d0;
+}
+.ptax .taxrow input[type="range"]::-moz-range-track {
+  height: 6px;
+  background: #868c95;
+  border: 1px solid #565b64;
+}
+.ptax .taxrow input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 18px;
+  border-radius: 0;
+  background: #F2D24B;
+  border: 2px solid #8a6d1a;
+}
+.ptax .txv {
+  min-width: 38px;
+  font-size: 16px;
+  color: #8a6d1a;
+  text-align: right;
+}
+.ptax .taxhint {
+  margin-top: 5px;
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: #5c626d;
+  border-top: 1px dashed #868c95;
+  padding-top: 4px;
+}
+
+/* 城市志模态 */
+.pxc-data { width: min(640px, calc(100vw - 32px)); }
+.pxc-data .pxc-body { padding: 10px; }
+.pxc-dhead {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  background: var(--navy);
+  border: 2px solid;
+  border-color: var(--navy-line) var(--gold) var(--gold) var(--navy-line);
+}
+.pxc-dhead .dbig {
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+  padding: 8px 10px;
+  min-width: 64px;
+  border: 2px solid;
+  color: #fff;
+}
+.pxc-dhead .dbig i {
+  display: block;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 700;
+  margin-top: 3px;
+  opacity: 0.92;
+}
+.dgrade-S { background: #8a6d1a; border-color: #F2D24B; }
+.dgrade-A { background: #1e7a34; border-color: #8fd48a; }
+.dgrade-B { background: #236e8c; border-color: #5BC8B8; }
+.dgrade-C { background: #8a6f4c; border-color: #CFB379; }
+.dgrade-D { background: #7a3c30; border-color: #B96A4E; }
+.dgrade-E { background: #5a1712; border-color: #E05548; }
+.pxc-dhead .dmeta { color: #dfe3ea; flex: 1; min-width: 0; }
+.pxc-dhead .dmeta .dl { font-size: 12px; font-weight: 700; color: var(--gold); }
+.pxc-dhead .dmeta .dw { font-size: 10px; line-height: 1.6; color: #9fb0c0; margin: 3px 0; }
+.pxc-dhead .dmeta .dr { font-size: 11px; color: #f4f2e8; }
+
+.pxc-dgrid {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 8px;
+}
+.pxc-dgrid section {
+  background: #b6bcc4;
+  border: 2px solid;
+  border-color: var(--silver-shadow) var(--silver-lt) var(--silver-lt) var(--silver-shadow);
+  padding: 6px 8px;
+}
+.pxc-dgrid h3 {
+  margin: 0 0 5px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: #23252e;
+  border-bottom: 1px solid #868c95;
+  padding-bottom: 3px;
+}
+.pxc-dgrid table { width: 100%; border-collapse: collapse; }
+.pxc-dgrid td { font-size: 11px; color: #2c313b; padding: 2px 0; line-height: 1.4; }
+.pxc-dgrid td:nth-child(2) { text-align: right; }
+
+/* 九维指数条 */
+.ibars { display: flex; flex-direction: column; gap: 5px; }
+.ibar {
+  display: grid;
+  grid-template-columns: 52px 1fr 26px;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: #2c313b;
+}
+.ibar .tr {
+  height: 10px;
+  background: #7d838c;
+  border: 1px solid;
+  border-color: #4b5058 #dcE0e6 #dcE0e6 #4b5058;
+  padding: 1px;
+}
+.ibar .tr i {
+  display: block;
+  height: 100%;
+  max-width: 100%;
+}
+.ibar b { font-size: 11px; text-align: right; color: #23252e; }
+
+/* 历史曲线 */
+.dcharts { margin-top: 8px; }
+.dcharts h3 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: #565b64;
+}
+.dcgrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.dchart {
+  background: #0B0F24;
+  border: 2px solid;
+  border-color: var(--navy-line) var(--gold) var(--gold) var(--navy-line);
+  padding: 5px;
+}
+.dchart canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+}
+.dchart span {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  color: #9fb0c0;
+  letter-spacing: 1px;
+}
+
+/* 移动端：城市志 */
+.pxc.m .pxc-dgrid { grid-template-columns: 1fr; }
+.pxc.m .pxc-dhead { flex-direction: row; }
+.pxc.m .pxc-dhead .dbig { font-size: 24px; padding: 6px 8px; min-width: 52px; }
+.pxc.m .dcgrid { grid-template-columns: 1fr 1fr; gap: 6px; }
+.pxc.m .pxc-hud2 .chip { max-width: 25vw; }
+.pxc.m .pxc-hud2 .chip.rgrade i { display: none; }

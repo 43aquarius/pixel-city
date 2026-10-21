@@ -539,6 +539,45 @@ export class Engine {
             ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
           }
         }
+
+        // ---- v4 高度光照：海拔提亮（大气光）+ 崖脚投影（接触阴影）----
+        {
+          const lv = m.h[i];
+          if (lv >= 4) {
+            // 高原顶面提亮：越高越亮（2.5D 俯视参照 SimCity 2000 / Caesar III 的高地明暗分层）
+            ctx.globalAlpha = Math.min(0.34, (lv - 3) * 0.052);
+            ctx.fillStyle = PALETTE[64];
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(sx + 16, sy + 8);
+            ctx.lineTo(sx, sy + 16);
+            ctx.lineTo(sx - 16, sy + 8);
+            ctx.closePath();
+            ctx.fill();
+            ctx.globalAlpha = 1;
+          }
+          // 崖脚投影：东/南邻格更高 → 本格顶面沿共享边压暗（接地接触阴影）
+          const hE2 = m.inB(tx + 1, ty) ? m.h[m.idx(tx + 1, ty)] : -1;
+          const hS2 = m.inB(tx, ty + 1) ? m.h[m.idx(tx, ty + 1)] : -1;
+          if (hE2 > lv || hS2 > lv) {
+            ctx.globalAlpha = 0.28;
+            ctx.strokeStyle = PALETTE[65];
+            ctx.lineWidth = 2.5;
+            if (hE2 > lv) {
+              ctx.beginPath();
+              ctx.moveTo(sx + 15, sy + 9);
+              ctx.lineTo(sx + 1, sy + 15);
+              ctx.stroke();
+            }
+            if (hS2 > lv) {
+              ctx.beginPath();
+              ctx.moveTo(sx - 15, sy + 9);
+              ctx.lineTo(sx - 1, sy + 15);
+              ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+          }
+        }
       }
     }
 

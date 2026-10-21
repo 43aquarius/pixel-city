@@ -18,7 +18,8 @@ import { PALETTE } from '@/lib/pixelcity/palette';
 import { iconURI } from '@/lib/pixelcity/icons';
 import {
   Tycoon, ECON, costOf, unlockOf, fmtG, QUESTS, TECHS, BRANCHES, TECH_GATE, techNameOf,
-  type EconView,
+  taxMood, TAX_MIN, TAX_MAX,
+  type EconView, type HistPoint,
 } from '@/lib/pixelcity/tycoon';
 
 const ICON_NAMES = [
@@ -29,7 +30,7 @@ const ICON_NAMES = [
   'person', 'personoff', 'menu',
   'snow', 'flower', 'dry', 'swamp', 'autumn',
   'coin', 'people', 'bolt', 'smile', 'star', 'lock', 'flag', 'land', 'chart',
-  'wheat', 'book', 'flask', 'heart', 'up', 'down',
+  'wheat', 'book', 'flask', 'heart', 'up', 'down', 'job', 'medal',
 ];
 
 type Phase = 'loading' | 'ready';
@@ -64,6 +65,72 @@ const DENSITIES: Array<{ v: number; label: string; desc: string }> = [
   { v: 0.8, label: '适中', desc: '推荐密度：疏密有致' },
   { v: 1.05, label: '繁华', desc: '高密度：接近无空隙的都市' },
 ];
+
+/** 城市志历史曲线（复古像素风：色板取色 + 点阵网格 + 整数坐标） */
+function HistChart({ data, field, color, label, unit }: {
+  data: HistPoint[]; field: 'pop' | 'coins' | 'net' | 'hap';
+  color: string; label: string; unit: string;
+}) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const cv = ref.current;
+    if (!cv) return;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+    const W = cv.width, H = cv.height;
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#0B0F24';
+    ctx.fillRect(0, 0, W, H);
+    // 点阵网格（每 8px 一格）
+    ctx.fillStyle = 'rgba(122,140,158,0.25)';
+    for (let gy = 8; gy < H - 8; gy += 8) {
+      for (let gx = 8; gx < W - 8; gx += 8) ctx.fillRect(gx, gy, 1, 1);
+    }
+    ctx.strokeStyle = 'rgba(122,140,158,0.5)';
+    ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
+    const pts = data.map(p => p[field]);
+    if (pts.length < 2) {
+      ctx.fillStyle = '#7A8C9E';
+      ctx.font = '9px monospace';
+      ctx.fillText('采样中… 每 15 秒记录一点', 10, H / 2 + 3);
+      return;
+    }
+    let lo = Math.min(...pts), hi = Math.max(...pts);
+    if (hi - lo < 1e-6) { hi = lo + 1; }
+    const pad = (hi - lo) * 0.08;
+    lo -= pad; hi += pad;
+    const x0 = 4, x1 = W - 4, y0 = 6, y1 = H - 12;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    pts.forEach((v, i) => {
+      const px = Math.round(x0 + (x1 - x0) * i / (pts.length - 1));
+      const py = Math.round(y1 - (y1 - y0) * (v - lo) / (hi - lo));
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+    // 末点亮点 + 数值
+    const last = pts[pts.length - 1];
+    const lx = x1, ly = Math.round(y1 - (y1 - y0) * (last - lo) / (hi - lo));
+    ctx.fillStyle = color;
+    ctx.fillRect(lx - 2, ly - 2, 4, 4);
+    ctx.font = 'bold 10px monospace';
+    const fmt = (n: number) =>
+      Math.abs(n) >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n * 10) / 10}`;
+    ctx.fillText(`${fmt(last)}${unit}`, 8, 10);
+    // 区间注记
+    ctx.fillStyle = 'rgba(122,140,158,0.8)';
+    ctx.font = '8px monospace';
+    ctx.fillText(fmt(hi), W - 34, 10);
+    ctx.fillText(fmt(lo), W - 34, H - 4);
+  }, [data, field, color, unit]);
+  return (
+    <div className="dchart">
+      <canvas ref={ref} width={236} height={72} aria-label={`${label}曲线`} />
+      <span>{label}</span>
+    </div>
+  );
+}
 
 const PED_STEP = 20;
 const PED_MAX = 300;
@@ -173,11 +240,13 @@ export default function PixelCity() {
   const [hover, setHover] = useState<{ tx: number; ty: number } | null>(null);
   const [fps, setFps] = useState(0);
   const [zoom, setZoom] = useState(2);
-  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech'>('none');
+  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data'>('none');
   const [econ, setEcon] = useState<EconView | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
   const [soundOn, setSoundOn] = useState(true);
+  /** 税率滑杆即时值（null=跟随引擎），避免等下一心跳 */
+  const [taxDraft, setTaxDraft] = useState<number | null>(null);
   const [slotMeta, setSlotMeta] = useState<Array<{ time: string; pop: number } | null>>([null, null, null]);
   const [cellsByCat, setCellsByCat] = useState<Record<string, CellItem[]>>({});
   const [iconSrc, setIconSrc] = useState<Record<string, string>>({});
@@ -364,7 +433,7 @@ export default function PixelCity() {
     pickTool({ t: 'build', id, variant: v });
   }, [pickTool]);
 
-  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech') => {
+  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data') => {
     if (m === 'save') {
       setSlotMeta([0, 1, 2].map(i => Engine.slotMeta(i)));
     }
@@ -504,6 +573,7 @@ export default function PixelCity() {
       const data = Tycoon.loadRaw();
       const earned = eng.enterTycoon(data);
       setUiStore(u => ({ ...u, mode: 'tycoon' }));
+      setTaxDraft(null);   // 恢复存档可能带回不同税率，滑杆草稿作废
       if (data && earned > 0) say(`欢迎回来！离线期间城市收入 +${fmtG(earned)}G`);
       else if (!data) say('经营模式开启：从一块荒地开始，建设你的都市！');
     }
@@ -517,8 +587,24 @@ export default function PixelCity() {
     eng.enterTycoon(null);
     setConfirmReset(false);
     setModal('none');
+    setTaxDraft(null);
     say('新城已奠基：一块全新的荒地，等你书写传奇');
     beeperRef.current?.play('open');
+  }, [say]);
+
+  /** 税率调整（财政报告滑杆）：即时生效，下一心跳刷新税收与幸福 */
+  const setTax = useCallback((v: number) => {
+    const eng = engineRef.current;
+    const t = eng?.tycoon;
+    if (!t) return;
+    const before = t.taxRate;
+    const after = t.setTaxRate(v);
+    if (after !== before) {
+      setTaxDraft(after);
+      beeperRef.current?.play('click');
+      const mood = taxMood(after);
+      say(`税率调整为 ${after}%：税收随之增减${mood !== 0 ? `，幸福度${mood > 0 ? ' +' : ' '}${Math.round(mood)}` : ''}`);
+    }
   }, [say]);
 
   /** 研究科技（科技面板） */
@@ -778,7 +864,7 @@ export default function PixelCity() {
         <div className="pxc-gbody">
           <div style={{ fontSize: 11, lineHeight: 1.7, color: '#3d434e' }}>
             <b style={{ color: '#8a6d1a' }}>经营模式</b>：上帝视角从一块荒地起步 —— 修路建房、人口迁入、电力供需、
-            粮仓与饥荒、智慧/科技点/宜居度三大民生指数、16 项四分支科技树、购地扩张、任务引导与等级解锁（沙盒模式随时切换）；
+            九维民生指数（幸福/宜居/粮食/就业/环境/健康/安全/交通/智慧）、可调税率与城市评级、16 项四分支科技树、购地扩张、任务引导与等级解锁（沙盒模式随时切换）；
             地图具有真实海拔起伏：山脉、丘陵、谷地与岸线，抬升/降低工具随心造山填海。
             一切画面均由代码程序化生成：{CATALOG.length} 类 {CATALOG.reduce((s, d) => s + d.variants, 0)} 变体建筑，
             256×256 大地图 · 10 种地形 · 一键城市（密度三档可调）·
@@ -919,7 +1005,7 @@ export default function PixelCity() {
                 title={`电力：供给 ${econ.powerSup}MW / 需求 ${econ.powerDem}MW${econ.powerDem > econ.powerSup ? ' —— 缺电！收入大幅打折' : ''}`}>
                 <img src={iu('bolt')} alt="" /><b>{econ.powerSup}<i>/{econ.powerDem}</i></b>
               </div>
-              <div className="chip" title="幸福度：宜居 55% + 粮食 25% + 就业 20%，影响税收与迁入">
+              <div className="chip" title="幸福度：宜居 30% + 粮食 18% + 就业 14% + 环境 12% + 健康 9% + 安全 8% + 交通 9% + 税率情绪，影响税收与迁入">
                 <img src={iu('smile')} alt="" /><b>{econ.happiness}</b>
               </div>
               <div className={`chip rate${econ.incomeNet < 0 ? ' neg' : ''}`}
@@ -955,8 +1041,16 @@ export default function PixelCity() {
                 <em className="up">+{rinc(econ.spRate)}</em>
               </button>
               <button className="chip" onClick={() => openModal('fiscal')}
-                title={`宜居度：设施供需与污染决定的环境指数，是幸福度的最大成分（55%）`}>
+                title={`宜居度：设施供需与供电决定的结构指数，是幸福度的最大成分（30%）`}>
                 <img src={iu('heart')} alt="" /><b>{econ.livability}</b>
+              </button>
+              <button className="chip" onClick={() => openModal('data')}
+                title={`就业率：劳动力 ${econ.workers} 人 / 岗位 ${econ.jobs} 个（多建商业与工业提供岗位）—— 点击打开城市志`}>
+                <img src={iu('job')} alt="" /><b>{econ.employIdx}%</b>
+              </button>
+              <button className={`chip rgrade rgrade-${econ.ratingGrade}`} onClick={() => openModal('data')}
+                title={`城市评级：${econ.rating} 分（${econ.ratingGrade} 级）—— 幸福/宜居/粮食/就业/智慧/环境/健康/安全/交通九维加权（点击打开城市志）`}>
+                <img src={iu('medal')} alt="" /><b>{econ.ratingGrade}</b><i>{econ.rating}</i>
               </button>
             </div>
           )}
@@ -1149,6 +1243,34 @@ export default function PixelCity() {
             </header>
             <div className="pxc-body">
               <div className="pxc-fgrid">
+                <section className="ptax">
+                  <h3>税率政策（可调 0-20%）</h3>
+                  <div className="taxrow">
+                    <input
+                      type="range" min={TAX_MIN} max={TAX_MAX} step={1}
+                      value={taxDraft ?? econ.taxRate}
+                      onChange={e => setTax(Number(e.target.value))}
+                      aria-label="税率滑杆"
+                    />
+                    <b className="txv">{taxDraft ?? econ.taxRate}%</b>
+                  </div>
+                  <table><tbody>
+                    <tr><td>税率情绪</td>
+                      <td className={taxMood(taxDraft ?? econ.taxRate) < 0 ? 'bad' : 'g'}>
+                        {(() => { const m = taxMood(taxDraft ?? econ.taxRate); return m === 0 ? '0（6-10% 区间中性）' : `${m > 0 ? '+' : ''}${Math.round(m)} 幸福度`; })()}
+                      </td>
+                    </tr>
+                    <tr><td>预计税收</td>
+                      <td>{rinc(econ.incomeTax / Math.max(1, econ.taxRate) * (taxDraft ?? econ.taxRate))} G/分</td>
+                    </tr>
+                    <tr><td>市民态度</td>
+                      <td>{(() => { const r = taxDraft ?? econ.taxRate;
+                        return r <= 6 ? '薄赋惠民，交口称赞' : r <= 10 ? '税负适中，波澜不惊' : r <= 15 ? '税负渐重，怨声渐起' : '横征暴敛，天怒人怨'; })()}
+                      </td>
+                    </tr>
+                  </tbody></table>
+                  <div className="taxhint">高税多金却伤幸福（＞10% 递减），低税惠民而囊中羞涩（≤6% 加成）——税率是收入与民心之间的天平</div>
+                </section>
                 <section>
                   <h3>收支（每分钟）</h3>
                   <table><tbody>
@@ -1184,6 +1306,29 @@ export default function PixelCity() {
                   </tbody></table>
                 </section>
                 <section>
+                  <h3>城市指数（v4）</h3>
+                  <table><tbody>
+                    <tr className={econ.envIdx < 55 ? 'bad' : ''}>
+                      <td>环境指数</td><td>{econ.envIdx} / 100（净污染 {rinc(econ.envIdx < 100 ? (100 - econ.envIdx) / 9 : 0)} 点）</td>
+                    </tr>
+                    <tr className={econ.healthIdx < 55 ? 'bad' : ''}>
+                      <td>健康指数</td><td>{econ.healthIdx} / 100（医院 {econ.hospitals} 座）</td>
+                    </tr>
+                    <tr className={econ.safetyIdx < 55 ? 'bad' : ''}>
+                      <td>安全指数</td><td>{econ.safetyIdx} / 100（消防站 {econ.firestations} 座）</td>
+                    </tr>
+                    <tr className={econ.trafficIdx < 55 ? 'bad' : ''}>
+                      <td>交通指数</td><td>{econ.trafficIdx} / 100（道路 {Math.round(econ.trafficIdx * (econ.buildings * 3) / 100)} / 需求 {econ.buildings * 3} 格）</td>
+                    </tr>
+                    <tr><td>城市评级</td>
+                      <td className={econ.rating >= 80 ? 'g' : ''}>{econ.rating} 分 · {econ.ratingGrade} 级</td>
+                    </tr>
+                    <tr><td>人口构成</td>
+                      <td>劳力 {econ.workers} · 学龄 {Math.round(econ.pop * 0.2)} · 银发 {Math.round(econ.pop * 0.18)}</td>
+                    </tr>
+                  </tbody></table>
+                </section>
+                <section>
                   <h3>粮食与科技</h3>
                   <table><tbody>
                     <tr className={econ.famine ? 'bad' : ''}>
@@ -1212,9 +1357,12 @@ export default function PixelCity() {
                 <div className="pxc-fwarn">缺电警告：建造火电厂（LV4）或风车磨坊（LV3）可恢复供电，否则收入大幅打折！</div>
               )}
               {econ.famine > 0 && (
-                <div className="pxc-fwarn">饥荒警告：粮仓见底！市民正在迁离 —— 立即建造温室大棚（粮仓 +4/分）或筒仓（粮仓 +60）！</div>
+                <div className="pxc-fwarn">饥荒警告：粮仓见底！市民正在迁离 —— 立即建造温室大棚（粮仓 +5/分）或筒仓（粮仓 +120）！</div>
               )}
               <div className="pxc-row" style={{ marginTop: 10 }}>
+                <button className="pxc-btn primary" onClick={() => openModal('data')}>
+                  <img src={iu('chart')} alt="" />城市志·指数图表
+                </button>
                 <button className="pxc-btn primary" onClick={() => openModal('tech')}>
                   <img src={iu('flask')} alt="" />科技研究院
                 </button>
@@ -1298,6 +1446,93 @@ export default function PixelCity() {
         </div>
       )}
 
+      {/* 城市志模态（经营模式）：评级 / 指数 / 人口结构 / 历史曲线 */}
+      {modal === 'data' && econ && (
+        <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
+          <div className="pxc-modal pxc-data" role="dialog" aria-label="城市志">
+            <header>
+              城 市 志
+              <button className="pxc-x" onClick={() => setModal('none')} aria-label="关闭">×</button>
+            </header>
+            <div className="pxc-body">
+              <div className="pxc-dhead">
+                <div className={`dbig dgrade-${econ.ratingGrade}`}>
+                  {econ.ratingGrade}<i>{econ.rating}</i>
+                </div>
+                <div className="dmeta">
+                  <div className="dl">城市综合评级（S≥90 · A≥80 · B≥70 · C≥55 · D≥40）</div>
+                  <div className="dw">
+                    幸福 22% · 宜居 14% · 粮食 12% · 就业 12% · 智慧 10% · 环境 10% · 健康 8% · 安全 7% · 交通 5%
+                  </div>
+                  <div className="dr">
+                    城市年龄 {(() => {
+                      const s = Math.max(0, econ.playtime);
+                      const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+                      return h > 0 ? `${h} 时 ${m} 分` : `${m} 分 ${Math.floor(s % 60)} 秒`;
+                    })()} · 人口 {econ.pop} · 建筑 {econ.buildings} 栋 · 领地 {econ.chunks} 块
+                  </div>
+                </div>
+              </div>
+
+              <div className="pxc-dgrid">
+                <section>
+                  <h3>九维民生指数（0-100）</h3>
+                  <div className="ibars">
+                    {([
+                      ['幸福度', econ.happiness, '#F2D24B'],
+                      ['宜居度', econ.livability, '#5BC8B8'],
+                      ['粮食安全', Math.round(65 + 35 * Math.min(1, econ.food / Math.max(1, econ.foodCap)) * (econ.foodNet < 0 ? 0.5 : 1)), '#E8CC4C'],
+                      ['就业率', econ.employIdx, '#4A86C8'],
+                      ['环境', econ.envIdx, '#79B45C'],
+                      ['健康', econ.healthIdx, '#E05548'],
+                      ['安全', econ.safetyIdx, '#6FA8DC'],
+                      ['交通', econ.trafficIdx, '#CFB379'],
+                      ['智慧', econ.wisdom, '#C6D3DE'],
+                    ] as Array<[string, number, string]>).map(([name, v, c]) => (
+                      <div className="ibar" key={name}>
+                        <span>{name}</span>
+                        <div className="tr"><i style={{ width: `${v}%`, background: c }} /></div>
+                        <b>{Math.round(v)}</b>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+                <section>
+                  <h3>人口结构</h3>
+                  <table><tbody>
+                    <tr><td>总人口</td><td>{econ.pop} 人（住房容量 {econ.cap}）</td></tr>
+                    <tr><td>劳动人口</td><td>{econ.workers} 人（62%）—— 就业率 {econ.employIdx}%</td></tr>
+                    <tr><td>学龄人口</td><td>{Math.round(econ.pop * 0.2)} 人（20%）—— 教育容量 {econ.eduCap}</td></tr>
+                    <tr><td>银发人口</td><td>{Math.round(econ.pop * 0.18)} 人（18%）—— 健康指数 {econ.healthIdx}</td></tr>
+                    <tr><td>粮仓</td><td>{econ.food} / {econ.foodCap}（净额 {rincS(econ.foodNet)}/分）</td></tr>
+                    <tr><td>税率</td><td>{econ.taxRate}%（情绪 {econ.taxMood >= 0 ? '+' : ''}{Math.round(econ.taxMood)}）</td></tr>
+                  </tbody></table>
+                </section>
+              </div>
+
+              <section className="dcharts">
+                <h3>城市历程（每 15 秒采样，滑窗 24 分钟）</h3>
+                <div className="dcgrid">
+                  <HistChart data={econ.hist} field="pop" color="#F2D24B" label="人口" unit=" 人" />
+                  <HistChart data={econ.hist} field="coins" color="#F2D24B" label="金币" unit="G" />
+                  <HistChart data={econ.hist} field="net" color="#5BC8B8" label="净收入" unit="G/分" />
+                  <HistChart data={econ.hist} field="hap" color="#E05548" label="幸福度" unit="" />
+                </div>
+              </section>
+
+              <div className="pxc-row" style={{ marginTop: 10 }}>
+                <button className="pxc-btn primary" onClick={() => openModal('fiscal')}>
+                  <img src={iu('chart')} alt="" />财政报告
+                </button>
+                <button className="pxc-btn" onClick={() => openModal('tech')}>
+                  <img src={iu('flask')} alt="" />科技研究院
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 帮助模态 */}
       {modal === 'help' && (
         <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
@@ -1331,7 +1566,7 @@ export default function PixelCity() {
                     <tr><td>1 – 9 · 0 / −</td><td>观察 / 植树 / 道路 / 地形 / 住宅 / 商业 / 工业 / 公共 / 拆除 / 抬升 / 降低</td></tr>
                     <tr><td>G</td><td>一键生成整座城市（沙盒模式；可反复按，每次全新）</td></tr>
                     <tr><td>地形</td><td>真实海拔起伏：抬升造山、降低挖谷（挖到 0 化为水域）；山坡建房自动整地（另付小额费用）；行人车辆会爬坡</td></tr>
-                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>智慧 / 科技点 / 宜居度</b> · 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
+                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>九维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
                     <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
                     <tr><td>Esc</td><td>切回观察工具</td></tr>
                     <tr><td>收缩</td><td>工具条 / 建造中心可「◀ / 收起」折叠；折叠后点左上角「▶ 工具栏」或右缘「◀ 建造中心」竖签恢复</td></tr>

@@ -21,9 +21,10 @@ export const TERR_AUTUMN = 9;
 export const MAP_N = 256;
 /** 树木种类数（0 阔叶 / 1 松 / 2 灌木 / 3 樱花 / 4 棕榈 / 5 高乔木） */
 export const TREE_KINDS = 6;
-/** 地形高度上限（级）；每级在屏幕上抬升 HSTEP 像素（engine 侧） */
+/** 地形高度上限（级）；每级在屏幕上抬升 HSTEP 像素（engine 侧）。
+ *  v4：6→8 —— 参照 SimCity 2000 / Caesar III 的 2.5D 梯田，层级落差更陡峭直观 */
 export const HMAX = 13;
-export const HSTEP = 6;
+export const HSTEP = 8;
 
 /** 游程编码：[run, v, run, v, ...]（大地图存档/撤销体积优化） */
 function rleEnc(a: ArrayLike<number>): number[] {
@@ -299,10 +300,10 @@ export class CityMap {
         const e = fbm(x / 13.5, y / 13.5, seed);                       // 基础起伏（水系）
         const lift = Math.max(0, 0.22 - dc * 0.5);                     // 中心抬升：出生点为陆地
         const v = e + lift;
-        // 山脊噪声（锐化）：只在外围成山，越远越高
+        // 山脊噪声（锐化）：只在外围成山，越远越高；v4 幂 1.7→2.2 —— 山脊线更嶙峋、棱线更分明
         const rg = 1 - Math.abs(2 * fbm(x / 23 + 500, y / 23 + 500, seed ^ 0x71D6) - 1);
         const mFac = Math.max(0, Math.min(1, (dc - 0.16) / 0.30));     // 环径 0.16 以内不出山
-        const mtn = Math.pow(rg, 1.7) * mFac * (10 + 3 * fbm(x / 40 + 900, y / 40 + 900, seed ^ 0x3D3D));
+        const mtn = Math.pow(rg, 2.2) * mFac * (10 + 3 * fbm(x / 40 + 900, y / 40 + 900, seed ^ 0x3D3D));
         // 缓丘：低海拔的柔和起伏（1..3 级）
         const hill = Math.max(0, (v - 0.36)) * 9 + fbm(x / 18 + 700, y / 18 + 700, seed ^ 0x9ACD) * 2.2;
 

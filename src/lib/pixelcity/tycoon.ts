@@ -14,7 +14,11 @@ export const TREE_COST = 2;              // 每棵树
 export const ROAD_REFUND = 1;            // 拆除每格道路返还
 export const TREE_REFUND = 1;            // 拆除每棵树返还
 export const REFUND_RATE = 0.5;          // 拆除建筑返还造价比例
-export const TAX_PER_POP = 0.09;         // 税收 G/分/人
+/** 税率体系（v4）：可调 0-20%；默认 9%。
+ *  超过 10% 引发市民不满（幸福度递减），低于 6% 市民欢欣（幸福度加成） */
+export const TAX_MIN = 0;
+export const TAX_MAX = 20;
+export const TAX_DEFAULT = 9;
 export const START_COINS = 380;
 export const MAX_LEVEL = 12;
 export const LIFT_COST = 5;              // 抬升 / 降低地形每级
@@ -22,8 +26,27 @@ export const WATER_COST = 12;            // 填海成陆 / 挖湖成水
 export const FLAT_FEE = 3;               // 建造整地费（足迹内每差一格）
 export const EAT_PER_POP = 0.045;        // 每人每分钟耗粮
 export const FOOD_BASE_CAP = 60;         // 基础粮仓容量
+export const HIST_SAMPLE = 15;          // 城市历史采样间隔（秒）
+export const HIST_MAX = 96;             // 历史样本上限（约 24 分钟窗口）
 export const SAVE_KEY = 'pxc_tycoon_v1';
 export const MODE_KEY = 'pxc_mode_v1';
+
+/** 税率 → 幸福度情绪修正（高于 10% 不满 / 低于 6% 欢欣） */
+export function taxMood(rate: number): number {
+  if (rate <= 6) return (6 - rate) * 1.6;
+  if (rate > 10) return -(rate - 10) * 2.4;
+  return 0;
+}
+
+/** 城市评级 → 等级字 */
+export function ratingGrade(r: number): 'S' | 'A' | 'B' | 'C' | 'D' | 'E' {
+  if (r >= 90) return 'S';
+  if (r >= 80) return 'A';
+  if (r >= 70) return 'B';
+  if (r >= 55) return 'C';
+  if (r >= 40) return 'D';
+  return 'E';
+}
 
 // ------------------------------------------------------------
 // 建筑经营参数表（v2 紧平衡：低起步 / 维护费 / 慢回本）
@@ -67,31 +90,31 @@ export const ECON: Record<string, EconDef> = {
   // ---- 商业（岗位 = 目录 pop；earn 满员收入；upk 人力租金）----
   shop: D(80, 1, { power: 3, earn: 4.5, upk: 1 }),
   office: D(420, 4, { power: 10, earn: 22, upk: 4.8 }),
-  tower: D(1700, 9, { power: 26, earn: 56, upk: 12.3 }),
+  tower: D(1700, 9, { power: 26, earn: 62, upk: 11 }),
   conv: D(70, 1, { power: 2, earn: 3.6, upk: 0.8 }),
-  hotel: D(1350, 7, { power: 22, earn: 40, upk: 8.8 }),
+  hotel: D(1350, 7, { power: 22, earn: 48, upk: 8 }),
   mall: D(1250, 7, { power: 24, earn: 44, upk: 9.7 }),
   parking: D(100, 4, { power: 1, earn: 0.8, upk: 0.2 }),
   izakaya: D(140, 4, { power: 3, earn: 6, upk: 1.3 }),
-  cinema: D(780, 6, { power: 12, earn: 16, upk: 3.5 }),
+  cinema: D(780, 6, { power: 12, earn: 24, upk: 3 }),
   market: D(90, 2, { power: 2, earn: 3.8, upk: 0.85 }),
-  electown: D(300, 6, { power: 5, earn: 8, upk: 1.8 }),
+  electown: D(300, 6, { power: 5, earn: 10, upk: 1.6 }),
   ferris: D(550, 5, { power: 6, earn: 3, amenity: 2, upk: 1.4 }),
   bakery: D(80, 2, { power: 2, earn: 4.2, upk: 0.95 }),
-  gas: D(170, 2, { power: 2, earn: 5, upk: 1.1 }),
-  ferry: D(720, 5, { power: 6, earn: 9, upk: 2 }),
+  gas: D(170, 2, { power: 2, earn: 6, upk: 1.1 }),
+  ferry: D(720, 5, { power: 6, earn: 13, upk: 1.8 }),
   // ---- 工业（污染；upk 设备折旧）----
   factory: D(620, 5, { power: 14, earn: 32, pollute: 4, upk: 5.8 }),
-  warehouse: D(270, 6, { power: 6, earn: 8.5, pollute: 1, upk: 1.5 }),
-  tankfarm: D(210, 5, { power: 5, earn: 7, pollute: 2, upk: 1.3 }),
+  warehouse: D(270, 6, { power: 6, earn: 10, pollute: 1, upk: 1.4 }),
+  tankfarm: D(210, 5, { power: 5, earn: 8, pollute: 2, upk: 1.2 }),
   refinery: D(1050, 7, { power: 20, earn: 50, pollute: 6, upk: 9 }),
   power: D(620, 4, { power: -120, pollute: 5, upk: 3.5 }),
   lumber: D(230, 3, { power: 6, earn: 12, pollute: 2, upk: 2.2 }),
-  silo: D(140, 4, { power: 3, earn: 6, pollute: 1, upk: 1.1, food: 1.5, foodCap: 60 }),
+  silo: D(140, 4, { power: 3, earn: 6, pollute: 1, upk: 1.1, food: 1.5, foodCap: 120 }),
   windmill: D(160, 3, { power: -15, earn: 2, upk: 0.3, food: 1 }),
-  greenhouse: D(170, 3, { power: 4, earn: 6.5, upk: 1.2, food: 4 }),
-  brewery: D(320, 4, { power: 8, earn: 10, pollute: 2, upk: 1.8 }),
-  dock: D(560, 8, { power: 10, earn: 19, pollute: 3, upk: 3.4 }),
+  greenhouse: D(170, 3, { power: 4, earn: 6.5, upk: 1.2, food: 5 }),
+  brewery: D(320, 4, { power: 8, earn: 11.5, pollute: 2, upk: 1.8 }),
+  dock: D(560, 8, { power: 10, earn: 22, pollute: 3, upk: 3 }),
   // ---- 公共（宜居；upk 运营开支）----
   park: D(55, 1, { amenity: 2, upk: 0.8 }),
   plaza: D(85, 2, { power: 1, amenity: 3, upk: 1.2 }),
@@ -160,9 +183,9 @@ export const TECHS: Tech[] = [
   { id: 'compul', name: '义务教育', br: 'civ', tier: 1, cost: 20, req: [],
     desc: '学校教育容量 +40%' },
   { id: 'green', name: '城市绿化', br: 'civ', tier: 2, cost: 55, req: ['compul'],
-    desc: '工业污染 −30%' },
+    desc: '工业污染 −30%（环境指数同步改善）' },
   { id: 'health', name: '公共医疗', br: 'civ', tier: 3, cost: 85, wis: 40, req: ['compul'],
-    desc: '医院宜居 +3，人口迁入 +20%' },
+    desc: '医院宜居 +3、病床覆盖 +20%，人口迁入 +20%' },
   { id: 'higher', name: '高等教育', br: 'civ', tier: 4, cost: 130, wis: 60, req: ['compul'],
     desc: '科技点产出 +35%' },
   // ---- 商业 ----
@@ -211,6 +234,9 @@ export type QS = {
   res: number; com: number; ind: number; civ: number; park: number;
   hasPower: number; hasSchool: number; hasHospital: number; hasTower: number;
   hasLib: number; hasGreen: number; techsN: number; famine: number;
+  // ---- v4 综合指数 ----
+  employIdx: number; envIdx: number; healthIdx: number;
+  safetyIdx: number; trafficIdx: number; rating: number;
 };
 
 export type Quest = {
@@ -253,14 +279,18 @@ export const QUESTS: Quest[] = [
     val: s => s.techsN, rG: 350, rXp: 150 },
   { id: 'hap70', title: '安居乐业', hint: '幸福度达到 70（多建公园与公共设施）', goal: 70,
     val: s => s.happiness, rG: 340, rXp: 140 },
-  { id: 'hosp1', title: '仁心仁术', hint: '建造一座医院', goal: 1,
+  { id: 'hosp1', title: '仁心仁术', hint: '建造一座医院（健康指数保障城市运转）', goal: 1,
     val: s => s.hasHospital, rG: 370, rXp: 150 },
+  { id: 'employ', title: '人尽其才', hint: '就业率达到 90%（岗位要多过劳动力：商业与工业都提供岗位）', goal: 90,
+    val: s => s.employIdx, rG: 420, rXp: 170 },
   { id: 'pop800', title: '城市脉搏', hint: '人口达到 800 人', goal: 800,
     val: s => s.pop, rG: 520, rXp: 200 },
   { id: 'tower1', title: '触摸天际', hint: '建造一座摩天大楼', goal: 1,
     val: s => s.hasTower, rG: 600, rXp: 230 },
   { id: 'land9', title: '纵横捭阖', hint: '领地达到 9 块', goal: 9,
     val: s => s.chunks, rG: 750, rXp: 260 },
+  { id: 'rating', title: '金字招牌', hint: '城市综合评级达到 A（80 分）—— 幸福/宜居/粮食/就业/环境/健康/安全/交通全维度均衡', goal: 80,
+    val: s => s.rating, rG: 900, rXp: 280 },
   { id: 'pop2500', title: '都市之父', hint: '人口达到 2500 人 —— 终极成就！', goal: 2500,
     val: s => s.pop, rG: 1100, rXp: 330 },
 ];
@@ -287,7 +317,17 @@ export type EconView = {
   sp: number; spRate: number;
   livability: number;
   techs: string[];
+  // ---- v4 指数与数据 ----
+  taxRate: number; taxMood: number;
+  employIdx: number; envIdx: number; healthIdx: number;
+  safetyIdx: number; trafficIdx: number;
+  rating: number; ratingGrade: 'S' | 'A' | 'B' | 'C' | 'D' | 'E';
+  hospitals: number; firestations: number;
+  playtime: number;
+  hist: HistPoint[];
 };
+
+export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
 
 // ------------------------------------------------------------
 // 经营引擎
@@ -301,6 +341,8 @@ type Snap = QS & {
   foodProd: number; foodCap: number; foodEat: number; foodNet: number;
   eduCap: number; spRaw: number; wisdom: number; livability: number;
   famine: number; foodIdx: number; jobIdx: number;
+  hospitals: number; firestations: number; roadsTotal: number;
+  taxMoodV: number;
 };
 
 export class Tycoon {
@@ -318,6 +360,12 @@ export class Tycoon {
   sp = 0;
   /** 已研究科技 */
   techs = new Set<string>();
+  /** 税率（%，0..20；影响税收与幸福度） */
+  taxRate = TAX_DEFAULT;
+  /** 城市历史采样（每 15 秒一点，滑窗 96 点） */
+  hist: HistPoint[] = [];
+  /** 累计游戏时长（秒） */
+  playtime = 0;
   hall: { x: number; y: number } = { x: 127, y: 127 };
   /** 16×16 领地掩码（1=已购） */
   own = new Uint8Array(CHUNKS * CHUNKS);
@@ -328,6 +376,13 @@ export class Tycoon {
   private snap: Snap | null = null;
   private incomeParts = { tax: 0, com: 0, ind: 0 };
   private famineWarned = false;
+  private histAcc = 0;
+
+  /** 设置税率（0..20 整数）；返回实际生效值 */
+  setTaxRate(r: number): number {
+    this.taxRate = Math.max(TAX_MIN, Math.min(TAX_MAX, Math.round(r)));
+    return this.taxRate;
+  }
 
   // ---------------- 科技 ----------------
 
@@ -471,6 +526,7 @@ export class Tycoon {
     let res = 0, com = 0, ind = 0, civ = 0, park = 0, buildings = 0;
     let hasPower = 0, hasSchool = 0, hasHospital = 0, hasTower = 0;
     let hasLib = 0, hasGreen = 0, foodProd = 0, foodCap = FOOD_BASE_CAP, eduCap = 0, spRaw = 0;
+    let hospitals = 0, firestations = 0;
     const upkFarm = { v: 0 }, upkInd = { v: 0 };
 
     for (const o of map.objs.values()) {
@@ -495,7 +551,8 @@ export class Tycoon {
         if (o.id === 'park') park++;
         if (o.id === 'school') hasSchool = 1;
         if (o.id === 'library') hasLib = 1;
-        if (o.id === 'hospital') hasHospital = 1;
+        if (o.id === 'hospital') { hasHospital = 1; hospitals++; }
+        if (o.id === 'firestation') firestations++;
       }
       if (o.id === 'tower') hasTower = 1;
       const pw = e?.power ?? 0;
@@ -527,10 +584,11 @@ export class Tycoon {
     const amenityNeed = Math.ceil(pop / 18);
     const polluteNet = Math.max(0, pollute - park * 1.5);
     const powerMult = powerDem > 0 ? Math.min(1, powerSup / powerDem) : 1;
+    const roadsTotal = map.roadList().length;
 
-    // 宜居度：环境结构性指数（设施供需 + 污染 + 供电）
+    // 宜居度 v4：设施供需 + 供电（污染剥离至独立的环境指数）
     const livability = Math.max(0, Math.min(100, Math.round(
-      50 + 2.2 * (amenitySup - amenityNeed) - 2.6 * polluteNet + (powerMult >= 1 ? 4 : -10),
+      50 + 2.2 * (amenitySup - amenityNeed) + (powerMult >= 1 ? 4 : -10),
     )));
 
     // 粮食：产量 − 消耗 → 库存与安全指数
@@ -544,17 +602,40 @@ export class Tycoon {
     else foodIdx = Math.round(65 * Math.min(1, this.food / Math.max(1, foodCap)));
     foodIdx = Math.max(0, Math.min(100, foodIdx));
 
-    // 就业与幸福：宜居 55% + 粮食 25% + 就业 20%
+    // 就业
     const workers = pop * 0.62;
     const staffing = jobs > 0 ? Math.min(1, workers / jobs) : 1;
     const jobIdx = Math.round(staffing * 100);
-    const famineHit = famine ? (this.has('granary') ? 12 : 25) : 0;
-    const happiness = Math.max(5, Math.min(100,
-      Math.round(0.55 * livability + 0.25 * foodIdx + 0.2 * jobIdx - famineHit)));
-    const happyMult = 0.6 + happiness / 125;
+
+    // ---- v4 综合指数族 ----
+    // 环境：污染净额 → 指数化（越高越好；每净污染点扣 9 分）
+    const envIdx = Math.max(0, Math.min(100, Math.round(100 - polluteNet * 9)));
+    // 健康：病床覆盖（每院 450 床 + 市政厅 50；公共医疗 +20%）
+    const beds = (hospitals * 450 + 50) * (this.has('health') ? 1.2 : 1);
+    const healthIdx = pop < 8 ? 80 : Math.max(0, Math.min(100, Math.round(100 * Math.min(1, beds / pop))));
+    // 安全：消防救援覆盖（每站 550 人 + 基础 100）
+    const shields = firestations * 550 + 100;
+    const safetyIdx = pop < 8 ? 80 : Math.max(0, Math.min(100, Math.round(100 * Math.min(1, shields / pop))));
+    // 交通：路网密度（每 3 栋建筑配 1 格道路为满配）
+    const trafficIdx = buildings > 0
+      ? Math.max(0, Math.min(100, Math.round(roadsTotal * 100 / (buildings * 3))))
+      : 100;
 
     // 智慧：教育容量覆盖人口的比率（图书馆 / 学校 / 博物馆…）
     const wisdom = Math.max(0, Math.min(100, Math.round(60 * eduCap / Math.max(pop, 15))));
+
+    // 幸福 v4：七维加权（宜居 30 / 粮食 18 / 就业 14 / 环境 12 / 健康 9 / 安全 8 / 交通 9）+ 税率情绪 + 饥荒打击
+    const famineHit = famine ? (this.has('granary') ? 12 : 25) : 0;
+    const mood = taxMood(this.taxRate);
+    const happiness = Math.max(5, Math.min(100, Math.round(
+      0.30 * livability + 0.18 * foodIdx + 0.14 * jobIdx + 0.12 * envIdx +
+      0.09 * healthIdx + 0.08 * safetyIdx + 0.09 * trafficIdx + mood - famineHit)));
+    const happyMult = 0.6 + happiness / 125;
+
+    // 城市评级：全维度综合（S≥90 / A≥80 / B≥70 / C≥55 / D≥40）
+    const rating = Math.max(0, Math.min(100, Math.round(
+      0.22 * happiness + 0.14 * livability + 0.12 * foodIdx + 0.12 * jobIdx +
+      0.10 * wisdom + 0.10 * envIdx + 0.08 * healthIdx + 0.07 * safetyIdx + 0.05 * trafficIdx)));
 
     let chunks = 0;
     for (let i = 0; i < this.own.length; i++) chunks += this.own[i];
@@ -563,10 +644,12 @@ export class Tycoon {
       roads: this.roadsBuilt, trees: this.treesPlanted, dozed: this.dozed,
       res, com, ind, civ, park, hasPower, hasSchool, hasHospital, hasTower,
       hasLib, hasGreen, techsN: this.techs.size, famine,
+      employIdx: jobIdx, envIdx, healthIdx, safetyIdx, trafficIdx, rating,
       jobs, earnCom, earnInd, upk, powerSup, powerDem, amenitySup, pollute,
       happyMult, staffing, powerMult,
       foodProd, foodCap, foodEat, foodNet, eduCap, spRaw, wisdom, livability,
       foodIdx, jobIdx,
+      hospitals, firestations, roadsTotal, taxMoodV: mood,
     };
   }
 
@@ -576,8 +659,24 @@ export class Tycoon {
     const s = this.snapOf(map);
     this.snap = s;
 
+    // 累计游戏时长 + 城市历史采样（每 HIST_SAMPLE 秒一点，滑窗 HIST_MAX）
+    this.playtime += dt;
+    this.histAcc += dt;
+    if (this.histAcc >= HIST_SAMPLE) {
+      this.histAcc = 0;
+      this.hist.push({
+        t: Math.round(this.playtime),
+        pop: Math.floor(this.pop),
+        coins: Math.floor(this.coins),
+        net: this.incomeParts.tax + this.incomeParts.com + this.incomeParts.ind - s.upk,
+        hap: s.happiness,
+      });
+      if (this.hist.length > HIST_MAX) this.hist.splice(0, this.hist.length - HIST_MAX);
+    }
+
     // 收入 − 维护（G/分 → 按秒累积；可能为负 = 赤字，需拆除减负）
-    const tax = this.pop * TAX_PER_POP * (this.has('taxref') ? 1.15 : 1) * s.happyMult * s.powerMult;
+    // 税收 v4：可调税率（0-20%）驱动，高税多金但市民不满
+    const tax = this.pop * (this.taxRate / 100) * (this.has('taxref') ? 1.15 : 1) * s.happyMult * s.powerMult;
     const com = s.earnCom * (this.has('finhub') ? 1.15 : 1) * s.staffing * s.powerMult;
     const ind = s.earnInd * s.staffing * s.powerMult;
     this.coins += (tax + com + ind - s.upk) * dt / 60;
@@ -657,6 +756,15 @@ export class Tycoon {
       sp: Math.floor(this.sp), spRate,
       livability: s?.livability ?? 50,
       techs: [...this.techs],
+      // ---- v4 ----
+      taxRate: this.taxRate, taxMood: taxMood(this.taxRate),
+      employIdx: s?.employIdx ?? 100, envIdx: s?.envIdx ?? 100,
+      healthIdx: s?.healthIdx ?? 80, safetyIdx: s?.safetyIdx ?? 80,
+      trafficIdx: s?.trafficIdx ?? 100,
+      rating: s?.rating ?? 0, ratingGrade: ratingGrade(s?.rating ?? 0),
+      hospitals: s?.hospitals ?? 0, firestations: s?.firestations ?? 0,
+      playtime: Math.floor(this.playtime),
+      hist: this.hist,
     };
   }
 
@@ -697,6 +805,10 @@ export class Tycoon {
     this.roadsBuilt = 0;
     this.treesPlanted = 0;
     this.dozed = 0;
+    this.taxRate = TAX_DEFAULT;
+    this.hist = [];
+    this.histAcc = 0;
+    this.playtime = 0;
     this.hall = { x: 127, y: 127 };
     this.own.fill(0);
     this.own[7 * CHUNKS + 7] = 1;
@@ -711,12 +823,14 @@ export class Tycoon {
     const own: number[] = [];
     for (let i = 0; i < this.own.length; i++) if (this.own[i]) own.push(i);
     return JSON.stringify({
-      v: 3,
+      v: 4,
       coins: Math.round(this.coins), xp: this.xp, level: this.level,
       pop: this.pop, questIdx: this.questIdx,
       roads: this.roadsBuilt, trees: this.treesPlanted, dozed: this.dozed,
       food: Math.round(this.food), sp: Math.round(this.sp),
       techs: [...this.techs],
+      taxRate: this.taxRate, playtime: Math.round(this.playtime),
+      hist: this.hist.slice(-HIST_MAX),
       hall: [this.hall.x, this.hall.y],
       own, last: Date.now(),
       map: map.serialize(),
@@ -753,6 +867,19 @@ export class Tycoon {
     for (const t of (d.techs as string[]) ?? []) {
       if (TECHS.some(x => x.id === t)) this.techs.add(t);
     }
+    // v4 指数档：税率 / 时长 / 历史（旧档给默认）
+    this.taxRate = Math.max(TAX_MIN, Math.min(TAX_MAX, Math.round(Number(d.taxRate) || TAX_DEFAULT)));
+    this.playtime = Math.max(0, Number(d.playtime) || 0);
+    this.hist = [];
+    if (Array.isArray(d.hist)) {
+      for (const p of d.hist) {
+        if (p && Number.isFinite(p.t) && Number.isFinite(p.pop) &&
+            Number.isFinite(p.coins) && Number.isFinite(p.net) && Number.isFinite(p.hap)) {
+          this.hist.push({ t: p.t, pop: p.pop, coins: p.coins, net: p.net, hap: p.hap });
+        }
+      }
+    }
+    if (this.hist.length > HIST_MAX) this.hist.splice(0, this.hist.length - HIST_MAX);
     const hall = d.hall as [number, number] | undefined;
     this.hall = { x: hall?.[0] ?? 127, y: hall?.[1] ?? 127 };
     this.own.fill(0);
@@ -774,7 +901,7 @@ export class Tycoon {
     const last = Number(d.last) || Date.now();
     const capH = this.has('finhub') ? 8 : 4;
     const mins = Math.min(capH * 60, Math.max(0, (Date.now() - last) / 60000));
-    const tax = this.pop * TAX_PER_POP * (this.has('taxref') ? 1.15 : 1) * s.happyMult * s.powerMult;
+    const tax = this.pop * (this.taxRate / 100) * (this.has('taxref') ? 1.15 : 1) * s.happyMult * s.powerMult;
     const com = s.earnCom * (this.has('finhub') ? 1.15 : 1) * s.staffing * s.powerMult;
     const perMin = tax + com + s.earnInd * s.staffing * s.powerMult - s.upk;
     const earned = Math.floor(Math.max(0, perMin) * mins * 0.35);
