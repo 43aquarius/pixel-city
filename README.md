@@ -58,7 +58,7 @@ bun run dev        # or: npm run dev
 
 ## 技术架构
 
-``` 
+```
 src/lib/pixelcity/
 ├── palette.ts      # 66 色和谐色板 + 29 条渐变色阶（ramp）
 ├── rng.ts          # 种子随机 / 值噪声 / 分形噪声
