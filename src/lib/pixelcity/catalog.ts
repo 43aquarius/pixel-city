@@ -32,6 +32,7 @@ import {
   genBakery, genGas, genFerry, genWindmill, genGreenhouse,
   genBrewery, genPavilion, genAquarium, genCellmast,
 } from './b_dusk';
+import { genWatertower, genWaterplant } from './b_water';
 
 export type Cat = 'res' | 'com' | 'ind' | 'civ';
 
@@ -42,10 +43,11 @@ export type Def = {
   w: number; h: number;        // 占地（格）
   variants: number;
   pop: number;                 // 折算人口/岗位
-  gen: (seed: number) => BuildResult;
+  gen: (seed: number, season?: number) => BuildResult;
   ground?: GroundKind;         // 特殊地面替换
   desc: string;
   hidden?: boolean;            // 不出现在建造面板（市政厅等剧情建筑）
+  seasonal?: boolean;          // v6：四季变体（树冠随季换色：春樱/夏绿/秋红/冬雪）
 };
 
 export const CATS: Array<{ key: Cat | 'terr'; name: string }> = [
@@ -134,7 +136,7 @@ export const CATALOG: Def[] = [
     gen: genDock, ground: 'parking', desc: '集装箱阵与黄色龙门吊' },
   // ---- 公共 ----
   { id: 'park', name: '街心公园', cat: 'civ', w: 1, h: 1, variants: 3, pop: 0,
-    gen: genPark, ground: 'park', desc: '小径、水塘与绿荫' },
+    gen: genPark, ground: 'park', seasonal: true, desc: '小径、水塘与绿荫（四季换装：春樱秋红冬雪）' },
   { id: 'plaza', name: '广场喷泉', cat: 'civ', w: 1, h: 1, variants: 1, pop: 0,
     gen: genPlaza, ground: 'plaza', desc: '棋格铺装与八角喷泉' },
   { id: 'school', name: '学校', cat: 'civ', w: 2, h: 2, variants: 1, pop: 60,
@@ -175,6 +177,10 @@ export const CATALOG: Def[] = [
     gen: genAquarium, desc: '玻璃幕墙主馆与圆穹角塔' },
   { id: 'cellmast', name: '通信基站', cat: 'civ', w: 1, h: 1, variants: 2, pop: 4,
     gen: genCellmast, desc: '格构塔身，红色航标闪烁' },
+  { id: 'watertower', name: '水塔', cat: 'civ', w: 1, h: 1, variants: 2, pop: 4,
+    gen: genWatertower, desc: '四腿支架大水柜：小范围供水（半径 9 格 · 供 260 人）' },
+  { id: 'waterplant', name: '净水厂', cat: 'civ', w: 2, h: 2, variants: 1, pop: 24,
+    gen: genWaterplant, desc: '双沉淀池水厂：大范围供水（半径 20 格 · 供 2200 人）' },
   // ---- 剧情（经营模式专属，不可直接建造）----
   { id: 'cityhall', name: '市政厅', cat: 'civ', w: 2, h: 2, variants: 1, pop: 0,
     gen: genCityhall, hidden: true, desc: '城市的心脏：金顶钟塔与旗帜' },
@@ -201,10 +207,20 @@ const THUMB = 44;
 export class SpriteBook {
   buildings = new Map<string, BuildingSprite[]>();
   smoke: Sprite[] = [];
+  /** v6 四季变体（park 等带树建筑）：[defId][variant][season] */
+  seasonals = new Map<string, BuildingSprite[][]>();
 
   get(defId: string, variant: number): BuildingSprite {
     const arr = this.buildings.get(defId)!;
     return arr[variant % arr.length];
+  }
+
+  /** v6：按季节取精灵（非四季建筑回退主图集） */
+  getSeasonal(defId: string, variant: number, season: number): BuildingSprite {
+    const arr = this.seasonals.get(defId);
+    if (!arr) return this.get(defId, variant);
+    const vs = arr[variant % arr.length];
+    return vs[season] ?? vs[1];
   }
 
   /** 分块预渲染全部变体（带进度回调） */
@@ -238,6 +254,26 @@ export class SpriteBook {
         if (done % 3 === 0) await sleep();
       }
       this.buildings.set(d.id, arr);
+      // v6：四季变体（每个变体 × 4 季重渲；主图集存夏季版）
+      if (d.seasonal) {
+        const sarr: BuildingSprite[][] = [];
+        for (let v = 0; v < d.variants; v++) {
+          const vs: BuildingSprite[] = [];
+          for (let sn = 0; sn < 4; sn++) {
+            const seed = (v + 1) * 1013904223 + d.id.length * 69069 + v * 17;
+            const res = d.gen(seed, sn);
+            vs.push({
+              sp: renderModel(res.model),
+              spNight: renderModel(res.model, { night: true }),
+              thumb: arr[v].thumb,
+              smokeAt: res.smokeAt,
+              blinkAt: res.blinkAt,
+            });
+          }
+          sarr.push(vs);
+        }
+        this.seasonals.set(d.id, sarr);
+      }
     }
     onProgress(1, '完成');
   }

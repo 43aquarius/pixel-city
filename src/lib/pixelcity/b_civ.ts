@@ -18,15 +18,16 @@ import { flagPole, waterTank, type BuildResult } from './b_util';
 
 const P = RAMP;
 
-/** 街心公园（1×1）：地面为 park 特殊地面，模型 = 树 + 长椅 + 庭院灯 */
-export function genPark(seed: number): BuildResult {
+/** 街心公园（1×1）：地面为 park 特殊地面，模型 = 树 + 长椅 + 庭院灯；season 决定树冠季相（v6） */
+export function genPark(seed: number, season = 1): BuildResult {
   const r = mulberry32(seed);
   const faces: Face[] = [];
   const spots = r() < 0.5
     ? [[4.5, 4.5], [11, 11.5], [12, 5]]
     : [[11.5, 4.5], [4.5, 11], [5, 5]];
-  // 只放一棵主树 + 灌木（地面图案已有小径水塘）
-  addTree(faces, spots[0][0], spots[0][1], r() < 0.5 ? 0 : 2, seed);
+  // 只放一棵主树 + 灌木（地面图案已有小径水塘）；春季一半概率换成樱花树（粉冠点景）
+  const springSakura = season === 0 && r() < 0.5;
+  addTree(faces, spots[0][0], spots[0][1], springSakura ? 3 : r() < 0.5 ? 0 : 2, seed, season);
   // 长椅
   box(faces, spots[1][0] - 1.5, spots[1][1] - 1, spots[1][0] + 1.5, spots[1][1] + 1, 0.8, 2.2, {
     right: pWall(P.DIRT), left: pWall(P.DIRT), top: pWall(P.DIRT),
@@ -38,31 +39,38 @@ export function genPark(seed: number): BuildResult {
   return { model: buildModel(faces, 16, 16) };
 }
 
-/** 树木部件（供公园与植树工具复用）：0 阔叶 / 1 松 / 2 灌木 / 3 樱花 / 4 棕榈 / 5 高乔木 */
-export function addTree(faces: Face[], cx: number, cy: number, kind: number, seed: number): void {
+/** 树木部件（供公园与植树工具复用）：0 阔叶 / 1 松 / 2 灌木 / 3 樱花 / 4 棕榈 / 5 高乔木
+ *  v6 季节参数（0 春 / 1 夏 / 2 秋 / 3 冬）：阔叶族树冠随季换色，松柏常绿（冬带雪顶），棕榈四季常青 */
+export function addTree(faces: Face[], cx: number, cy: number, kind: number, seed: number, season = 1): void {
+  // 阔叶族（阔叶/灌木/高乔木）树冠色阶：春新绿 / 夏盛绿 / 秋红叶 / 冬积雪
+  const leafRamp = season === 0 ? P.SPRING : season === 2 ? P.RFRED : season === 3 ? P.SNOWLEAF : P.LEAF;
+  // 松柏：常绿，冬季换雪顶
+  const pineRamp = season === 3 ? P.SNOWPINE : P.PINE;
   if (kind === 1) {
     // 松树：三层锥
     box(faces, cx - 0.8, cy - 0.8, cx + 0.8, cy + 0.8, 0, 5, {
       right: pWall(P.DIRT), left: pWall(P.DIRT),
     });
-    cone(faces, cx, cy, 5.2, 3, 10, (u, v, px, py) => pCanopyGrad(P.PINE, 0, 7, seed)(u, v, px, py), 8);
-    cone(faces, cx, cy, 4.0, 7, 13.5, (u, v, px, py) => pCanopyGrad(P.PINE, 0, 7, seed)(u, v, px, py), 8);
-    cone(faces, cx, cy, 2.8, 10, 17, (u, v, px, py) => pCanopyGrad(P.PINE, 0, 7, seed)(u, v, px, py), 8);
+    cone(faces, cx, cy, 5.2, 3, 10, (u, v, px, py) => pCanopyGrad(pineRamp, 0, 7, seed)(u, v, px, py), 8);
+    cone(faces, cx, cy, 4.0, 7, 13.5, (u, v, px, py) => pCanopyGrad(pineRamp, 0, 7, seed)(u, v, px, py), 8);
+    cone(faces, cx, cy, 2.8, 10, 17, (u, v, px, py) => pCanopyGrad(pineRamp, 0, 7, seed)(u, v, px, py), 8);
   } else if (kind === 2) {
     // 灌木
     prism(faces, cx, cy, 3.4, 0.6, 4.4, {
-      side: (u, v, px, py) => pCanopyGrad(P.LEAF, 0, 5, seed)(u, v, px, py),
-      top: (u, v, px, py) => pCanopyGrad(P.LEAF, 0, 5, seed)(u, v, px, py),
+      side: (u, v, px, py) => pCanopyGrad(leafRamp, 0, 5, seed)(u, v, px, py),
+      top: (u, v, px, py) => pCanopyGrad(leafRamp, 0, 5, seed)(u, v, px, py),
     }, 8);
   } else if (kind === 3) {
-    // 樱花树：深色枝干 + 双层粉冠 + 白色花瓣点
+    // 樱花树：深色枝干 + 双层粉冠 + 白色花瓣点（春季限定花色；夏绿 / 秋红 / 冬雪）
     box(faces, cx - 0.9, cy - 0.9, cx + 0.9, cy + 0.9, 0, 6.5, {
       right: pWall(P.DIRT), left: pWall(P.DIRT),
     });
+    const blossom = season === 0;
+    const crown = blossom ? P.SAKURA : leafRamp;
     const sakura = (lo: number, hi: number) => (u: number, v: number, px: number, py: number) => {
       const cl = hash2(Math.floor(u / 2.6), Math.floor(v / 2.6), seed ^ 0x5A7C);
-      if (cl < 0.16) return cell(P.WHITE, 0);           // 花簇高光
-      return pCanopyGrad(P.SAKURA, lo, hi, seed)(u, v, px, py);
+      if (cl < (blossom ? 0.16 : 0.10)) return cell(P.WHITE, 0);           // 花簇高光 / 冬日雪斑
+      return pCanopyGrad(crown, lo, hi, seed)(u, v, px, py);
     };
     prism(faces, cx, cy, 5.4, 5, 11, {
       side: (u, v, px, py) => sakura(0, 6)(u, v, px, py),
@@ -100,31 +108,31 @@ export function addTree(faces: Face[], cx: number, cy: number, kind: number, see
       right: pWall(P.DIRT), left: pWall(P.DIRT),
     });
     prism(faces, cx, cy, 4.4, 10, 16, {
-      side: (u, v, px, py) => pCanopyGrad(P.LEAF, 0, 7, seed)(u, v, px, py),
-      top: (u, v, px, py) => pCanopyGrad(P.LEAF, 0, 7, seed)(u, v, px, py),
+      side: (u, v, px, py) => pCanopyGrad(leafRamp, 0, 7, seed)(u, v, px, py),
+      top: (u, v, px, py) => pCanopyGrad(leafRamp, 0, 7, seed)(u, v, px, py),
     }, 8);
-    cone(faces, cx, cy, 3.6, 15, 21, (u, v, px, py) => pCanopyGrad(P.LEAF, 0, 6, seed)(u, v, px, py), 8);
+    cone(faces, cx, cy, 3.6, 15, 21, (u, v, px, py) => pCanopyGrad(leafRamp, 0, 6, seed)(u, v, px, py), 8);
   } else {
     // 阔叶树：双层树冠
     box(faces, cx - 0.9, cy - 0.9, cx + 0.9, cy + 0.9, 0, 7, {
       right: pWall(P.DIRT), left: pWall(P.DIRT),
     });
     prism(faces, cx, cy, 5.0, 5, 10.5, {
-      side: (u, v, px, py) => pCanopyGrad(P.LEAF, 0, 6, seed)(u, v, px, py),
-      top: (u, v, px, py) => pCanopyGrad(P.LEAF, 0, 6, seed)(u, v, px, py),
+      side: (u, v, px, py) => pCanopyGrad(leafRamp, 0, 6, seed)(u, v, px, py),
+      top: (u, v, px, py) => pCanopyGrad(leafRamp, 0, 6, seed)(u, v, px, py),
     }, 8);
     prism(faces, cx, cy, 3.2, 10.5, 14.5, {
-      side: (u, v, px, py) => pCanopyGrad(P.LEAF, 0, 4, seed)(u, v, px, py),
-      top: (u, v, px, py) => pCanopyGrad(P.LEAF, 0, 4, seed)(u, v, px, py),
+      side: (u, v, px, py) => pCanopyGrad(leafRamp, 0, 4, seed)(u, v, px, py),
+      top: (u, v, px, py) => pCanopyGrad(leafRamp, 0, 4, seed)(u, v, px, py),
     }, 8);
   }
 }
 
-/** 独立树木（植树工具）：seed 低 3 位决定种类，共 6 种 */
-export function genTree(seed: number): BuildResult {
+/** 独立树木（植树工具）：seed 低 3 位决定种类，共 6 种；season 决定季相（v6） */
+export function genTree(seed: number, season = 1): BuildResult {
   const kind = seed & 7;
   const faces: Face[] = [];
-  addTree(faces, 8, 8, kind > 5 ? 0 : kind, seed);
+  addTree(faces, 8, 8, kind > 5 ? 0 : kind, seed, season);
   return { model: buildModel(faces, 16, 16) };
 }
 

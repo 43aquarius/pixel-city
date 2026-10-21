@@ -13,11 +13,13 @@ import type { Sprite } from './softrender';
 
 export type GroundKind =
   'grass' | 'water' | 'sand' | 'road' | 'park' | 'plaza' | 'school' | 'temple' | 'field'
-  | 'farm' | 'rock' | 'parking' | 'snow' | 'flower' | 'dry' | 'swamp' | 'autumn';
+  | 'farm' | 'rock' | 'parking' | 'snow' | 'flower' | 'dry' | 'swamp' | 'autumn'
+  | 'bridge' | 'ice';
 
 const KIND_IDX: Record<GroundKind, number> = {
   grass: 0, water: 1, sand: 2, road: 3, park: 4, plaza: 5, school: 6, temple: 7, field: 8,
   farm: 9, rock: 10, parking: 11, snow: 12, flower: 13, dry: 14, swamp: 15, autumn: 16,
+  bridge: 17, ice: 18,
 };
 
 /** 值 + Bayer → 有序抖动量化到 levels 档 */
@@ -398,6 +400,86 @@ const autumnPat: GroundPat = (X, Y, px, py, c) => {
 };
 
 // ------------------------------------------------------------
+// 桥面（v6：水上修路自动架桥）
+//   顶面 = 沥青桥板 + 未连接侧护栏 + 中线虚线；
+//   桥板下缘（西南 / 东南两菱边内侧 2px）画深色钢梁，读出「厚板」感；
+//   桥墩与水面投影由 engine 每帧直接绘制（屏幕空间更可控）。
+// ------------------------------------------------------------
+
+const bridgePat: GroundPat = (X, Y, px, py, c) => {
+  const m = c.road;
+  const cN = m & 1, cE = m & 2, cS = m & 4, cW = m & 8;
+  const dN = Y, dS = 16 - Y, dW = X, dE = 16 - X;
+  const b = (BAYER8[(py & 7) * 8 + (px & 7)] + 0.5) / 64;
+  const straightNS = cN && cS && !cE && !cW;
+  const straightEW = cE && cW && !cN && !cS;
+
+  // 背侧护栏（N=屏上右缘 / W=屏上左缘：栏板 + 立柱 + 内侧检修道）
+  const rail = (d: number, conn: number, lit: boolean, along: number) => {
+    if (conn || d >= 3.4) return -1;
+    if (d < 1.1) return ramp(P.METAL, lit ? 0 : 1);              // 栏板亮条
+    if (d < 2.2) {
+      const post = (along % 4) < 1.1;                            // 立柱间距 4px
+      return post ? ramp(P.OUTLINE, 0) : ramp(P.METAL, lit ? 1 : 2);
+    }
+    return ramp(P.SIDE, lit ? 1 : 2);                            // 内侧检修道
+  };
+  let r = rail(dN, cN, true, X);
+  if (r < 0) r = rail(dW, cW, true, Y);
+  if (r >= 0) return r;
+
+  // 朝前桥板厚边（S=屏下左缘 / E=屏下右缘：未连接侧画钢梁剖面，读出「厚板」感）
+  if (!cS && dS < 2.5) return ramp(P.OUTLINE, 0);
+  if (!cS && dS < 4.4) return ramp(P.ASPH, 2);
+  if (!cE && dE < 2.5) return ramp(P.OUTLINE, 0);
+  if (!cE && dE < 4.4) return ramp(P.ASPH, 2);
+
+  // 中线虚线（仅直桥）
+  if (straightNS && Math.abs(X - 8) < 0.85 && (Y % 7) < 3.4) {
+    return b < 0.25 ? ramp(P.PAINTY, 1) : ramp(P.PAINTY, 0);
+  }
+  if (straightEW && Math.abs(Y - 8) < 0.85 && (X % 7) < 3.4) {
+    return b < 0.25 ? ramp(P.PAINTY, 1) : ramp(P.PAINTY, 0);
+  }
+
+  // 沥青桥板：磨耗斑点（同路面）
+  const n = vnoise(X / 3, Y / 3, 142 + c.variant);
+  if (n > 0.78) return ramp(P.ASPH, 0);
+  if (n < 0.16) return ramp(P.ASPH, 2);
+  return ramp(P.ASPH, 1);
+};
+
+// ------------------------------------------------------------
+// 冰面（v6 冬季：水面封冻）
+// ------------------------------------------------------------
+
+const icePat: GroundPat = (X, Y, px, py, c) => {
+  // 岸边积雪过渡
+  const bands: Array<[number, number]> = [
+    [c.edge & 1, Y], [c.edge & 4, 16 - Y], [c.edge & 2, 16 - X], [c.edge & 8, X],
+  ];
+  for (const [e, d] of bands) {
+    if (!e) continue;
+    if (d < 1.2) return ramp(P.WHITE, 0);
+    if (d < 3.0) {
+      const t = (3.0 - d) / 1.8 * 0.7;
+      const b = (BAYER8[(py & 7) * 8 + (px & 7)] + 0.5) / 64;
+      return b < t ? ramp(P.WHITE, 0) : ramp(P.PBLUE, 0);
+    }
+  }
+  // 冰裂细线（斜向断续）
+  if (Math.abs(X + Y * 0.6 - 13) < 0.32) return ramp(P.PBLUE, 2);
+  if (Math.abs(X * 0.8 + Y - 20) < 0.3 && hash2(Math.floor(X / 2), Math.floor(Y / 2), 143) < 0.6) {
+    return ramp(P.PBLUE, 2);
+  }
+  // 冰层气泡白点
+  if (hash2(Math.floor(X / 3), Math.floor(Y / 3), 144) < 0.035) return ramp(P.FOAM, 0);
+  // 冰面：青白基底 + 微弱明暗
+  const n = vnoise(X / 6.5, Y / 6.5, 145 + c.variant);
+  return ramp(P.PBLUE, dquant(0.30 + (n - 0.5) * 0.22, px, py, 2) === 0 ? 0 : 1);
+};
+
+// ------------------------------------------------------------
 // 特殊地面（多格）
 // ------------------------------------------------------------
 
@@ -491,6 +573,8 @@ const PATS: Record<GroundKind, { pat: GroundPat; w: number; h: number } | null> 
   dry: { pat: dryPat, w: 1, h: 1 },
   swamp: { pat: swampPat, w: 1, h: 1 },
   autumn: { pat: autumnPat, w: 1, h: 1 },
+  bridge: { pat: bridgePat, w: 1, h: 1 },
+  ice: { pat: icePat, w: 1, h: 1 },
 };
 
 const cache = new Map<number, Sprite>();
@@ -533,7 +617,8 @@ export function getGround(kind: GroundKind, o: GroundOpts = {}): Sprite {
     }
   }
   ctx.putImageData(img, 0, 0);
-  const sp: Sprite = { cv, ox: -16 * th, oy: 0, w: W, h: H };
+  // 桥面精灵：锚点整体上抬 8px（桥板高于水面 1 级），与相邻路面齐平
+  const sp: Sprite = { cv, ox: -16 * th, oy: kind === 'bridge' ? -8 : 0, w: W, h: H };
   cache.set(key, sp);
   return sp;
 }

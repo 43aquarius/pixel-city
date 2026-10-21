@@ -24,12 +24,40 @@ export const MAX_LEVEL = 12;
 export const LIFT_COST = 5;              // 抬升 / 降低地形每级
 export const WATER_COST = 12;            // 填海成陆 / 挖湖成水
 export const FLAT_FEE = 3;               // 建造整地费（足迹内每差一格）
+export const BRIDGE_COST = 15;           // v6 跨水桥每格（水上修路自动架桥）
+export const BRIDGE_REFUND = 3;          // 拆桥返还
 export const EAT_PER_POP = 0.045;        // 每人每分钟耗粮
 export const FOOD_BASE_CAP = 60;         // 基础粮仓容量
 export const HIST_SAMPLE = 15;          // 城市历史采样间隔（秒）
 export const HIST_MAX = 96;             // 历史样本上限（约 24 分钟窗口）
 export const SAVE_KEY = 'pxc_tycoon_v1';
 export const MODE_KEY = 'pxc_mode_v1';
+
+// ------------------------------------------------------------
+// 四季体系（v6）：季节由 engine 时钟驱动，经济在快照层联动
+// ------------------------------------------------------------
+
+export type SeasonDef = {
+  name: string;      // 春 / 夏 / 秋 / 冬
+  icon: string;      // HUD 图标名（icons.ts）
+  food: number;      // 粮食产量倍率
+  com: number;       // 商业收入倍率
+  powerDem: number;  // 电力需求倍率（空调 / 取暖）
+  hap: number;       // 季节情绪（幸福度修正）
+  tint: [string, number];   // 画面色调 [rgba, 强度]（engine 用）
+  note: string;      // 换季提示文案
+};
+
+export const SEASONS: SeasonDef[] = [
+  { name: '春', icon: 'spr', food: 1.15, com: 1.0, powerDem: 1.0, hap: 1,
+    tint: ['rgba(121,180,92,1)', 0.045], note: '春回大地：粮食产量 +15%，樱花开满枝头' },
+  { name: '夏', icon: 'sum', food: 1.0, com: 1.08, powerDem: 1.08, hap: 1,
+    tint: ['rgba(242,210,75,1)', 0.05], note: '盛夏旅游季：商业 +8%，空调用电 +8%' },
+  { name: '秋', icon: 'fall', food: 1.25, com: 1.0, powerDem: 1.0, hap: 2,
+    tint: ['rgba(194,91,68,1)', 0.06], note: '金秋丰收：粮食产量 +25%，层林尽染' },
+  { name: '冬', icon: 'win', food: 0.6, com: 0.92, powerDem: 1.18, hap: -2,
+    tint: ['rgba(198,211,222,1)', 0.075], note: '寒冬：粮食 −40%，取暖用电 +18%，水面封冻' },
+];
 
 /** 税率 → 幸福度情绪修正（高于 10% 不满 / 低于 6% 欢欣） */
 export function taxMood(rate: number): number {
@@ -62,17 +90,21 @@ export type EconDef = {
   foodCap?: number;   // 粮仓容量增量
   edu?: number;       // 教育容量（智慧指数供给）
   sp?: number;        // 科技点产量 /分
+  waterR?: number;    // v6 供水半径（格；水塔/净水厂）
+  waterCap?: number;  // v6 供水容量（覆盖人口上限）
 };
 
 const D = (
   cost: number, unlock: number,
   o: { earn?: number; power?: number; amenity?: number; pollute?: number; upk?: number;
-    food?: number; foodCap?: number; edu?: number; sp?: number } = {},
+    food?: number; foodCap?: number; edu?: number; sp?: number;
+    waterR?: number; waterCap?: number } = {},
 ): EconDef => ({
   cost, unlock,
   earn: o.earn ?? 0, power: o.power ?? 0,
   amenity: o.amenity ?? 0, pollute: o.pollute ?? 0, upk: o.upk ?? 0,
   food: o.food, foodCap: o.foodCap, edu: o.edu, sp: o.sp,
+  waterR: o.waterR, waterCap: o.waterCap,
 });
 
 export const ECON: Record<string, EconDef> = {
@@ -137,8 +169,11 @@ export const ECON: Record<string, EconDef> = {
   pavilion: D(75, 2, { amenity: 2, upk: 0.8 }),
   aquarium: D(880, 8, { power: 10, amenity: 4, upk: 1.6, edu: 10, sp: 0.5 }),
   cellmast: D(120, 7, { power: 2, upk: 0.2 }),
-  // ---- 市政厅（经营模式核心，不可直接建造）----
-  cityhall: D(0, 99, { power: -40, amenity: 2, edu: 10, sp: 0.3 }),
+  // ---- 水务（v6：供水覆盖指数）----
+  watertower: D(130, 2, { power: 2, amenity: 1, upk: 0.6, waterR: 9, waterCap: 260 }),
+  waterplant: D(860, 6, { power: 14, amenity: 2, upk: 3.2, waterR: 20, waterCap: 2200 }),
+  // ---- 市政厅（经营模式核心，不可直接建造；自带水井供早期定居）----
+  cityhall: D(0, 99, { power: -40, amenity: 2, edu: 10, sp: 0.3, waterR: 6, waterCap: 120 }),
 };
 
 // ------------------------------------------------------------
@@ -350,6 +385,9 @@ export const ACHIEVEMENTS: AchvDef[] = [
   { id: 'land9', name: '疆域辽阔', desc: '拥有 9 块领地', icon: 'land', goal: 9, val: s => s.chunks },
   { id: 'age60', name: '一小时城市', desc: '城市年龄满 1 小时', icon: 'chart', goal: 3600, val: (_s, t) => t.playtime },
   { id: 'granary', name: '仓廪充实', desc: '粮仓容量达到 300', icon: 'wheat', goal: 300, val: s => s.foodCap },
+  // ---- v6 水务 / 桥梁 ----
+  { id: 'water100', name: '清流绕城', desc: '供水覆盖率达到 100', icon: 'drop', goal: 100, val: s => s.waterIdx },
+  { id: 'bridge16', name: '跨海长虹', desc: '累计架设 16 格跨水桥', icon: 'bridge', goal: 16, val: s => s.bridgeTiles },
 ];
 
 /** 需特定科技才可建造的建筑 */
@@ -386,6 +424,8 @@ export type QS = {
   // ---- v4 综合指数 ----
   employIdx: number; envIdx: number; healthIdx: number;
   safetyIdx: number; trafficIdx: number; rating: number;
+  // ---- v6 水务 / 桥梁 ----
+  hasWaterTower: number; waterIdx: number; bridgeTiles: number;
 };
 
 export type Quest = {
@@ -424,12 +464,18 @@ export const QUESTS: Quest[] = [
     val: s => s.hasSchool, rG: 280, rXp: 125 },
   { id: 'lib1', title: '知识的殿堂', hint: '建造一座图书馆（教育容量 +35，科技点 +2/分）', goal: 1,
     val: s => s.hasLib, rG: 320, rXp: 135 },
+  { id: 'water1', title: '清泉入户', hint: '建造 1 座水塔（覆盖半径内的住宅才有自来水，缺水会拖累幸福与迁入）', goal: 1,
+    val: s => s.hasWaterTower, rG: 240, rXp: 115 },
   { id: 'tech1', title: '科技之光', hint: '在科技研究院研究第一项科技（顶部「科」指标进入）', goal: 1,
     val: s => s.techsN, rG: 350, rXp: 150 },
+  { id: 'bridge1', title: '跨水长虹', hint: '在水面上修路会自动架桥（15G/格），累计架设 4 格跨水桥', goal: 4,
+    val: s => s.bridgeTiles, rG: 380, rXp: 160 },
   { id: 'hap70', title: '安居乐业', hint: '幸福度达到 70（多建公园与公共设施）', goal: 70,
     val: s => s.happiness, rG: 340, rXp: 140 },
   { id: 'hosp1', title: '仁心仁术', hint: '建造一座医院（健康指数保障城市运转）', goal: 1,
     val: s => s.hasHospital, rG: 370, rXp: 150 },
+  { id: 'water80', title: '甘霖普惠', hint: '供水覆盖率达到 80%（水塔半径有限，大城市需要净水厂）', goal: 80,
+    val: s => s.waterIdx, rG: 460, rXp: 185 },
   { id: 'employ', title: '人尽其才', hint: '就业率达到 90%（岗位要多过劳动力：商业与工业都提供岗位）', goal: 90,
     val: s => s.employIdx, rG: 420, rXp: 170 },
   { id: 'pop800', title: '城市脉搏', hint: '人口达到 800 人', goal: 800,
@@ -480,6 +526,11 @@ export type EconView = {
   eventLog: EventLogItem[];
   achv: Array<{ id: string; name: string; desc: string; icon: string; got: boolean; cur: number; goal: number }>;
   achvGot: number;
+  // ---- v6：季节 / 水务 ----
+  season: number;
+  waterIdx: number; waterCapT: number;
+  hasWaterTower: number;
+  bridgeTiles: number;
 };
 
 export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
@@ -503,6 +554,9 @@ type Snap = QS & {
   multCom: number; multInd: number; multFood: number;
   multPower: number; multTraffic: number; multSp: number;
   weather: WeatherState;
+  // ---- v6：季节 / 水务 ----
+  season: number; seasonHap: number;
+  waterIdx: number; waterCapT: number;
 };
 
 export class Tycoon {
@@ -536,6 +590,8 @@ export class Tycoon {
   // ---- v5：天气 / 随机事件 / 成就 ----
   /** 当前天气（engine 每帧回写；纯数据不参与存档，重开随机） */
   weather: WeatherState = { kind: 'clear', t: 0 };
+  /** v6 当前季节 0春/1夏/2秋/3冬（engine 每帧回写；随档保存） */
+  season = 1;
   /** 进行中的事件（最多 2 个） */
   events: ActiveEvent[] = [];
   /** 最近事件日志（尾部最新，最多 12 条） */
@@ -565,6 +621,9 @@ export class Tycoon {
 
   /** 道路单价（物流网络 −50%） */
   roadCost(): number { return this.has('logistic') ? Math.ceil(ROAD_COST * 0.5) : ROAD_COST; }
+
+  /** v6 跨水桥单价（物流网络 −40%） */
+  bridgeCost(): number { return this.has('logistic') ? Math.ceil(BRIDGE_COST * 0.6) : BRIDGE_COST; }
 
   /** 建筑所需科技（null = 无门禁） */
   techGateOf(id: string): string | null { return TECH_GATE[id] ?? null; }
@@ -669,9 +728,10 @@ export class Tycoon {
     return back;
   }
 
-  refundRoad(): number {
-    this.coins += ROAD_REFUND;
-    return ROAD_REFUND;
+  refundRoad(bridge = false): number {
+    const back = bridge ? BRIDGE_REFUND : ROAD_REFUND;
+    this.coins += back;
+    return back;
   }
 
   refundTree(): number {
@@ -702,14 +762,20 @@ export class Tycoon {
     let hasPower = 0, hasSchool = 0, hasHospital = 0, hasTower = 0;
     let hasLib = 0, hasGreen = 0, foodProd = 0, foodCap = FOOD_BASE_CAP, eduCap = 0, spRaw = 0;
     let hospitals = 0, firestations = 0;
+    let hasWaterTower = 0, waterCapT = 0;
     const upkFarm = { v: 0 }, upkInd = { v: 0 };
+    // v6 水务设施清单（覆盖半径）与住宅清单（覆盖人口统计）
+    const waterFacs: Array<{ x: number; y: number; r: number }> = [];
+    const resList: Array<{ x: number; y: number; pop: number }> = [];
 
     for (const o of map.objs.values()) {
       const d = defById(o.id);
       const e = ECON[o.id];
       buildings++;
-      if (d.cat === 'res') { res++; cap += d.pop; }
-      else if (d.cat === 'com') {
+      if (d.cat === 'res') {
+        res++; cap += d.pop;
+        resList.push({ x: o.ax + d.w / 2, y: o.ay + d.h / 2, pop: d.pop });
+      } else if (d.cat === 'com') {
         com++; jobs += d.pop;
         // 城市名片：文旅商业收入 +20%
         const brandB = this.has('brand') &&
@@ -728,6 +794,12 @@ export class Tycoon {
         if (o.id === 'library') hasLib = 1;
         if (o.id === 'hospital') { hasHospital = 1; hospitals++; }
         if (o.id === 'firestation') firestations++;
+      }
+      // v6 水务设施：登记覆盖圆心（半径含足迹）
+      if (e?.waterR) {
+        waterFacs.push({ x: o.ax + d.w / 2, y: o.ay + d.h / 2, r: e.waterR });
+        waterCapT += e.waterCap ?? 0;
+        if (o.id === 'watertower') hasWaterTower = 1;
       }
       if (o.id === 'tower') hasTower = 1;
       const pw = e?.power ?? 0;
@@ -782,6 +854,12 @@ export class Tycoon {
       multCom *= 1.04;                      // 晴天生意兴隆
       weatherHap += 2;
     }
+    // ---- v6 季节联动：粮产 / 商业 / 用电 / 情绪 ----
+    const sn = SEASONS[Math.max(0, Math.min(3, this.season))];
+    foodProd *= sn.food;
+    multCom *= sn.com;
+    powerDem *= sn.powerDem;                 // 夏空调 / 冬取暖抬升用电
+    const seasonHap = sn.hap;
     foodProd *= multFood;
     earnCom *= multCom;
     earnInd *= multInd;
@@ -831,18 +909,43 @@ export class Tycoon {
     // 智慧：教育容量覆盖人口的比率（图书馆 / 学校 / 博物馆…）
     const wisdom = Math.max(0, Math.min(100, Math.round(60 * eduCap / Math.max(pop, 15))));
 
-    // 幸福 v4：七维加权（宜居 30 / 粮食 18 / 就业 14 / 环境 12 / 健康 9 / 安全 8 / 交通 9）+ 税率情绪 + 饥荒打击；v5 + 事件 / 天气情绪
+    // ---- v6 供水覆盖：半径内住宅人口占比 × 总容量/总人口 ----
+    let waterIdx = 100;
+    if (pop >= 2 && resList.length) {
+      let coveredPop = 0;
+      let resPopAll = 0;
+      for (const rb of resList) {
+        resPopAll += rb.pop;
+        for (const f of waterFacs) {
+          if (Math.max(Math.abs(rb.x - f.x), Math.abs(rb.y - f.y)) <= f.r) {
+            coveredPop += rb.pop;
+            break;
+          }
+        }
+      }
+      const coverShare = resPopAll > 0 ? coveredPop / resPopAll : 1;
+      const capFactor = Math.min(1, waterCapT / Math.max(1, pop));
+      waterIdx = Math.max(0, Math.min(100, Math.round(100 * coverShare * capFactor)));
+    }
+
+    // ---- v6 跨水桥格数（任务 / 成就）----
+    let bridgeTiles = 0;
+    const rl = map.road;
+    for (let i = 0; i < rl.length; i++) if (rl[i] === 2) bridgeTiles++;
+
+    // 幸福 v6：八维加权（宜居 26 / 粮食 16 / 就业 13 / 供水 12 / 环境 10 / 健康 8 / 安全 7 / 交通 8）
+    //   + 税率情绪 + 饥荒打击；v5 + 事件 / 天气情绪；v6 + 季节情绪
     const famineHit = famine ? (this.has('granary') ? 12 : 25) : 0;
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
-      0.30 * livability + 0.18 * foodIdx + 0.14 * jobIdx + 0.12 * envIdx +
-      0.09 * healthIdx + 0.08 * safetyIdx + 0.09 * trafficIdx + mood + weatherHap + eventHap - famineHit)));
+      0.26 * livability + 0.16 * foodIdx + 0.13 * jobIdx + 0.12 * waterIdx + 0.10 * envIdx +
+      0.08 * healthIdx + 0.07 * safetyIdx + 0.08 * trafficIdx + mood + weatherHap + eventHap + seasonHap - famineHit)));
     const happyMult = 0.6 + happiness / 125;
 
-    // 城市评级：全维度综合（S≥90 / A≥80 / B≥70 / C≥55 / D≥40）
+    // 城市评级 v6：十维综合（权重和 = 1；S≥90 / A≥80 / B≥70 / C≥55 / D≥40）
     const rating = Math.max(0, Math.min(100, Math.round(
-      0.22 * happiness + 0.14 * livability + 0.12 * foodIdx + 0.12 * jobIdx +
-      0.10 * wisdom + 0.10 * envIdx + 0.08 * healthIdx + 0.07 * safetyIdx + 0.05 * trafficIdx)));
+      0.22 * happiness + 0.13 * livability + 0.11 * foodIdx + 0.11 * jobIdx + 0.08 * waterIdx +
+      0.09 * wisdom + 0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.04 * trafficIdx)));
 
     let chunks = 0;
     for (let i = 0; i < this.own.length; i++) chunks += this.own[i];
@@ -852,6 +955,7 @@ export class Tycoon {
       res, com, ind, civ, park, hasPower, hasSchool, hasHospital, hasTower,
       hasLib, hasGreen, techsN: this.techs.size, famine,
       employIdx: jobIdx, envIdx, healthIdx, safetyIdx, trafficIdx, rating,
+      hasWaterTower, waterIdx, bridgeTiles,
       jobs, earnCom, earnInd, upk, powerSup, powerDem, amenitySup, pollute,
       happyMult, staffing, powerMult,
       foodProd, foodCap, foodEat, foodNet, eduCap, spRaw, wisdom, livability,
@@ -859,6 +963,8 @@ export class Tycoon {
       hospitals, firestations, roadsTotal, taxMoodV: mood,
       eventHap, eventAmenity, multCom, multInd, multFood, multPower, multTraffic, multSp,
       weather: { kind: wt.kind, t: wt.t },
+      season: this.season, seasonHap,
+      waterCapT,
     };
   }
 
@@ -901,14 +1007,15 @@ export class Tycoon {
     // 科技点累积（教育设施 × 智慧加成）
     this.sp += s.spRaw * (0.5 + s.wisdom / 100) * (this.has('higher') ? 1.35 : 1) * dt / 60;
 
-    // 人口迁移：幸福度低会搬离；饥荒加速流失；不足容量时渐进迁入
+    // 人口迁移：幸福度低会搬离；饥荒加速流失；不足容量时渐进迁入（v6：缺水城市吸引力打折）
+    const waterGrow = 0.55 + 0.45 * Math.min(1, s.waterIdx / 60);   // 供水越差迁入越慢
     if (s.famine) {
       this.pop = Math.max(0, this.pop - Math.max(0.15, this.pop * 0.002) * dt);
     } else if (this.pop < s.cap) {
       if (s.happiness < 25) {
         this.pop = Math.max(0, this.pop - 0.3 * dt);
       } else {
-        const rate = (0.0045 + 0.006 * (s.happiness / 100)) * (this.has('health') ? 1.2 : 1);
+        const rate = (0.0045 + 0.006 * (s.happiness / 100)) * (this.has('health') ? 1.2 : 1) * waterGrow;
         this.pop = Math.min(s.cap, this.pop + Math.max(0.05, (s.cap - this.pop) * rate) * dt);
       }
     } else if (this.pop > s.cap) {
@@ -1065,6 +1172,12 @@ export class Tycoon {
         cur: Math.min(a.goal, s ? a.val(s, this) : 0), goal: a.goal,
       })),
       achvGot: this.achv.size,
+      // ---- v6 ----
+      season: this.season,
+      waterIdx: s?.waterIdx ?? 100,
+      waterCapT: s?.waterCapT ?? 0,
+      hasWaterTower: s?.hasWaterTower ?? 0,
+      bridgeTiles: s?.bridgeTiles ?? 0,
     };
   }
 
@@ -1131,7 +1244,7 @@ export class Tycoon {
     const own: number[] = [];
     for (let i = 0; i < this.own.length; i++) if (this.own[i]) own.push(i);
     return JSON.stringify({
-      v: 5,
+      v: 6,
       coins: Math.round(this.coins), xp: this.xp, level: this.level,
       pop: this.pop, questIdx: this.questIdx,
       roads: this.roadsBuilt, trees: this.treesPlanted, dozed: this.dozed,
@@ -1146,6 +1259,8 @@ export class Tycoon {
       })),
       eventLog: this.eventLog.slice(-12),
       achv: [...this.achv],
+      // v6：季节
+      season: this.season,
       hall: [this.hall.x, this.hall.y],
       own, last: Date.now(),
       map: map.serialize(),
@@ -1220,6 +1335,8 @@ export class Tycoon {
     this.eventTimer = 60 + Math.random() * 60;
     this.weather = { kind: 'clear', t: 0 };
     this.weatherReq = null;
+    // v6 季节档（旧档默认更替中的春季；engine 会同步时钟相位）
+    this.season = Math.max(0, Math.min(3, Number(d.season) || 0));
     const hall = d.hall as [number, number] | undefined;
     this.hall = { x: hall?.[0] ?? 127, y: hall?.[1] ?? 127 };
     this.own.fill(0);

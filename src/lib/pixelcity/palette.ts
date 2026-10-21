@@ -37,6 +37,8 @@ export const PALETTE: readonly string[] = [
   '#F4F2E8', '#23252E',
   // 66-67 樱花
   '#E8A4B4', '#C97B93',
+  // 68-69 春季新绿（v6 四季）
+  '#A9D77F', '#8CC463',
 ];
 
 /** 渐变色阶表：每条 ramp 从最亮到最暗，索引 0 = 受光面 */
@@ -72,6 +74,9 @@ export const RAMPS: readonly Ramp[] = [
   [62],                // 27 NEONR 霓虹红（日间=红，夜间模式视作发光体）
   [63],                // 28 NEONC 霓虹青（日间=青）
   [64, 61],            // 29 LAMP 暖灯（夜光模式：亮白暖→黄）
+  [68, 69, 5, 6],      // 30 SPRING 春季新绿（v6）
+  [64, 39, 40],        // 31 SNOWLEAF 积雪树冠（白→青灰）
+  [64, 8, 9, 10],      // 32 SNOWPINE 雪松（雪顶→松绿）
 ];
 
 const RAMP_LIT = {
@@ -80,6 +85,7 @@ const RAMP_LIT = {
   PBLUE: 13, RFRED: 14, RFSLATE: 15, RFGRAY: 16, RFTEAL: 17,
   GLASS: 18, METAL: 19, YELLOW: 20, RED: 21, CYAN: 22, WHITE: 23,
   OUTLINE: 24, WATER2: 25, SAKURA: 26, NEONR: 27, NEONC: 28, LAMP: 29,
+  SPRING: 30, SNOWLEAF: 31, SNOWPINE: 32,
 } as const;
 
 /** 带名 ramp 索引（值一律 number，避免字面量类型传染函数签名） */

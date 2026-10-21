@@ -18,7 +18,7 @@ import { PALETTE } from '@/lib/pixelcity/palette';
 import { iconURI } from '@/lib/pixelcity/icons';
 import {
   Tycoon, ECON, costOf, unlockOf, fmtG, QUESTS, TECHS, BRANCHES, TECH_GATE, techNameOf,
-  taxMood, TAX_MIN, TAX_MAX,
+  taxMood, TAX_MIN, TAX_MAX, SEASONS,
   type EconView, type HistPoint,
 } from '@/lib/pixelcity/tycoon';
 
@@ -32,6 +32,7 @@ const ICON_NAMES = [
   'coin', 'people', 'bolt', 'smile', 'star', 'lock', 'flag', 'land', 'chart',
   'wheat', 'book', 'flask', 'heart', 'up', 'down', 'job', 'medal',
   'sun', 'cloud', 'rain', 'snoww',
+  'spr', 'sum', 'fall', 'win', 'drop', 'bridge',
 ];
 
 type Phase = 'loading' | 'ready';
@@ -252,6 +253,7 @@ export default function PixelCity() {
   const [cellsByCat, setCellsByCat] = useState<Record<string, CellItem[]>>({});
   const [iconSrc, setIconSrc] = useState<Record<string, string>>({});
   const [clock, setClock] = useState({ text: '10:00', ph: '昼' });
+  const [season, setSeasonS] = useState(1);
   const [ui] = useUiState();
   const [isMobile, setIsMobile] = useState(false);
 
@@ -398,6 +400,7 @@ export default function PixelCity() {
       if (eng3) {
         setCrowd(eng3.crowdCount());
         setClock({ text: eng3.clockText(), ph: eng3.phaseChar() });
+        setSeasonS(eng3.season);   // v6：季节状态同步（沙盒 HUD 芯片用）
         // 每分钟把当前时刻回写持久化（供下次启动恢复）
         clockTick.current = (clockTick.current + 1) % 60;
         if (clockTick.current === 0) {
@@ -806,6 +809,31 @@ export default function PixelCity() {
             <span className="pxc-num" title="当前时刻">{clock.text} {clock.ph}</span>
           </div>
           <div className="pxc-crowdrow">
+            <span className="pxc-lbl">四季</span>
+            {econ ? (
+              <span className="pxc-num" title="经营模式：四季随时钟自动轮转（影响粮产 / 商业 / 用电 / 幸福）">
+                {SEASONS[season]?.name ?? '夏'}季 · 自动轮转
+              </span>
+            ) : (
+              <>
+                <button
+                  className={`pxc-btn mini${engineRef.current?.seasonAuto ? ' on' : ''}`}
+                  title={engineRef.current?.seasonAuto ? '自动轮转（每季 4 分钟实时×1，随昼夜时钟）' : '手动锁定：点此恢复四季轮转'}
+                  onClick={() => { engineRef.current?.setSeason(season, true); }}>
+                  自动
+                </button>
+                {SEASONS.map((s, idx) => (
+                  <button key={s.icon}
+                    className={`pxc-btn mini${season === idx && !engineRef.current?.seasonAuto ? ' on' : ''}`}
+                    title={`${s.name}季：${s.note}`}
+                    onClick={() => { engineRef.current?.setSeason(idx, false); setSeasonS(idx); }}>
+                    {s.name}
+                  </button>
+                ))}
+              </>
+            )}
+          </div>
+          <div className="pxc-crowdrow">
             <span className="pxc-lbl">时速</span>
             {[1, 2, 4].map(s => (
               <button key={s}
@@ -865,10 +893,13 @@ export default function PixelCity() {
         <div className="pxc-gbody">
           <div style={{ fontSize: 11, lineHeight: 1.7, color: '#3d434e' }}>
             <b style={{ color: '#8a6d1a' }}>经营模式</b>：上帝视角从一块荒地起步 —— 修路建房、人口迁入、电力供需、
-            九维民生指数（幸福/宜居/粮食/就业/环境/健康/安全/交通/智慧）、可调税率与城市评级、16 项四分支科技树、购地扩张、任务引导与等级解锁（沙盒模式随时切换）；
+            十维民生指数（幸福/宜居/粮食/就业/供水/环境/健康/安全/交通/智慧）、可调税率与城市评级、16 项四分支科技树、购地扩张、任务引导与等级解锁（沙盒模式随时切换）；
+            <b style={{ color: '#8a6d1a' }}>四季轮转</b>（春樱/夏绿/秋红/冬雪：树冠换装、冬季封冻、春粮/秋收/冬暖用电的经济联动）与
+            <b style={{ color: '#8a6d1a' }}>水务系统</b>（水塔/净水厂覆盖供水，缺水拖累幸福与迁入）、
+            <b style={{ color: '#8a6d1a' }}>跨水大桥</b>（水面修路自动架桥，天堑变通途）；
             <b style={{ color: '#8a6d1a' }}>动态天气</b>（晴/多云/雨/雪自动轮转：雨滋养粮田、雪阻塞交通，云影飘过山脊）与
             <b style={{ color: '#8a6d1a' }}>随机事件</b>（火灾/疫病/停电/暴风雨 vs 游客潮/丰收节/科技博览会 —— 消防局、医院与电力冗余能把灾祸化为小插曲）、
-            <b style={{ color: '#8a6d1a' }}>14 枚成就徽章</b>（城市志成就墙）；
+            <b style={{ color: '#8a6d1a' }}>16 枚成就徽章</b>（城市志成就墙）；
             地图具有真实海拔起伏：山脉、丘陵、谷地与岸线，抬升/降低工具随心造山填海。
             一切画面均由代码程序化生成：{CATALOG.length} 类 {CATALOG.reduce((s, d) => s + d.variants, 0)} 变体建筑，
             256×256 大地图 · 10 种地形 · 一键城市（密度三档可调）·
@@ -1048,6 +1079,10 @@ export default function PixelCity() {
                 title={`宜居度：设施供需与供电决定的结构指数，是幸福度的最大成分（30%）`}>
                 <img src={iu('heart')} alt="" /><b>{econ.livability}</b>
               </button>
+              <button className={`chip${econ.waterIdx < 40 ? ' warn' : ''}`} onClick={() => openModal('data')}
+                title={`供水覆盖率：${econ.waterIdx}%（覆盖人口占比 × 总容量/总人口）—— 水塔半径 9 格 / 净水厂半径 20 格；缺水拖累幸福度与人口迁入${econ.waterIdx < 40 ? ' —— 严重缺水！快建水塔' : ''}`}>
+                <img src={iu('drop')} alt="" /><b>{econ.waterIdx}%</b>
+              </button>
               <button className="chip" onClick={() => openModal('data')}
                 title={`就业率：劳动力 ${econ.workers} 人 / 岗位 ${econ.jobs} 个（多建商业与工业提供岗位）—— 点击打开城市志`}>
                 <img src={iu('job')} alt="" /><b>{econ.employIdx}%</b>
@@ -1056,6 +1091,14 @@ export default function PixelCity() {
                 title={`城市评级：${econ.rating} 分（${econ.ratingGrade} 级）—— 幸福/宜居/粮食/就业/智慧/环境/健康/安全/交通九维加权（点击打开城市志）`}>
                 <img src={iu('medal')} alt="" /><b>{econ.ratingGrade}</b><i>{econ.rating}</i>
               </button>
+              {(() => {
+                const sn = SEASONS[econ.season] ?? SEASONS[1];
+                return (
+                  <span className="chip wx" title={`季节：${sn.name}季 —— ${sn.note}（四季随经营时钟轮转：每季 12 游戏小时）`}>
+                    <img src={iu(sn.icon)} alt="" /><b>{sn.name}</b>
+                  </span>
+                );
+              })()}
               {(() => {
                 const w = econ.weather;
                 const names: Record<string, string> = { clear: '晴', cloudy: '多云', rain: '雨', snow: '雪' };
@@ -1377,12 +1420,26 @@ export default function PixelCity() {
                   </tbody></table>
                 </section>
                 <section>
+                  <h3>水务与季节（v6）</h3>
+                  <table><tbody>
+                    <tr className={econ.waterIdx < 40 ? 'bad' : ''}>
+                      <td>供水覆盖率</td><td>{econ.waterIdx} / 100（总容量 {econ.waterCapT} 人）</td>
+                    </tr>
+                    <tr><td>水务设施</td><td>{econ.hasWaterTower ? '水塔/净水厂运转中' : '无 —— 缺水拖累幸福与迁入'}</td>
+                    </tr>
+                    <tr><td>当前季节</td><td>{SEASONS[econ.season]?.name ?? '夏'}季（{SEASONS[econ.season]?.note ?? ''}）</td>
+                    </tr>
+                    <tr><td>跨水桥</td><td>{econ.bridgeTiles} 格（水上修路自动架桥，拆桥返还 3G/格）</td>
+                    </tr>
+                  </tbody></table>
+                </section>
+                <section>
                   <h3>领地</h3>
                   <table><tbody>
                     <tr><td>已购领地</td><td>{econ.chunks} 块（每块 16×16 格）</td></tr>
                     <tr><td>购地方法</td><td>点击迷雾边缘金色虚线框</td></tr>
                     <tr><td>地价</td><td>随环距递增（140G 起，越远越贵）</td></tr>
-                    <tr><td>拆除回收</td><td>建筑返还造价 50% · 道路/树木 1G/格</td></tr>
+                    <tr><td>拆除回收</td><td>建筑返还造价 50% · 道路/树木 1G/格 · 桥 3G/格</td></tr>
                   </tbody></table>
                 </section>
                 <section className="evlog">
@@ -1516,7 +1573,7 @@ export default function PixelCity() {
                 <div className="dmeta">
                   <div className="dl">城市综合评级（S≥90 · A≥80 · B≥70 · C≥55 · D≥40）</div>
                   <div className="dw">
-                    幸福 22% · 宜居 14% · 粮食 12% · 就业 12% · 智慧 10% · 环境 10% · 健康 8% · 安全 7% · 交通 5%
+                    幸福 22% · 宜居 13% · 粮食 11% · 就业 11% · 供水 8% · 智慧 9% · 环境 9% · 健康 7% · 安全 6% · 交通 4%
                   </div>
                   <div className="dr">
                     城市年龄 {(() => {
@@ -1530,13 +1587,14 @@ export default function PixelCity() {
 
               <div className="pxc-dgrid">
                 <section>
-                  <h3>九维民生指数（0-100）</h3>
+                  <h3>十维民生指数（0-100）</h3>
                   <div className="ibars">
                     {([
                       ['幸福度', econ.happiness, '#F2D24B'],
                       ['宜居度', econ.livability, '#5BC8B8'],
                       ['粮食安全', Math.round(65 + 35 * Math.min(1, econ.food / Math.max(1, econ.foodCap)) * (econ.foodNet < 0 ? 0.5 : 1)), '#E8CC4C'],
                       ['就业率', econ.employIdx, '#4A86C8'],
+                      ['供水', econ.waterIdx, '#6FA8DC'],
                       ['环境', econ.envIdx, '#79B45C'],
                       ['健康', econ.healthIdx, '#E05548'],
                       ['安全', econ.safetyIdx, '#6FA8DC'],
@@ -1559,7 +1617,9 @@ export default function PixelCity() {
                     <tr><td>学龄人口</td><td>{Math.round(econ.pop * 0.2)} 人（20%）—— 教育容量 {econ.eduCap}</td></tr>
                     <tr><td>银发人口</td><td>{Math.round(econ.pop * 0.18)} 人（18%）—— 健康指数 {econ.healthIdx}</td></tr>
                     <tr><td>粮仓</td><td>{econ.food} / {econ.foodCap}（净额 {rincS(econ.foodNet)}/分）</td></tr>
+                    <tr className={econ.waterIdx < 40 ? 'bad' : ''}><td>供水</td><td>覆盖率 {econ.waterIdx}%（总容量 {econ.waterCapT} 人{econ.hasWaterTower ? '' : ' —— 尚无水务设施'}）</td></tr>
                     <tr><td>税率</td><td>{econ.taxRate}%（情绪 {econ.taxMood >= 0 ? '+' : ''}{Math.round(econ.taxMood)}）</td></tr>
+                    <tr><td>季节</td><td>{SEASONS[econ.season]?.name ?? '夏'}季（{SEASONS[econ.season]?.note ?? ''}）</td></tr>
                   </tbody></table>
                 </section>
               </div>
@@ -1620,7 +1680,8 @@ export default function PixelCity() {
                     <tr><td>底栏</td><td>工具横滑切换；▲ 展开建造中心抽屉</td></tr>
                     <tr><td>面板</td><td>所有面板都能点标题栏 ▾ / ▸ 收起展开</td></tr>
                     <tr><td>行人</td><td>建造中心 → 市政操作，可自动或手动 0-300 人；街头另有警察/邮递员/学生/主厨/慢跑者/医生/消防员/环卫工/游客出没，猫狗宠物与广场鸽群相伴</td></tr>
-                    <tr><td>昼夜</td><td>市政操作：自动循环（×1/×2/×4）或跳转 晨/午/暮/夜</td></tr>
+                    <tr><td>昼夜</td><td>市政操作：自动循环（×1/×2/×4）或跳转 晨/午/暮/夜；<b>四季</b>随时钟轮转（每季 4 分钟×1），冬季封冻 / 春樱秋红；沙盒可手动切季</td></tr>
+                    <tr><td>桥梁</td><td>道路工具拖过水面自动架桥（15G/格），桥面与岸上齐平，行人车辆畅通无阻</td></tr>
                     <tr><td>经营</td><td>顶部 HUD 看金币/人口/电力/幸福；点迷雾金框购地；点市政厅开财政报告</td></tr>
                   </tbody>
                 </table>
@@ -1635,7 +1696,9 @@ export default function PixelCity() {
                     <tr><td>1 – 9 · 0 / −</td><td>观察 / 植树 / 道路 / 地形 / 住宅 / 商业 / 工业 / 公共 / 拆除 / 抬升 / 降低</td></tr>
                     <tr><td>G</td><td>一键生成整座城市（沙盒模式；可反复按，每次全新）</td></tr>
                     <tr><td>地形</td><td>真实海拔起伏：抬升造山、降低挖谷（挖到 0 化为水域）；山坡建房自动整地（另付小额费用）；行人车辆会爬坡</td></tr>
-                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>九维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
+                    <tr><td>桥梁</td><td>道路工具拖过水面自动架桥（15G/格，物流网络科技打折），桥面与岸上路面齐平，行人车辆畅通无阻</td></tr>
+                    <tr><td>四季</td><td>春樱/夏绿/秋红/冬雪随时钟轮转（每季 4 分钟×1）：春季樱花瓣飘落、冬季水面封冻大地积雪；粮产/商业/用电随季节联动</td></tr>
+                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
                     <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
                     <tr><td>Esc</td><td>切回观察工具</td></tr>
                     <tr><td>收缩</td><td>工具条 / 建造中心可「◀ / 收起」折叠；折叠后点左上角「▶ 工具栏」或右缘「◀ 建造中心」竖签恢复</td></tr>
@@ -1644,9 +1707,9 @@ export default function PixelCity() {
               )}
               <div style={{ marginTop: 10, fontSize: 12, lineHeight: 1.8 }}>
                 小贴士：按 G 或点「一键城市」秒得一座分区完备的城市；市政操作里可调
-                「密度」（疏朗/适中/繁华）与「行人」数量（自动或手动 0-300）；
+                「密度」（疏朗/适中/繁华）与「行人」数量（自动或手动 0-300），沙盒还能手动切「四季」；
                 「昼夜」支持自动循环与场景跳转——深夜会点亮万家灯火、路灯与霓虹，
-                行人也会随夜色回家；随机地图有 10 种地形；植树有 6 种树（含樱花）。
+                行人也会随夜色回家；随机地图有 10 种地形；植树有 6 种树（含樱花，春日满树粉白）。
               </div>
             </div>
           </div>

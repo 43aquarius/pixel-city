@@ -68,8 +68,14 @@ export function generateCity(map: CityMap, seed: number, density = 0.8): GenRepo
       py += roadGap();
     }
     if (!ys.some(v => Math.abs(v - Math.round(c)) < 3)) ys.push(Math.round(c));
-    for (const gx of xs) for (let y = 0; y < n; y++) map.setRoad(gx, y, true);
-    for (const gy of ys) for (let x = 0; x < n; x++) map.setRoad(x, gy, true);
+    // v6：canRoad 已放开水面（玩家修路自动架桥）；生成器仍只在陆地铺路，
+    //     避免一键城市拉出贯穿全图的超长海上栈桥
+    for (const gx of xs) for (let y = 0; y < n; y++) {
+      if (map.terr[map.idx(gx, y)] !== TERR_WATER) map.setRoad(gx, y, true);
+    }
+    for (const gy of ys) for (let x = 0; x < n; x++) {
+      if (map.terr[map.idx(x, gy)] !== TERR_WATER) map.setRoad(x, gy, true);
+    }
 
     // ---------- 2) 分区函数 ----------
     const indAng = r() * Math.PI * 2;   // 工业扇区方位

@@ -4,7 +4,7 @@
 // ============================================================
 
 import {
-  CityMap, TERR_WATER, TERR_SAND, TERR_FARM, TERR_ROCK, MAP_N,
+  CityMap, TERR_WATER, TERR_SAND, TERR_FARM, TERR_ROCK, MAP_N, TERR_GRASS,
   TERR_SNOW, TERR_FLOWER, TERR_DRY, TERR_SWAMP, TERR_AUTUMN, HMAX, HSTEP,
 } from './map';
 import { SpriteBook, defById } from './catalog';
@@ -18,7 +18,8 @@ import { generateCity, type GenReport } from './citygen';
 import { ActorSystem, lampModel, glowPool, type Facing, type CarDir } from './actors';
 import {
   Tycoon, ECON, CHUNK, CHUNKS, TREE_COST, ROAD_REFUND, TREE_REFUND,
-  REFUND_RATE, LIFT_COST, WATER_COST, FLAT_FEE, techNameOf, type EconView,
+  REFUND_RATE, LIFT_COST, WATER_COST, FLAT_FEE, BRIDGE_REFUND, SEASONS,
+  techNameOf, type EconView,
   type WeatherKind,
 } from './tycoon';
 
@@ -107,7 +108,8 @@ export class Engine {
   private redoStack: string[] = [];
   private lastSaveVer = -1;
   private lastSaveT = 0;
-  private treeSprites: Sprite[] = [];
+  /** v6 四季树精灵 [season][kind]（春樱/夏绿/秋红/冬雪） */
+  private treeSprites: Sprite[][] = [];
   // 多点触控
   private pointers = new Map<number, { x: number; y: number }>();
   private pinchDist = 0;
@@ -130,6 +132,8 @@ export class Engine {
   private terrFogV = -1;
   /** 动态水面瓦片（两帧波光动画，每帧重画；坐标为缓存时刻主画布语义） */
   private waterList: Array<{ sx: number; sy: number; tx: number; ty: number; v: number; e: number }> = [];
+  /** v6 跨水桥瓦片（缓存时刻主画布语义；每帧在水面上层重绘桥板 + 桥墩） */
+  private bridgeList: Array<{ sx: number; sy: number; tx: number; ty: number; mask: number }> = [];
   /** 路灯杆（参与 Pass2 深度排序 + 夜间发光） */
   private lampList: Array<{ sx: number; sy: number; key: number }> = [];
   /** 水面动画跳过状态（帧与偏移未变则跳过整轮重画） */
@@ -145,6 +149,18 @@ export class Engine {
   private clouds: Array<{ x: number; y: number; v: number }> = [
     { x: 30, y: 60, v: 0.62 }, { x: 130, y: 140, v: 0.48 }, { x: 220, y: 95, v: 0.55 },
   ];
+
+  // ---- v6：四季系统（季节时钟随昼夜推进；每季 12 游戏小时 = 4 分钟实时×1）----
+  /** 当前季节 0春 / 1夏 / 2秋 / 3冬 */
+  season = 1;
+  /** 季节自动轮转（false = 手动锁定，沙盒市政可切） */
+  seasonAuto = true;
+  /** 季节相位时钟（游戏小时 0..48；4 季 × 12h） */
+  private seasonClock = 12;
+  /** 地形缓存记录的季节（变化 → 全量重绘） */
+  private terrSeason = -1;
+  /** 春季樱花瓣粒子 */
+  private petalPts: Float32Array | null = null;
 
   private listeners: Array<[EventTarget, string, EventListener]> = [];
 
@@ -164,7 +180,9 @@ export class Engine {
 
   async init(onProgress: (frac: number, label: string) => void): Promise<void> {
     await this.book.init(onProgress);
-    this.treeSprites = [0, 1, 2, 3, 4, 5].map(v => renderModel(genTree(v).model));
+    // v6：四季树精灵（4 季 × 6 种：春樱粉/夏盛绿/秋红叶/冬积雪）
+    this.treeSprites = [0, 1, 2, 3].map(sn =>
+      [0, 1, 2, 3, 4, 5].map(v => renderModel(genTree(v, sn).model)));
     this.lampSp = renderModel(lampModel());
     this.lampNight = renderModel(lampModel(), { night: true });
     this.lampPool = glowPool(28, 16);
@@ -237,15 +255,21 @@ export class Engine {
   /** 高度 → 屏幕像素偏移（负数 = 向上抬升） */
   hOfs(tx: number, ty: number): number { return -this.hAt(tx, ty) * HSTEP; }
 
-  /** 浮点格坐标处的地面高度像素（双线性插值：行人 / 车辆平滑爬坡） */
+  /** 浮点格坐标处的地面高度像素（双线性插值：行人 / 车辆平滑爬坡）
+   *  v6：跨水桥格视作 1 级高（桥板与岸上路面齐平，行人车辆自然上桥） */
   groundHpx(fx: number, fy: number): number {
     const n = this.map.n;
     const x0 = Math.max(0, Math.min(n - 1, Math.floor(fx)));
     const y0 = Math.max(0, Math.min(n - 1, Math.floor(fy)));
     const x1 = Math.min(n - 1, x0 + 1), y1 = Math.min(n - 1, y0 + 1);
     const tx = Math.min(1, Math.max(0, fx - x0)), ty = Math.min(1, Math.max(0, fy - y0));
-    const h00 = this.map.h[y0 * n + x0], h10 = this.map.h[y0 * n + x1];
-    const h01 = this.map.h[y1 * n + x0], h11 = this.map.h[y1 * n + x1];
+    const rd = this.map.road;
+    const hOf = (x: number, y: number): number => {
+      const i = y * n + x;
+      return rd[i] === 2 ? 1 : this.map.h[i];   // 桥面 = 1 级
+    };
+    const h00 = hOf(x0, y0), h10 = hOf(x1, y0);
+    const h01 = hOf(x0, y1), h11 = hOf(x1, y1);
     const h = h00 * (1 - tx) * (1 - ty) + h10 * tx * (1 - ty) + h01 * (1 - tx) * ty + h11 * tx * ty;
     return -h * HSTEP;
   }
@@ -266,7 +290,7 @@ export class Engine {
         if (((j + k) & 1) !== 0) continue;       // 需整数格坐标
         const tx = (j + k) / 2, ty = (k - j) / 2;
         if (tx < 0 || ty < 0 || tx >= n || ty >= n) continue;
-        const hh = this.map.h[ty * n + tx];
+        const hh = this.map.road[ty * n + tx] === 2 ? 1 : this.map.h[ty * n + tx];   // v6 桥面拾取
         const eta = ay + hh * HSTEP - k * 8;     // 菱形内局部 y ∈ [0,16)
         const xi = (a - j) * 16 + 16;            // 菱形内局部 x ∈ [0,32)
         if (Math.abs(xi - 16) / 16 + Math.abs(eta - 8) / 8 <= 1) return { tx, ty };
@@ -318,6 +342,48 @@ export class Engine {
     this.timeAuto = auto;
     this.timeSpeed = Math.max(1, Math.min(4, Math.round(speed)));
   }
+
+  // ---------------- v6 季节 ----------------
+
+  /** 每季游戏小时数（4 季轮转一年 = 48 游戏小时 = 16 分钟实时×1） */
+  static readonly SEASON_HOURS = 12;
+
+  /** 手动切季（auto=false 锁定；沙盒市政按钮） */
+  setSeason(s: number, auto = false): void {
+    const sn = Math.max(0, Math.min(3, Math.round(s)));
+    this.seasonAuto = auto;
+    if (sn !== this.season) {
+      this.season = sn;
+      this.seasonClock = sn * Engine.SEASON_HOURS + 0.01;
+      this.onSeasonChanged(true);
+    }
+  }
+
+  /** 季节切换：失效地形缓存（地面 / 水面 / 树冠全换装）+ 经营提示 */
+  private onSeasonChanged(manual: boolean): void {
+    this.terrSeason = -2;   // 强制 ensureTerrain 重绘
+    this.actors.invalidate();
+    const s = SEASONS[this.season];
+    if (this.tycoon) {
+      this.tycoon.season = this.season;
+      this.tycoon.msg?.(`${manual ? '季节切换' : '季节更替'}：${s.note}`);
+    }
+  }
+
+  /** 季节时钟步进（随昼夜同步推进；每季 12 游戏小时） */
+  private stepSeason(dh: number): void {
+    if (!this.seasonAuto) return;
+    this.seasonClock += dh;
+    if (this.seasonClock >= 4 * Engine.SEASON_HOURS) this.seasonClock -= 4 * Engine.SEASON_HOURS;
+    const sn = Math.floor(this.seasonClock / Engine.SEASON_HOURS);
+    if (sn !== this.season) {
+      this.season = sn;
+      this.onSeasonChanged(false);
+    }
+  }
+
+  seasonName(): string { return SEASONS[this.season].name; }
+  seasonIcon(): string { return SEASONS[this.season].icon; }
 
   clockText(): string {
     const hh = Math.floor(this.timeOfDay) % 24;
@@ -440,9 +506,27 @@ export class Engine {
       if (sp[j] < -6) sp[j] += this.lw + 12;
       else if (sp[j] > this.lw + 6) sp[j] -= this.lw + 12;
     }
+    // v6 春季樱花瓣：慢速摆动飘落（与雨雪粒子互斥呈现）
+    if (!this.petalPts) {
+      this.petalPts = new Float32Array(42 * 3);
+      for (let i = 0; i < 42; i++) {
+        this.petalPts[i * 3] = Math.random() * (this.lw + 40) - 20;
+        this.petalPts[i * 3 + 1] = Math.random() * this.lh;
+        this.petalPts[i * 3 + 2] = Math.random() * 6.28;   // 摆动相位
+      }
+    }
+    const pp = this.petalPts;
+    for (let i = 0; i < 42; i++) {
+      const j = i * 3;
+      pp[j] += Math.sin(nowSec * 0.9 + pp[j + 2]) * 11 * dt;
+      pp[j + 1] += (14 + 7 * Math.sin(pp[j + 2])) * dt;
+      if (pp[j + 1] > this.lh + 4) { pp[j + 1] = -4; pp[j] = Math.random() * this.lw; }
+      if (pp[j] < -20) pp[j] += this.lw + 40;
+      else if (pp[j] > this.lw + 20) pp[j] -= this.lw + 40;
+    }
   }
 
-  /** 雨 / 雪粒子绘制（屏幕空间，强度 × 粒子数） */
+  /** 雨 / 雪粒子绘制（屏幕空间，强度 × 粒子数）；v6 + 春季樱花瓣 */
   private drawWeatherParticles(ctx: CanvasRenderingContext2D, rainI: number, snowI: number): void {
     if (rainI > 0.02 && this.rainPts) {
       const n = Math.round(130 * rainI);
@@ -469,6 +553,25 @@ export class Engine {
         ctx.fillStyle = i % 3 === 0 ? '#D6E9F5' : '#F4F2E8';
         if (i % 4 === 0) ctx.fillRect(x, y, 1, 2);
         else ctx.fillRect(x, y, 1, 1);
+      }
+    }
+    // v6：春季樱花瓣（无雨雪时飘落，粉白两色 + 慢速摆动）
+    if (this.season === 0 && rainI < 0.3 && snowI < 0.3) {
+      const pp = this.petalPts;
+      if (pp) {
+        for (let i = 0; i < 42; i++) {
+          const x = Math.round(pp[i * 3]), y = Math.round(pp[i * 3 + 1]);
+          ctx.fillStyle = i % 3 === 0 ? '#E8A4B4' : '#C97B93';
+          if (i % 4 === 0) {
+            // 近层花瓣 2×2（更醒目）
+            ctx.fillRect(x, y, 2, 2);
+            ctx.fillStyle = '#F1E5C0';
+            ctx.fillRect(x + 1, y + 1, 1, 1);
+          } else {
+            ctx.fillRect(x, y, 1, 1);
+            if (i % 5 === 0) ctx.fillRect(x + 1, y + 1, 1, 1);
+          }
+        }
       }
     }
   }
@@ -631,14 +734,17 @@ export class Engine {
     if (this.keys.has('ArrowUp') || this.keys.has('KeyW')) this.cam.y -= pan;
     if (this.keys.has('ArrowDown') || this.keys.has('KeyS')) this.cam.y += pan;
     if (this.timeAuto && dt > 0) {
-      this.timeOfDay = (this.timeOfDay + (dt / 1000) * 0.05 * this.timeSpeed) % 24;
+      const dh = (dt / 1000) * 0.05 * this.timeSpeed;
+      this.timeOfDay = (this.timeOfDay + dh) % 24;
       this.recomputeDayNight();
+      this.stepSeason(dh);              // v6：季节时钟随昼夜同步轮转
     }
     this.actors.dayness = 1 - this.dayNight.dark;
     // v5 天气状态机（雨雪粒子 / 云影 / 色调）+ 经营联动回写
     this.stepWeather(dt / 1000);
     if (this.tycoon) {
       this.tycoon.weather = { kind: this.wx.kind, t: this.wx.t };
+      this.tycoon.season = this.season;   // v6：季节回写（快照层经济联动）
       if (this.tycoon.weatherReq) {          // 暴风雨事件：强制切雨
         this.setWeather(this.tycoon.weatherReq);
         this.tycoon.weatherReq = null;
@@ -719,6 +825,7 @@ export class Engine {
     const dcy = this.terrCam.y - this.cam.y;
     if (this.terrBuf) ctx.drawImage(this.terrBuf, Math.round(dcx), Math.round(dcy));
     this.drawWaterAnim(ctx, wf, dcx, dcy);
+    this.drawBridges(ctx, dcx, dcy);   // v6：跨水桥（水面之上 / 建筑之下）
     if (this.lampSp && this.lampNight && this.lampPool) {
       const sp = this.lampSp, ns = this.lampNight, pool = this.lampPool;
       for (const L of this.lampList) {
@@ -746,7 +853,8 @@ export class Engine {
         const tv = m.tree[i];
         const fogged = this.tycoon ? !this.tycoon.ownedAt(tx, ty) : false;
         if (tv >= 0 && !m.road[i] && m.occ[i] < 0 && !fogged) {
-          const sp = this.treeSprites[tv % this.treeSprites.length];
+          const seasonArr = this.treeSprites[this.season] ?? this.treeSprites[1];
+          const sp = seasonArr[tv % seasonArr.length];
           const key = tx + ty;
           const dx = Math.round(sx + sp.ox), dy = Math.round(sy + sp.oy);
           items.push({ key, draw: () => ctx.drawImage(sp.cv, dx, dy) });
@@ -757,7 +865,8 @@ export class Engine {
           seen.add(a);
           const o = m.objs.get(a)!;
           const d = defById(o.id);
-          const bs = this.book.get(o.id, o.v);
+          // v6：四季建筑（公园等）按季节取精灵
+          const bs = d.seasonal ? this.book.getSeasonal(o.id, o.v, this.season) : this.book.get(o.id, o.v);
           const sp = bs.sp;
           const bsx = this.w2sx(o.ax, o.ay);
           const bsy = this.w2sy(o.ax, o.ay) + this.hOfs(o.ax, o.ay);
@@ -909,7 +1018,14 @@ export class Engine {
       ctx.fillRect(0, 0, lw, lh);
     }
     if (cloudI > 0.02) {
-      ctx.fillStyle = `rgba(30,38,60,${(0.05 * cloudI).toFixed(3)})`;
+      ctx.fillStyle = `rgba(60,70,100,${(0.05 * cloudI).toFixed(3)})`;
+      ctx.fillRect(0, 0, lw, lh);
+    }
+
+    // ---- v6：四季色调（春嫩绿 / 夏暖金 / 秋红棕 / 冬青白，画面整体季相）----
+    {
+      const [col, a] = SEASONS[this.season].tint;
+      ctx.fillStyle = col.replace(/[\d.]+\)$/, `${a})`);
       ctx.fillRect(0, 0, lw, lh);
     }
     // ---- v5：雨 / 雪 屏幕粒子（最上层大气效果）----
@@ -995,14 +1111,15 @@ export class Engine {
     };
   }
 
-  /** 缓存维护：尺寸 / 相机位移 / 地图版本 / 迷雾版本 变化时全量重绘滚动缓冲 */
+  /** 缓存维护：尺寸 / 相机位移 / 地图版本 / 迷雾版本 / 季节 变化时全量重绘滚动缓冲 */
   private ensureTerrain(): void {
     const W = this.lw + Engine.TBUF_PAD * 2;
     const H = this.lh + Engine.TBUF_PAD * 2;
     const moved = Math.abs(this.cam.x - this.terrCam.x) > Engine.TBUF_MOVE
       || Math.abs(this.cam.y - this.terrCam.y) > Engine.TBUF_MOVE;
     if (this.terrBuf && this.terrBuf.width === W && this.terrBuf.height === H
-      && this.terrVer === this.map.version && this.terrFogV === this.fogVer && !moved) return;
+      && this.terrVer === this.map.version && this.terrFogV === this.fogVer
+      && this.terrSeason === this.season && !moved) return;
     if (!this.terrBuf || this.terrBuf.width !== W || this.terrBuf.height !== H) {
       const cv = this.terrBuf ?? document.createElement('canvas');
       cv.width = W; cv.height = H;
@@ -1014,6 +1131,7 @@ export class Engine {
     this.terrCam.y = this.cam.y;
     this.terrVer = this.map.version;
     this.terrFogV = this.fogVer;
+    this.terrSeason = this.season;
     this.repaintTerrain();
   }
 
@@ -1029,6 +1147,7 @@ export class Engine {
     ctx.setTransform(1, 0, 0, 1, PAD, PAD);   // 此后坐标 = 主画布语义（以缓存时刻相机）
     this.waterList = [];
     this.lampList = [];
+    this.bridgeList = [];                       // v6：跨水桥列表（每帧上层重绘）
     this.paintTerrainPass(ctx, vrB, PAD + 48);
     if (this.tycoon) this.drawTerritoryFog(ctx, vrB);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1081,7 +1200,20 @@ export class Engine {
         }
         if (groundDrawn) continue;
 
-        if (m.road[i]) {
+        const winter = this.season === 3;   // v6：冬季换装（积雪 / 封冻）
+        if (m.road[i] === 2) {
+          // ---- v6 跨水桥：底面仍是水（冬结冰），桥板由主循环每帧上层重绘 ----
+          const v = Math.floor(hash2(tx, ty, 9) * 4);
+          const e = this.landEdge(tx, ty);
+          const g = winter
+            ? getGround('ice', { edge: e, variant: v })
+            : getGround('water', { edge: e, variant: v, frame: 0 });
+          ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
+          if (!this.tycoon || this.tycoon.ownedAt(tx, ty)) {
+            if (!winter) this.waterList.push({ sx, sy: syF, tx, ty, v, e });
+            this.bridgeList.push({ sx, sy: syF, tx, ty, mask: this.roadMask(tx, ty) });
+          }
+        } else if (m.road[i]) {
           const g = getGround('road', { road: this.roadMask(tx, ty), variant: Math.floor(hash2(tx, ty, 5) * 4) });
           ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
           // 路灯收集：直道与路口按哈希点缀（每帧由主循环画杆 / 夜光 / 光池）
@@ -1092,16 +1224,23 @@ export class Engine {
             }
           }
         } else {
-          const k = m.terr[i];
+          // v6 冬季地表替换（纯视觉）：草地/花田/秋原/沼泽 → 积雪，耕地 → 休耕干土
+          const k = winter ? this.winterKind(m.terr[i]) : m.terr[i];
           const v = Math.floor(hash2(tx, ty, 9) * 4);
           const edge = this.waterEdge(tx, ty);
           if (k === TERR_WATER) {
-            // 动态水面：缓存固定帧 0；已购区水面入列，每帧按当前波光帧重画
-            const e = this.landEdge(tx, ty);
-            const g = getGround('water', { edge: e, variant: v, frame: 0 });
-            ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
-            if (!this.tycoon || this.tycoon.ownedAt(tx, ty)) {
-              this.waterList.push({ sx, sy: syF, tx, ty, v, e });
+            if (winter) {
+              // 封冻水面：静态冰面（无波光动画）
+              const g = getGround('ice', { edge: this.landEdge(tx, ty), variant: v });
+              ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
+            } else {
+              // 动态水面：缓存固定帧 0；已购区水面入列，每帧按当前波光帧重画
+              const e = this.landEdge(tx, ty);
+              const g = getGround('water', { edge: e, variant: v, frame: 0 });
+              ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
+              if (!this.tycoon || this.tycoon.ownedAt(tx, ty)) {
+                this.waterList.push({ sx, sy: syF, tx, ty, v, e });
+              }
             }
           } else if (k === TERR_SAND) {
             const g = getGround('sand', { variant: v });
@@ -1217,6 +1356,48 @@ export class Engine {
     if (m.inB(tx, ty + 1) && m.road[m.idx(tx, ty + 1)]) v |= 4;
     if (m.inB(tx - 1, ty) && m.road[m.idx(tx - 1, ty)]) v |= 8;
     return v;
+  }
+
+  /** v6 冬季地表替换（纯视觉）：草地/花田/秋原/沼泽 → 积雪；耕地 → 休耕干土 */
+  private winterKind(k: number): number {
+    if (k === TERR_GRASS || k === TERR_FLOWER || k === TERR_AUTUMN || k === TERR_SWAMP) return TERR_SNOW;
+    if (k === TERR_FARM) return TERR_DRY;
+    return k;
+  }
+
+  /** v6 跨水桥绘制（桥板精灵抬升 1 级 + 混凝土桥墩 + 水面投影；每帧在水面上层） */
+  private drawBridges(ctx: CanvasRenderingContext2D, dcx: number, dcy: number): void {
+    if (!this.bridgeList.length) return;
+    for (const b of this.bridgeList) {
+      const sx = b.sx + dcx, sy = b.sy + dcy;
+      if (sx < -64 || sx > this.lw + 64 || sy < -48 || sy > this.lh + 48) continue;
+      // 桥板（连接掩码自动拼接护栏 / 钢梁剖面）
+      const g = getGround('bridge', { road: b.mask, variant: 0 });
+      const bx = Math.round(sx + g.ox), by = Math.round(sy + g.oy);
+      // 水面投影：桥板正下方一条暗带（贴南侧两菱边）
+      ctx.globalAlpha = 0.30;
+      ctx.strokeStyle = PALETTE[65];
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sx - 11, sy + 7);
+      ctx.lineTo(sx, sy + 12);
+      ctx.lineTo(sx + 11, sy + 7);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      // 混凝土桥墩：南角两侧各一座（板底 → 水下）
+      const pillar = (px: number) => {
+        ctx.fillStyle = PALETTE[27];   // 混凝土亮面
+        ctx.fillRect(px, sy + 4, 3, 8);
+        ctx.fillStyle = PALETTE[29];   // 背光面
+        ctx.fillRect(px + 2, sy + 4, 1, 8);
+        ctx.fillStyle = PALETTE[24];   // 水线压暗
+        ctx.fillRect(px, sy + 10, 3, 2);
+      };
+      pillar(Math.round(sx - 7));
+      pillar(Math.round(sx + 4));
+      // 桥板最上层（盖住投影起端）
+      ctx.drawImage(g.cv, bx, by);
+    }
   }
 
   /** 悬崖立面风格：按地表类型（路堤一律土坡） */
@@ -1501,7 +1682,8 @@ export class Engine {
         let label = '拆除';
         if (eco) {
           if (target) label = `拆除 · 返还 ${Math.round(ECON[target].cost * REFUND_RATE)}G`;
-          else label = `拆除 · 返还 ${this.map.road[i] ? ROAD_REFUND : TREE_REFUND}G`;
+          else if (this.map.road[i]) label = `拆${this.map.road[i] === 2 ? '桥' : '路'} · 返还 ${this.map.road[i] === 2 ? BRIDGE_REFUND : ROAD_REFUND}G`;
+          else label = `拆树 · 返还 ${TREE_REFUND}G`;
         }
         const mx = x0 + 8 * (w - hh), my = y0 + 4 * (w + hh) - 14;
         ctx.font = 'bold 8px monospace';
@@ -1953,14 +2135,20 @@ export class Engine {
       case 'road': {
         if (eco) {
           if (!eco.ownedAt(tx, ty)) { this.landGateFail(tx, ty); return; }
-          const rc = eco.roadCost();
+          // v6：水面修路 = 自动架桥（造价更高）；物流网络折扣
+          const isWater = this.map.inB(tx, ty) && this.map.terr[this.map.idx(tx, ty)] === TERR_WATER;
+          const rc = isWater ? eco.bridgeCost() : eco.roadCost();
           if (eco.coins < rc) {
-            if (!this.dragMode) { eco.msg?.(`金币不足：修路需要 ${rc}G/格`); this.beeper.play('error'); }
+            if (!this.dragMode) {
+              eco.msg?.(`金币不足：${isWater ? '架桥' : '修路'}需要 ${rc}G/格`);
+              this.beeper.play('error');
+            }
             return;
           }
           if (this.map.setRoad(tx, ty, true)) {
             this.beeper.play('paint');
-            eco.coins -= rc; eco.roadsBuilt++; eco.addXp(1);
+            eco.coins -= rc; eco.roadsBuilt++; eco.addXp(isWater ? 2 : 1);
+            this.floatAt(tx, ty, `−${rc}G${isWater ? ' 桥' : ''}`, '#E8E4D8');
           }
         } else if (this.map.setRoad(tx, ty, true)) {
           this.beeper.play('paint');
@@ -1983,7 +2171,7 @@ export class Engine {
       }
       case 'doze': {
         let refundId: string | null = null;
-        let isRoad = false, isTree = false;
+        let isRoad = false, isTree = false, isBridge = false;
         if (this.map.inB(tx, ty)) {
           const i = this.map.idx(tx, ty);
           const a = this.map.occ[i];
@@ -1995,7 +2183,7 @@ export class Engine {
             }
             refundId = o.id;
           } else if (this.map.tree[i] >= 0) isTree = true;
-          else if (this.map.road[i]) isRoad = true;
+          else if (this.map.road[i]) { isRoad = true; isBridge = this.map.road[i] === 2; }
         }
         if (this.map.bulldoze(tx, ty)) {
           this.beeper.play('delete');
@@ -2007,7 +2195,7 @@ export class Engine {
               this.floatAt(tx, ty, `+${back}G`, '#F2D24B');
               if (!this.dragMode) eco.msg?.(`拆除 ${defById(refundId).name}：返还 ${back}G（造价 ${Math.round(REFUND_RATE * 100)}%）`);
             } else if (isRoad) {
-              this.floatAt(tx, ty, `+${eco.refundRoad()}G`, '#F2D24B');
+              this.floatAt(tx, ty, `+${eco.refundRoad(isBridge)}G`, '#F2D24B');
             } else if (isTree) {
               this.floatAt(tx, ty, `+${eco.refundTree()}G`, '#F2D24B');
             }
@@ -2143,6 +2331,12 @@ export class Engine {
     let earned = 0;
     if (data) earned = eco.resume(this.map, data);
     else eco.newGame(this.map);
+    // v6：季节同步存档（时钟相位对齐该季开局）
+    if (this.season !== eco.season) {
+      this.season = eco.season;
+      this.seasonClock = eco.season * Engine.SEASON_HOURS + 0.01;
+      this.terrSeason = -2;
+    }
     const hc = eco.hallCenter();
     this.cam.x = (hc.x - hc.y) * 16;
     this.cam.y = (hc.x + hc.y) * 8;

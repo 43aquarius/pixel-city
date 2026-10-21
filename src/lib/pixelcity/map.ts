@@ -106,9 +106,12 @@ export class CityMap {
 
   // ---------------- 道路 ----------------
 
+  /** 道路值：0 无 / 1 普通路 / 2 跨水桥（v6：水面上修路自动架桥，桥面抬升 1 级） */
+  static readonly ROAD_BRIDGE = 2;
+
   canRoad(x: number, y: number): boolean {
-    return this.inB(x, y) && this.terr[this.idx(x, y)] !== TERR_WATER &&
-      this.occ[this.idx(x, y)] < 0;
+    // 水面允许（自动架桥）；建筑占用不可
+    return this.inB(x, y) && this.occ[this.idx(x, y)] < 0;
   }
 
   private roadListCache: Int32Array | null = null;
@@ -134,8 +137,9 @@ export class CityMap {
     if (on) {
       if (!this.canRoad(x, y)) return false;
       if (this.road[this.idx(x, y)]) return false;
-      this.tree[this.idx(x, y)] = -1;   // 修路伐树
-      this.road[this.idx(x, y)] = 1;
+      this.tree[this.idx(x, y)] = -1;   // 修路伐树（水面无树）
+      // v6：水面格 → 跨水桥（桥面抬升 1 级，与岸上路面齐平）
+      this.road[this.idx(x, y)] = this.terr[this.idx(x, y)] === TERR_WATER ? 2 : 1;
       this.touch();
       return true;
     }
@@ -478,7 +482,7 @@ export class CityMap {
           const di = this.idx(x + off, y + off);
           const t = T[si];
           this.terr[di] = (t >= 0 && t <= 9) ? t : TERR_GRASS;
-          this.road[di] = R[si] ? 1 : 0;
+          this.road[di] = R[si] === 2 ? 2 : R[si] ? 1 : 0;   // v6：桥面标记直读
           const tv = Tr[si];
           this.tree[di] = (tv >= 0 && tv <= TREE_KINDS - 1) ? (tv | 0) : -1;
           // 高度：v3 直读；v2 旧档推导（水 0 / 陆 1，保持旧世界平坦可玩）
