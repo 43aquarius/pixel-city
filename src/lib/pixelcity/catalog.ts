@@ -15,7 +15,7 @@ import { genShop, genOffice, genTower } from './b_com';
 import { genFactory, genWarehouse, genTankfarm } from './b_ind';
 import {
   genPark, genTree, genPlaza, genSchool, genHospital,
-  genTemple, genStadium, genRadioTower, genMonument,
+  genTemple, genStadium, genRadioTower, genMonument, genCityhall,
 } from './b_civ';
 import {
   genManor, genResTower, genConvenience, genHotel, genMall, genParking,
@@ -45,6 +45,7 @@ export type Def = {
   gen: (seed: number) => BuildResult;
   ground?: GroundKind;         // 特殊地面替换
   desc: string;
+  hidden?: boolean;            // 不出现在建造面板（市政厅等剧情建筑）
 };
 
 export const CATS: Array<{ key: Cat | 'terr'; name: string }> = [
@@ -172,6 +173,9 @@ export const CATALOG: Def[] = [
     gen: genAquarium, desc: '玻璃幕墙主馆与圆穹角塔' },
   { id: 'cellmast', name: '通信基站', cat: 'civ', w: 1, h: 1, variants: 2, pop: 4,
     gen: genCellmast, desc: '格构塔身，红色航标闪烁' },
+  // ---- 剧情（经营模式专属，不可直接建造）----
+  { id: 'cityhall', name: '市政厅', cat: 'civ', w: 2, h: 2, variants: 1, pop: 0,
+    gen: genCityhall, hidden: true, desc: '城市的心脏：金顶钟塔与旗帜' },
 ];
 
 export function defById(id: string): Def {

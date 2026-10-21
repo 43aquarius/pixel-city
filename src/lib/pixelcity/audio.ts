@@ -4,7 +4,8 @@
 // ============================================================
 
 export type SfxName =
-  | 'click' | 'place' | 'paint' | 'delete' | 'error' | 'open' | 'save' | 'zoom';
+  | 'click' | 'place' | 'paint' | 'delete' | 'error' | 'open' | 'save' | 'zoom'
+  | 'coin' | 'quest' | 'level' | 'buy';
 
 export class Beeper {
   private ctx: AudioContext | null = null;
@@ -64,6 +65,10 @@ export class Beeper {
       case 'open': this.tone(523, 0.06, 0); this.tone(659, 0.06, 0.06); this.tone(784, 0.09, 0.12); break;
       case 'save': this.tone(784, 0.06, 0); this.tone(1046, 0.1, 0.07); break;
       case 'zoom': this.tone(440, 0.03, 0, 0.05); this.tone(587, 0.04, 0.035, 0.05); break;
+      case 'coin': this.tone(1245, 0.04, 0); this.tone(1661, 0.07, 0.04); break;
+      case 'buy': this.tone(392, 0.05, 0, 0.09); this.tone(523, 0.05, 0.05, 0.09); this.tone(784, 0.09, 0.1); break;
+      case 'quest': this.tone(659, 0.05, 0); this.tone(784, 0.05, 0.055); this.tone(988, 0.05, 0.11); this.tone(1319, 0.09, 0.165); break;
+      case 'level': this.tone(523, 0.07, 0); this.tone(659, 0.07, 0.08); this.tone(784, 0.07, 0.16); this.tone(1046, 0.14, 0.24); break;
     }
   }
 }

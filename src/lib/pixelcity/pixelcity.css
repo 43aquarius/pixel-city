@@ -769,3 +769,241 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
   .pxc.m .pxc-slot { flex-wrap: wrap; }
   .pxc.m table.pxc-help td { padding: 7px 8px; font-size: 13px; }
 }
+
+/* ================ 经营模式 ================ */
+
+/* 顶部 HUD 资源条 */
+.pxc-hud {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px;
+  background: var(--navy);
+  border: 2px solid;
+  border-color: var(--navy-line) var(--gold) var(--gold) var(--navy-line);
+  box-shadow: 3px 3px 0 rgba(5, 7, 15, 0.55);
+}
+.pxc-hud .chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  background: var(--navy-deep);
+  border: 1px solid var(--navy-line);
+  color: #f4f2e8;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.pxc-hud .chip img { width: 13px; height: 13px; image-rendering: pixelated; }
+.pxc-hud .chip b { font-weight: 700; }
+.pxc-hud .chip i {
+  font-style: normal;
+  font-size: 10px;
+  opacity: 0.62;
+}
+.pxc-hud .chip.warn {
+  border-color: #E05548;
+  color: #ff9c92;
+  animation: pxcHudWarn 0.9s steps(2) infinite;
+}
+@keyframes pxcHudWarn {
+  0%, 60% { background: #3a1420; }
+  61%, 100% { background: var(--navy-deep); }
+}
+.pxc-hud .chip.rate b { color: #8fd48a; }
+.pxc-hud .chip.lv {
+  cursor: pointer;
+  border-color: var(--gold);
+  gap: 5px;
+}
+.pxc-hud .chip.lv:hover { background: #1a2350; }
+.pxc-hud .xp {
+  position: relative;
+  width: 46px;
+  height: 7px;
+  background: #0b0f24;
+  border: 1px solid var(--navy-line);
+  overflow: hidden;
+}
+.pxc-hud .xp i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: repeating-linear-gradient(90deg,
+    var(--gold) 0 5px, #c9a92f 5px 7px);
+  transition: width 0.3s steps(8);
+}
+
+/* 任务卡（工具条右侧 / 移动端 HUD 下方） */
+.pxc-quest {
+  position: absolute;
+  top: 56px;
+  left: 60px;
+  z-index: 5;
+  width: 228px;
+  background: var(--silver);
+  border: 2px solid;
+  border-color: var(--silver-lt) var(--silver-shadow) var(--silver-shadow) var(--silver-lt);
+  box-shadow: 3px 3px 0 rgba(5, 7, 15, 0.55);
+}
+.pxc-quest .qh {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.pxc-quest .qh:hover { background: #d6dbe2; }
+.pxc-quest .qh img { width: 14px; height: 14px; }
+.pxc-quest .qh i { margin-left: auto; font-style: normal; color: #3d434e; }
+.pxc-quest .qb { padding: 0 7px 7px; }
+.pxc-quest .qt {
+  font-size: 12px;
+  font-weight: 700;
+  color: #23252e;
+  border-left: 3px solid var(--gold);
+  padding-left: 6px;
+  margin-bottom: 3px;
+}
+.pxc-quest .qsub { font-size: 10px; color: #4a5058; line-height: 1.5; margin-bottom: 5px; }
+.pxc-quest .qbar {
+  height: 9px;
+  background: #9aa0a8;
+  border: 1px solid;
+  border-color: var(--silver-shadow) var(--silver-lt) var(--silver-lt) var(--silver-shadow);
+  overflow: hidden;
+}
+.pxc-quest .qbar i {
+  display: block;
+  height: 100%;
+  background: repeating-linear-gradient(90deg,
+    #4fa8a0 0 6px, #3d8a83 6px 8px);
+  transition: width 0.3s steps(8);
+}
+.pxc-quest .qrow {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 3px;
+  font-size: 10px;
+  color: #3d434e;
+}
+.pxc-quest .qrow .qw { color: #8a6d1a; font-weight: 700; }
+
+/* 建筑单元：价格徽章 + 等级锁 */
+.pxc-cell .pxc-cost {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  padding: 1px 3px;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--gold);
+  background: rgba(11, 15, 36, 0.88);
+  border: 1px solid #6e5a14;
+  line-height: 1.2;
+  pointer-events: none;
+}
+.pxc-cell .pxc-cost.poor { color: #ff9c92; border-color: #8a2e26; }
+.pxc-cell.lk { cursor: not-allowed; }
+.pxc-cell.lk img { filter: grayscale(0.85) brightness(0.62); }
+.pxc-cell.lk:hover { background: #aab0b8; }
+.pxc-cell .pxc-lv {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -60%);
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #f4f2e8;
+  background: rgba(11, 15, 36, 0.9);
+  border: 1px solid var(--gold);
+  pointer-events: none;
+  letter-spacing: 1px;
+}
+
+/* 财政报告 */
+.pxc-fiscal { width: min(560px, calc(100vw - 32px)); }
+.pxc-fgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.pxc-fgrid section {
+  background: #b6bcc4;
+  border: 2px solid;
+  border-color: var(--silver-shadow) var(--silver-lt) var(--silver-lt) var(--silver-shadow);
+  padding: 6px 8px;
+}
+.pxc-fgrid h3 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: #23252e;
+  border-bottom: 1px solid #868c95;
+  padding-bottom: 3px;
+}
+.pxc-fgrid table { width: 100%; border-collapse: collapse; }
+.pxc-fgrid td {
+  font-size: 11px;
+  color: #2c313b;
+  padding: 2px 0;
+  line-height: 1.4;
+}
+.pxc-fgrid td.g { color: #1e7a34; font-weight: 700; text-align: right; }
+.pxc-fgrid td:nth-child(2) { text-align: right; }
+.pxc-fgrid tr.sum td {
+  border-top: 1px solid #868c95;
+  font-weight: 700;
+}
+.pxc-fgrid tr.bad td { color: #c22b1e; font-weight: 700; }
+.pxc-fwarn {
+  margin-top: 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: #ffd9d4;
+  background: #5a1712;
+  border: 1px solid #E05548;
+  line-height: 1.5;
+}
+.pxc-btn.danger {
+  color: #fff;
+  background: #a03428;
+  border-color: #d0685c #6e1f16 #6e1f16 #d0685c;
+}
+.pxc-btn.danger:hover { background: #b8402f; }
+
+/* 经营模式移动端适配 */
+.pxc.m .pxc-hud {
+  top: 6px;
+  left: 8px;
+  right: 8px;
+  transform: none;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 3px;
+  padding: 3px;
+}
+.pxc.m .pxc-hud .chip { font-size: 11px; padding: 2px 5px; }
+.pxc.m .pxc-hud .xp { width: 36px; }
+.pxc.m .pxc-quest {
+  top: auto;
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  left: 6px;
+  width: 200px;
+}
+.pxc.m .pxc-fgrid { grid-template-columns: 1fr; }

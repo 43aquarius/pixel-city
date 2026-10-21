@@ -326,6 +326,80 @@ export function genRadioTower(seed: number): BuildResult {
   return { model: buildModel(faces, 16, 16), blinkAt };
 }
 
+/** 市政厅（2×2，经营模式核心）：石阶基座 + 拱窗主楼 + 中央钟塔金顶 + 旗帜 */
+export function genCityhall(seed: number): BuildResult {
+  const faces: Face[] = [];
+  const lit = 0.28;
+  // ---- 石阶基座（两层收分）----
+  box(faces, 2.5, 2.5, 29.5, 29.5, 0, 1.5, {
+    right: (u, v, px, py) => pStone()(u, v, px, py),
+    left: (u, v, px, py) => pStone()(u, v, px, py),
+    top: (u, v, px, py) => pStone(P.SIDE)(u, v, px, py),
+  });
+  box(faces, 4.5, 4.5, 27.5, 27.5, 1.5, 3, {
+    right: (u, v, px, py) => pStone()(u, v, px, py),
+    left: (u, v, px, py) => pStone()(u, v, px, py),
+    top: (u, v, px, py) => pStone(P.CREAM)(u, v, px, py),
+  });
+  // ---- 主楼体（奶油色 + 拱窗，入口居南）----
+  box(faces, 6.5, 6.5, 25.5, 25.5, 3, 12.5, {
+    right: pWindows(P.CREAM, { seed, lit, floorH: 6, gapX: 4, base: 3 }),
+    left: pWindows(P.CREAM, { seed: seed ^ 5, lit, floorH: 6, gapX: 4, base: 3, door: true, doorW: 5 }),
+  });
+  // 檐口线脚
+  box(faces, 5.8, 5.8, 26.2, 26.2, 12.5, 14, {
+    right: pWall(P.CREAM), left: pWall(P.CREAM),
+    top: pFlatRoof(P.RFGRAY, 2),
+  });
+  // ---- 中央钟塔 ----
+  box(faces, 12.8, 12.8, 19.2, 19.2, 14, 24.5, {
+    right: pWall(P.CREAM), left: pWall(P.CREAM),
+  });
+  // 塔身窄窗
+  box(faces, 14.8, 19.2, 17.2, 19.4, 16, 21, {
+    left: pWindows(P.CREAM, { seed: seed ^ 7, lit, floorH: 7, winW: 1.6, winH: 3, gapX: 2.4 }),
+  });
+  // 钟面（南 + 北）
+  box(faces, 13.9, 18.9, 18.1, 19.7, 20, 23.4, {
+    left: () => cell(P.WHITE, 0),
+  });
+  box(faces, 13.9, 12.3, 18.1, 13.1, 20, 23.4, {
+    right: () => cell(P.WHITE, 0),
+  });
+  // 指针（双色小方块）
+  box(faces, 15.7, 19.1, 16.3, 19.5, 21.4, 22.6, {
+    left: pBands(P.OUTLINE, 2),
+  });
+  box(faces, 15.7, 12.5, 16.3, 12.9, 21.4, 22.6, {
+    right: pBands(P.OUTLINE, 2),
+  });
+  // 金字塔穹顶
+  pyramid(faces, 12.2, 12.2, 19.8, 19.8, 24.5, 29, (u, v, px, py) =>
+    pShingle(P.YELLOW)(u, v, px, py));
+  // 顶珠
+  box(faces, 15.7, 15.7, 16.3, 16.3, 29, 30.2, {
+    right: () => cell(P.YELLOW, 0), left: () => cell(P.YELLOW, 0), top: () => cell(P.WHITE, 0),
+  });
+  // 旗帜
+  flagPole(faces, 21.5, 21.5, 14, P.RED);
+  // ---- 两侧翼亭 ----
+  for (const [x0, y0] of [[6.5, 21.5], [21.5, 6.5]] as const) {
+    box(faces, x0, y0, x0 + 4.5, y0 + 4.5, 3, 10, {
+      right: pWindows(P.CREAM, { seed: seed ^ (x0 < 10 ? 11 : 13), lit, floorH: 5, winW: 2, winH: 2.6, gapX: 2.6 }),
+      left: pWall(P.CREAM),
+    });
+    pyramid(faces, x0 - 0.6, y0 - 0.6, x0 + 5.1, y0 + 5.1, 10, 13.5, (u, v, px, py) =>
+      pShingle(P.RFTEAL)(u, v, px, py));
+  }
+  // 门前庭院灯 ×2
+  for (const lx of [13.5, 18]) {
+    box(faces, lx, 27.5, lx + 1, 28.5, 3, 7, {
+      right: pWall(P.METAL), left: pWall(P.METAL), top: () => cell(P.YELLOW, 0),
+    });
+  }
+  return { model: buildModel(faces, 32, 32) };
+}
+
 /** 纪念碑（1×1）：石座 + 柱身 + 方尖顶 */
 export function genMonument(_seed: number): BuildResult {
   const faces: Face[] = [];

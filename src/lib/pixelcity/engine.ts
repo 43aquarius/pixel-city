@@ -16,6 +16,7 @@ import type { Beeper } from './audio';
 import { hash2 } from './rng';
 import { generateCity, type GenReport } from './citygen';
 import { ActorSystem, lampModel, glowPool, type Facing, type CarDir } from './actors';
+import { Tycoon, ECON, CHUNK, CHUNKS, ROAD_COST, TREE_COST, type EconView } from './tycoon';
 
 export type Tool =
   | { t: 'view' }
@@ -34,6 +35,9 @@ export type EngineHooks = {
   onZoom?: (z: number) => void;
   onTool?: (t: Tool) => void;
   onFps?: (fps: number) => void;
+  onEcon?: (e: EconView | null) => void;
+  onTycoonMsg?: (msg: string) => void;
+  onHallClick?: () => void;
 };
 
 type RenderItem = { key: number; draw: () => void };
@@ -45,6 +49,10 @@ export class Engine {
   crowds = true;
   /** 一键城市密度倍率（UI 可调，疏朗 0.55 / 适中 0.8 / 繁华 1.05） */
   cityDensity = 0.8;
+  /** 经营模式（非 null = 经营模式激活：建造过经济门禁，领土迷雾可见） */
+  tycoon: Tycoon | null = null;
+  private econTimer = 0;
+  private downCss: { x: number; y: number } | null = null;
   /** 昼夜时钟：0-24 小时（浮点）；auto 模式下按 timeSpeed 推进（×1 = 8 分钟一天） */
   timeOfDay = 10;
   timeAuto = true;
@@ -147,6 +155,7 @@ export class Engine {
   }
 
   destroy(): void {
+    if (this.tycoon) this.tycoon.save(this.map);
     cancelAnimationFrame(this.raf);
     for (const [t, n, f] of this.listeners) t.removeEventListener(n, f);
     this.listeners = [];
@@ -320,6 +329,15 @@ export class Engine {
       this.actors.invalidate();
     }
     if (this.crowds) this.actors.tick(dt / 1000, this.map);
+    // 经营心跳：经济累积 + 节流推送给 UI
+    if (this.tycoon) {
+      this.tycoon.tick(dt / 1000, this.map);
+      this.econTimer -= dt;
+      if (this.econTimer <= 0) {
+        this.econTimer = 400;
+        this.hooks.onEcon?.(this.tycoon.view());
+      }
+    }
     this.render(now);
     if (this.map.version !== this.lastSaveVer && now - this.lastSaveT > 25000) {
       this.autoSave();
@@ -454,6 +472,9 @@ export class Engine {
       }
     }
 
+    // ---- Pass 1.5：经营领地迷雾（整块菱形覆盖：可购浅 / 远锁深 + 金色虚线）----
+    if (this.tycoon) this.drawTerritoryFog(ctx, vr);
+
     // ---- Pass 2：树木 + 建筑（按前角深度排序）----
     const seen = new Set<number>();
     for (let ty = vr.y0; ty <= vr.y1; ty++) {
@@ -463,7 +484,8 @@ export class Engine {
         if (sx < -160 || sx > lw + 160 || sy < -300 || sy > lh + 160) continue;
 
         const tv = m.tree[i];
-        if (tv >= 0 && !m.road[i] && m.occ[i] < 0) {
+        const fogged = this.tycoon ? !this.tycoon.ownedAt(tx, ty) : false;
+        if (tv >= 0 && !m.road[i] && m.occ[i] < 0 && !fogged) {
           const sp = this.treeSprites[tv % this.treeSprites.length];
           const key = tx + ty;
           const dx = Math.round(sx + sp.ox), dy = Math.round(sy + sp.oy);
@@ -685,6 +707,95 @@ export class Engine {
     return v;
   }
 
+  // ---------------- 经营：领地迷雾与购地 ----------------
+
+  /** 整块领地菱形迷雾：可购块半透明 + 金色虚线边；远锁块深色 */
+  private drawTerritoryFog(ctx: CanvasRenderingContext2D, vr: { x0: number; y0: number; x1: number; y1: number }): void {
+    const eco = this.tycoon!;
+    const c0x = Math.max(0, vr.x0 >> 4), c1x = Math.min(CHUNKS - 1, (vr.x1 + 15) >> 4);
+    const c0y = Math.max(0, vr.y0 >> 4), c1y = Math.min(CHUNKS - 1, (vr.y1 + 15) >> 4);
+    // 两档暗度：可购 0.42 / 远锁 0.72（各合并为单次 fill）
+    for (const [buyable, alpha] of [[true, 0.42], [false, 0.72]] as const) {
+      ctx.beginPath();
+      let n = 0;
+      for (let cy = c0y; cy <= c1y; cy++) {
+        for (let cx = c0x; cx <= c1x; cx++) {
+          if (eco.chunkOwned(cx, cy)) continue;
+          if (eco.purchasable(cx, cy) !== buyable) continue;
+          const x0 = cx * CHUNK, y0 = cy * CHUNK, x1 = x0 + CHUNK, y1 = y0 + CHUNK;
+          ctx.moveTo(this.w2sx(x0, y0), this.w2sy(x0, y0));
+          ctx.lineTo(this.w2sx(x1, y0), this.w2sy(x1, y0));
+          ctx.lineTo(this.w2sx(x1, y1), this.w2sy(x1, y1));
+          ctx.lineTo(this.w2sx(x0, y1), this.w2sy(x0, y1));
+          ctx.closePath();
+          n++;
+        }
+      }
+      if (n > 0) {
+        ctx.fillStyle = `rgba(7,10,24,${alpha})`;
+        ctx.fill();
+      }
+    }
+    // 可购块金色虚线描边
+    ctx.setLineDash([4, 3]);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(242,210,75,0.85)';
+    ctx.beginPath();
+    for (let cy = c0y; cy <= c1y; cy++) {
+      for (let cx = c0x; cx <= c1x; cx++) {
+        if (eco.chunkOwned(cx, cy) || !eco.purchasable(cx, cy)) continue;
+        const x0 = cx * CHUNK, y0 = cy * CHUNK, x1 = x0 + CHUNK, y1 = y0 + CHUNK;
+        ctx.moveTo(this.w2sx(x0, y0), this.w2sy(x0, y0));
+        ctx.lineTo(this.w2sx(x1, y0), this.w2sy(x1, y0));
+        ctx.lineTo(this.w2sx(x1, y1), this.w2sy(x1, y1));
+        ctx.lineTo(this.w2sx(x0, y1), this.w2sy(x0, y1));
+        ctx.closePath();
+      }
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  /** 点击（非拖动）落在锁定领地 → 购买；落在市政厅 → 打开财政 */
+  private tryClickSpecial(pe: PointerEvent): void {
+    const eco = this.tycoon;
+    if (!eco || !this.downCss) return;
+    if (Math.hypot(pe.clientX - this.downCss.x, pe.clientY - this.downCss.y) > 6) return;
+    const d = this.display;
+    if (!d) return;
+    const rect = d.getBoundingClientRect();
+    const { tx, ty } = this.tileAt(pe.clientX - rect.left, pe.clientY - rect.top);
+    if (!this.map.inB(tx, ty)) return;
+    const a = this.map.occ[this.map.idx(tx, ty)];
+    if (a >= 0) {
+      const o = this.map.objs.get(a)!;
+      if (o.id === 'cityhall') {
+        this.beeper.play('coin');
+        this.hooks.onHallClick?.();
+        return;
+      }
+    }
+    if (eco.ownedAt(tx, ty)) return;
+    const { cx, cy } = eco.chunkOf(tx, ty);
+    const r = eco.buyChunk(cx, cy);
+    if (r === 'adj') {
+      eco.msg?.('暂不可购买：只可购买与领地相邻的地块');
+      this.beeper.play('error');
+    } else if (r === 'coins') {
+      eco.msg?.(`金币不足：这块地需要 ${eco.priceOf(cx, cy)}G`);
+      this.beeper.play('error');
+    }
+  }
+
+  /** 经营模式下「领地外」施工失败的提示（可购块静默——交给点击购地） */
+  private landGateFail(tx: number, ty: number): void {
+    if (this.dragMode || !this.tycoon) return;
+    const { cx, cy } = this.tycoon.chunkOf(tx, ty);
+    if (this.tycoon.purchasable(cx, cy)) return;
+    this.tycoon.msg?.('迷雾之外无法施工：先逐环购买相邻领地');
+    this.beeper.play('error');
+  }
+
   /** 屏幕偏移是否在 w×h 足印菱形内（相对锚点） */
   private inFootprint(dx: number, dy: number, w: number, h: number): boolean {
     const X = dx / 2 + dy;
@@ -719,7 +830,8 @@ export class Engine {
     if (tool.t === 'build') {
       const bs = this.book.get(tool.id, tool.variant);
       const g = ghostSprite(bs.sp);
-      const ok = this.map.canPlace(tool.id, h.tx, h.ty);
+      const ok = this.map.canPlace(tool.id, h.tx, h.ty) &&
+        (!this.tycoon || this.tycoon.gateBuild(tool.id, h.tx, h.ty) === 'ok');
       ctx.drawImage(g, Math.round(x0 + bs.sp.ox), Math.round(y0 + bs.sp.oy));
       if (!ok) {
         ctx.fillStyle = 'rgba(224,85,72,0.55)';
@@ -730,6 +842,39 @@ export class Engine {
             if (this.inFootprint(px - x0, py - y0, w, hh)) ctx.fillRect(px, py, 2, 1);
           }
         }
+      }
+    }
+
+    // 经营模式：悬停锁定领地 → 高亮整块 + 地价牌
+    const eco = this.tycoon;
+    if (eco && !eco.ownedAt(h.tx, h.ty)) {
+      const { cx, cy } = eco.chunkOf(h.tx, h.ty);
+      if (eco.purchasable(cx, cy)) {
+        const x0b = cx * CHUNK, y0b = cy * CHUNK, x1b = x0b + CHUNK, y1b = y0b + CHUNK;
+        ctx.beginPath();
+        ctx.moveTo(this.w2sx(x0b, y0b), this.w2sy(x0b, y0b));
+        ctx.lineTo(this.w2sx(x1b, y0b), this.w2sy(x1b, y0b));
+        ctx.lineTo(this.w2sx(x1b, y1b), this.w2sy(x1b, y1b));
+        ctx.lineTo(this.w2sx(x0b, y1b), this.w2sy(x0b, y1b));
+        ctx.closePath();
+        ctx.strokeStyle = '#F2D24B';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        const price = eco.priceOf(cx, cy);
+        const label = `${price}G  购地`;
+        const mx = this.w2sx(x0b + 8, y0b + 8);
+        const my = this.w2sy(x0b + 8, y0b + 8);
+        ctx.font = 'bold 8px monospace';
+        const tw = ctx.measureText(label).width + 10;
+        ctx.fillStyle = 'rgba(11,15,36,0.94)';
+        ctx.fillRect(Math.round(mx - tw / 2), Math.round(my - 8), Math.round(tw), 14);
+        ctx.strokeStyle = '#F2D24B';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(Math.round(mx - tw / 2) + 0.5, Math.round(my - 8) + 0.5, Math.round(tw) - 1, 13);
+        ctx.fillStyle = eco.coins >= price ? '#F4F2E8' : '#E05548';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, Math.round(mx), Math.round(my + 2));
+        ctx.textAlign = 'left';
       }
     }
   }
@@ -758,6 +903,7 @@ export class Engine {
         snow: abgr('#DCE6F0'), flower: abgr('#A5C94F'), dry: abgr('#B99B62'),
         swamp: abgr('#3F5F48'), autumn: abgr('#C9924E'),
         res: abgr('#C25B44'), com: abgr('#E8CC4C'), ind: abgr('#9BA0A7'), civ: abgr('#5BC8B8'),
+        lockNear: abgr('#2B3355'), lockFar: abgr('#12172E'),
       };
       for (let y = 0; y < n; y++) {
         for (let x = 0; x < n; x++) {
@@ -776,6 +922,9 @@ export class Engine {
             cv = cat === 'res' ? C.res : cat === 'com' ? C.com
               : cat === 'ind' ? C.ind : C.civ;
           }
+          if (this.tycoon && !this.tycoon.chunkOwned(x >> 4, y >> 4)) {
+            cv = this.tycoon.purchasable(x >> 4, y >> 4) ? C.lockNear : C.lockFar;
+          }
           for (let dy = 0; dy < MM; dy++) {
             const row = (y * MM + dy) * W + x * MM;
             for (let dx = 0; dx < MM; dx++) u32[row + dx] = cv;
@@ -787,6 +936,24 @@ export class Engine {
     }
     mctx.imageSmoothingEnabled = false;
     mctx.drawImage(this.miniBase, 0, 0);
+    // 经营模式：已购领地描金边（外缘块）
+    if (this.tycoon) {
+      mctx.strokeStyle = '#F2D24B';
+      mctx.lineWidth = 1;
+      for (let cy = 0; cy < CHUNKS; cy++) {
+        for (let cx = 0; cx < CHUNKS; cx++) {
+          if (!this.tycoon.chunkOwned(cx, cy)) continue;
+          let inner = true;
+          for (let dy = -1; dy <= 1 && inner; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (!this.tycoon.chunkOwned(cx + dx, cy + dy)) { inner = false; break; }
+            }
+          }
+          if (inner) continue;
+          mctx.strokeRect(cx * CHUNK * MM + 0.5, cy * CHUNK * MM + 0.5, CHUNK * MM - 1, CHUNK * MM - 1);
+        }
+      }
+    }
     const vr = this.visibleRange();
     mctx.strokeStyle = '#F4F2E8';
     mctx.lineWidth = 1;
@@ -845,6 +1012,7 @@ export class Engine {
       const pe = e as PointerEvent;
       try { display.setPointerCapture(pe.pointerId); } catch { /* 无活动指针（合成事件等） */ }
       this.pointers.set(pe.pointerId, { x: pe.clientX, y: pe.clientY });
+      this.downCss = { x: pe.clientX, y: pe.clientY };
       // 双指手势：取消涂画，进入捏合缩放 / 平移
       if (this.pointers.size >= 2) {
         this.painting = false;
@@ -942,6 +1110,8 @@ export class Engine {
         this.painting = false;
         this.panning = false;
         this.lastTile = null;
+        this.tryClickSpecial(pe);
+        this.downCss = null;
       }
     };
     this.on(display, 'pointerup', endPointer);
@@ -981,22 +1151,87 @@ export class Engine {
 
   private applyToolAt(tx: number, ty: number): void {
     const t = this.tool;
+    const eco = this.tycoon;
     switch (t.t) {
       case 'terr':
+        if (eco) {
+          if (!this.dragMode) {
+            eco.msg?.('经营模式：不可改造地貌（沙盒模式专属）');
+            this.beeper.play('error');
+          }
+          return;
+        }
         if (this.map.setTerr(tx, ty, t.k)) this.beeper.play('paint');
         break;
-      case 'road':
-        if (this.map.setRoad(tx, ty, true)) this.beeper.play('paint');
+      case 'road': {
+        if (eco) {
+          if (!eco.ownedAt(tx, ty)) { this.landGateFail(tx, ty); return; }
+          if (eco.coins < ROAD_COST) {
+            if (!this.dragMode) { eco.msg?.(`金币不足：修路需要 ${ROAD_COST}G/格`); this.beeper.play('error'); }
+            return;
+          }
+        }
+        if (this.map.setRoad(tx, ty, true)) {
+          this.beeper.play('paint');
+          if (eco) { eco.coins -= ROAD_COST; eco.roadsBuilt++; eco.addXp(1); }
+        }
         break;
-      case 'tree':
-        if (this.map.plantTree(tx, ty)) this.beeper.play('paint');
+      }
+      case 'tree': {
+        if (eco) {
+          if (!eco.ownedAt(tx, ty)) { this.landGateFail(tx, ty); return; }
+          if (eco.coins < TREE_COST) {
+            if (!this.dragMode) { eco.msg?.(`金币不足：种树需要 ${TREE_COST}G/棵`); this.beeper.play('error'); }
+            return;
+          }
+        }
+        if (this.map.plantTree(tx, ty)) {
+          this.beeper.play('paint');
+          if (eco) { eco.coins -= TREE_COST; eco.treesPlanted++; eco.addXp(1); }
+        }
         break;
-      case 'doze':
-        if (this.map.bulldoze(tx, ty)) this.beeper.play('delete');
+      }
+      case 'doze': {
+        let refundId: string | null = null;
+        if (this.map.inB(tx, ty)) {
+          const a = this.map.occ[this.map.idx(tx, ty)];
+          if (a >= 0) {
+            const o = this.map.objs.get(a)!;
+            if (eco && o.id === 'cityhall') {
+              if (!this.dragMode) { eco.msg?.('市政厅是城市的心脏，不可拆除'); this.beeper.play('error'); }
+              return;
+            }
+            refundId = o.id;
+          }
+        }
+        if (this.map.bulldoze(tx, ty)) {
+          this.beeper.play('delete');
+          if (eco && refundId) {
+            eco.refundBuild(refundId);
+            eco.msg?.(`拆除 ${defById(refundId).name}：返还 ${Math.round(ECON[refundId].cost * 0.3)}G`);
+          }
+        }
         break;
+      }
       case 'build': {
+        if (eco) {
+          const gate = eco.gateBuild(t.id, tx, ty);
+          if (gate !== 'ok') {
+            if (gate === 'land') {
+              this.landGateFail(tx, ty);
+            } else if (!this.dragMode) {
+              const d = defById(t.id);
+              const e = ECON[t.id];
+              if (gate === 'locked') eco.msg?.(`「${d.name}」需要市政厅 LV${e.unlock} 解锁`);
+              else eco.msg?.(`金币不足：「${d.name}」需要 ${e.cost}G`);
+              this.beeper.play('error');
+            }
+            return;
+          }
+        }
         if (this.map.place(t.id, t.variant, tx, ty)) {
           this.beeper.play('place');
+          if (eco) eco.payBuild(t.id);
         } else if (!this.dragMode && this.map.inB(tx, ty)) {
           this.beeper.play('error');
         }
@@ -1074,12 +1309,43 @@ export class Engine {
 
   autoSave(): void {
     try {
-      localStorage.setItem('pxc_auto', this.map.serialize());
+      if (this.tycoon) {
+        this.tycoon.save(this.map);          // 经营模式：整档（地图+经济）独立保存
+      } else {
+        localStorage.setItem('pxc_auto', this.map.serialize());
+      }
       this.lastSaveVer = this.map.version;
       this.lastSaveT = performance.now();
     } catch {
       /* 存储满时忽略 */
     }
+  }
+
+  // ---------------- 经营模式切换 ----------------
+
+  /** 进入经营模式：data 传存档则续档，否则新开局；返回离线收益（G） */
+  enterTycoon(data: Record<string, unknown> | null): number {
+    const eco = new Tycoon();
+    eco.msg = msg => this.hooks.onTycoonMsg?.(msg);
+    eco.sfx = n => this.beeper.play(n);
+    this.tycoon = eco;
+    let earned = 0;
+    if (data) earned = eco.resume(this.map, data);
+    else eco.newGame(this.map);
+    const hc = eco.hallCenter();
+    this.cam.x = (hc.x - hc.y) * 16;
+    this.cam.y = (hc.x + hc.y) * 8;
+    this.map.onChange?.();
+    this.hooks.onEcon?.(eco.view());
+    return earned;
+  }
+
+  /** 退出经营模式（进度已存档） */
+  exitTycoon(): void {
+    if (this.tycoon) this.tycoon.save(this.map);
+    this.tycoon = null;
+    this.hooks.onEcon?.(null);
+    this.map.onChange?.();
   }
 
   loadAuto(): boolean {
@@ -1100,14 +1366,23 @@ export class Engine {
   }
 
   randomMap(): void {
+    if (this.tycoonGuard('随机地图')) return;
     this.pushUndo();
     this.map.random((Math.random() * 1e9) | 0);
     this.center();
     this.beeper.play('open');
   }
 
+  private tycoonGuard(what: string): boolean {
+    if (!this.tycoon) return false;
+    this.tycoon.msg?.(`经营模式：「${what}」已禁用（沙盒模式专属）`);
+    this.beeper.play('error');
+    return true;
+  }
+
   /** 一键城市：清空地上物（保留地形）并程序化生成整座城市（密度可调） */
   generateCity(): GenReport | null {
+    if (this.tycoonGuard('一键城市')) return null;
     this.pushUndo();
     const rep = generateCity(this.map, (Math.random() * 1e9) | 0, this.cityDensity);
     if (!rep) {
@@ -1120,6 +1395,7 @@ export class Engine {
   }
 
   clearMap(): void {
+    if (this.tycoonGuard('清空')) return;
     this.pushUndo();
     this.map.clear();
     this.beeper.play('delete');

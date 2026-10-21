@@ -19,3 +19,4 @@ mini-services/
 worklog.md
 dev.log
 *.tsbuildinfo
+tool-results/

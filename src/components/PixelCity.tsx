@@ -13,9 +13,12 @@ import {
 import '@/lib/pixelcity/pixelcity.css';
 import { Engine, type Tool } from '@/lib/pixelcity/engine';
 import { Beeper } from '@/lib/pixelcity/audio';
-import { CATALOG, defById, type Cat } from '@/lib/pixelcity/catalog';
+import { CATALOG, defById, type Cat, type Def } from '@/lib/pixelcity/catalog';
 import { PALETTE } from '@/lib/pixelcity/palette';
 import { iconURI } from '@/lib/pixelcity/icons';
+import {
+  Tycoon, ECON, costOf, unlockOf, fmtG, QUESTS, type EconView,
+} from '@/lib/pixelcity/tycoon';
 
 const ICON_NAMES = [
   'undo', 'redo', 'zoomin', 'zoomout', 'sound', 'soundoff',
@@ -24,6 +27,7 @@ const ICON_NAMES = [
   'save', 'random', 'exportp', 'atlas',
   'person', 'personoff', 'menu',
   'snow', 'flower', 'dry', 'swamp', 'autumn',
+  'coin', 'people', 'bolt', 'smile', 'star', 'lock', 'flag', 'land', 'chart',
 ];
 
 type Phase = 'loading' | 'ready';
@@ -92,6 +96,8 @@ type UiState = {
   dayAuto: boolean;  // 昼夜：自动循环 / 手动定格
   daySpeed: number;  // 自动循环速度 ×1/×2/×4
   dayT: number;      // 上次保存的时刻（0-24）
+  quest: boolean;    // 经营模式任务卡展开
+  mode: 'tycoon' | 'sandbox';  // 上次游玩模式
 };
 
 const UI_DEFAULT: UiState = {
@@ -99,6 +105,7 @@ const UI_DEFAULT: UiState = {
   cityops: true, about: false, drawer: false, crowds: true, min: false,
   pedsAuto: true, pedsN: 100, density: 0.8,
   dayAuto: true, daySpeed: 1, dayT: 10,
+  quest: true, mode: 'tycoon',
 };
 
 const UI_KEY = 'pxc_ui_v1';
@@ -160,7 +167,9 @@ export default function PixelCity() {
   const [hover, setHover] = useState<{ tx: number; ty: number } | null>(null);
   const [fps, setFps] = useState(0);
   const [zoom, setZoom] = useState(2);
-  const [modal, setModal] = useState<'none' | 'save' | 'help'>('none');
+  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal'>('none');
+  const [econ, setEcon] = useState<EconView | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
   const [soundOn, setSoundOn] = useState(true);
   const [slotMeta, setSlotMeta] = useState<Array<{ time: string; pop: number } | null>>([null, null, null]);
@@ -216,6 +225,9 @@ export default function PixelCity() {
       onZoom: setZoom,
       onTool: setTool,
       onFps: setFps,
+      onEcon: setEcon,
+      onTycoonMsg: say,
+      onHallClick: () => setModal('fiscal'),
     };
     let disposed = false;
 
@@ -246,6 +258,13 @@ export default function PixelCity() {
       for (const n of ICON_NAMES) iuMap[n] = iconURI(n);
       setIconSrc(iuMap);
       setPhase('ready');
+      // ---- 模式恢复：默认经营（新玩家从荒地开始）----
+      if ((u0.mode ?? 'tycoon') === 'tycoon') {
+        const saved = Tycoon.loadRaw();
+        const earned = eng.enterTycoon(saved as Record<string, unknown> | null);
+        if (saved && earned > 0) say(`欢迎回来！离线期间城市收入 +${fmtG(earned)}G`);
+        else if (!saved) say('经营模式：从一块荒地开始 —— 修路 · 建房 · 购地 · 扩张！');
+      }
       beeper.play('open');
     });
 
@@ -328,7 +347,7 @@ export default function PixelCity() {
     pickTool({ t: 'build', id, variant: v });
   }, [pickTool]);
 
-  const openModal = useCallback((m: 'save' | 'help') => {
+  const openModal = useCallback((m: 'save' | 'help' | 'fiscal') => {
     if (m === 'save') {
       setSlotMeta([0, 1, 2].map(i => Engine.slotMeta(i)));
     }
@@ -427,6 +446,55 @@ export default function PixelCity() {
   const curDef = tool.t === 'build' ? defById(tool.id) : null;
   const hint = toolHint(tool);
 
+  // ---------------- 经营辅助 ----------------
+
+  /** 建筑信息条的经营参数段 */
+  const econTip = (d: Def): string => {
+    const e = ECON[d.id];
+    if (!e) return '';
+    const bits: string[] = [`${e.cost}G`];
+    if (e.power > 0) bits.push(`耗电${e.power}MW`);
+    if (e.power < 0) bits.push(`发电${-e.power}MW`);
+    if (d.cat === 'res') bits.push(`容纳${d.pop}人`);
+    else if (d.cat === 'com' || d.cat === 'ind') bits.push(`${d.pop}岗位`);
+    if (e.earn > 0) bits.push(`+${e.earn}G/分`);
+    if (e.amenity > 0) bits.push(`宜居+${e.amenity}`);
+    if (e.pollute > 0) bits.push(`污染${e.pollute}`);
+    return ` ｜ ${bits.join(' · ')}`;
+  };
+
+  /** 收入显示：小于 100 保留 1 位小数，更大走 fmtG */
+  const rinc = (n: number): string => (n >= 100 ? fmtG(n) : `${Math.round(n * 10) / 10}`);
+
+  /** 经营 ⇄ 沙盒切换（经营进度独立存档，互不覆盖） */
+  const switchMode = useCallback(() => {
+    const eng = engineRef.current;
+    if (!eng) return;
+    if (eng.tycoon) {
+      eng.exitTycoon();
+      setUiStore(u => ({ ...u, mode: 'sandbox' }));
+      say('已切换沙盒模式：自由建造，无经营限制（经营进度已保留）');
+    } else {
+      const data = Tycoon.loadRaw();
+      const earned = eng.enterTycoon(data);
+      setUiStore(u => ({ ...u, mode: 'tycoon' }));
+      if (data && earned > 0) say(`欢迎回来！离线期间城市收入 +${fmtG(earned)}G`);
+      else if (!data) say('经营模式开启：从一块荒地开始，建设你的都市！');
+    }
+    beeperRef.current?.play('open');
+  }, [say]);
+
+  /** 重开经营档 */
+  const doNewGame = useCallback(() => {
+    const eng = engineRef.current;
+    if (!eng) return;
+    eng.enterTycoon(null);
+    setConfirmReset(false);
+    setModal('none');
+    say('新城已奠基：一块全新的荒地，等你书写传奇');
+    beeperRef.current?.play('open');
+  }, [say]);
+
   // ---------------- 共用分组 ----------------
 
   const buildGroup = (
@@ -468,13 +536,23 @@ export default function PixelCity() {
             <div className="pxc-grid" role="grid" aria-label="建筑变体">
               {cells.map(c => {
                 const on = tool.t === 'build' && tool.id === c.id && tool.variant === c.v;
-                const multi = defById(c.id).variants > 1;
+                const def = defById(c.id);
+                const multi = def.variants > 1;
+                const lk = !!econ && unlockOf(c.id) > econ.level;
+                const cost = costOf(c.id);
+                const poor = !!econ && econ.coins < cost;
                 return (
-                  <button key={`${c.id}#${c.v}`} className={`pxc-cell${on ? ' on' : ''}`}
-                    title={`${c.name}${multi ? ` · 变体 ${c.v + 1}` : ''}`}
+                  <button key={`${c.id}#${c.v}`}
+                    className={`pxc-cell${on ? ' on' : ''}${lk ? ' lk' : ''}`}
+                    title={`${c.name}${multi ? ` · 变体 ${c.v + 1}` : ''}${econ ? ` · ${cost}G${lk ? ` · LV${unlockOf(c.id)} 解锁` : ''}` : ''}`}
                     aria-label={`${c.name}${multi ? `变体${c.v + 1}` : ''}`}
-                    onClick={() => pickCell(c.id, c.v)}>
+                    onClick={() => {
+                      if (lk) { say(`「${c.name}」需要市政厅 LV${unlockOf(c.id)} 解锁`); return; }
+                      pickCell(c.id, c.v);
+                    }}>
                     <img src={c.uri} alt={c.name} />
+                    {econ && <span className={`pxc-cost${poor ? ' poor' : ''}`}>{fmtG(cost)}G</span>}
+                    {lk && <span className="pxc-lv">LV{unlockOf(c.id)}</span>}
                     <span className="pxc-cname">{c.name}{multi ? `·${c.v + 1}` : ''}</span>
                   </button>
                 );
@@ -483,10 +561,10 @@ export default function PixelCity() {
           )}
           <div className="pxc-info">
             {tool.t === 'terr'
-              ? <><b>{TERR_OPTS[tool.k]?.label ?? '地形'}</b><span>{TERR_OPTS[tool.k]?.desc ?? ''}</span></>
+              ? <><b>{TERR_OPTS[tool.k]?.label ?? '地形'}</b><span>{TERR_OPTS[tool.k]?.desc ?? ''}{econ ? '（经营模式禁用）' : ''}</span></>
               : curDef
-                ? <><b>{curDef.name}</b><span>{curDef.desc}</span></>
-                : <span>选择地形或建筑，开始建造你的城市（G 键一键城市）</span>}
+                ? <><b>{curDef.name}</b><span>{curDef.desc}{econ ? econTip(curDef) : ''}</span></>
+                : <span>{econ ? '选择建筑开始建造；迷雾边缘的金框可购地扩张' : '选择地形或建筑，开始建造你的城市（G 键一键城市）'}</span>}
           </div>
         </div>
       )}
@@ -513,6 +591,19 @@ export default function PixelCity() {
       </button>
       {ui.cityops && (
         <div className="pxc-gbody">
+          {econ ? (
+            <div className="pxc-row">
+              <button className="pxc-btn primary" title="收入 / 电力 / 幸福度 / 领地明细"
+                onClick={() => openModal('fiscal')}>
+                <img src={iu('chart')} alt="" />财政报告
+              </button>
+              <button className="pxc-btn" title="自由建造无限制，经营进度独立保留"
+                onClick={switchMode}>
+                <img src={iu('view')} alt="" />沙盒模式
+              </button>
+            </div>
+          ) : (
+          <>
           <div className="pxc-row">
             <button className="pxc-btn primary" title="一键生成整座城市 (G)" onClick={doGenCity}>
               <img src={iu('city')} alt="" />一键城市
@@ -535,6 +626,16 @@ export default function PixelCity() {
               </button>
             ))}
           </div>
+          <div className="pxc-row" style={{ marginTop: 4 }}>
+            <button className="pxc-btn" title="上帝视角经营者：从荒地开始的城市经营" onClick={switchMode}>
+              <img src={iu('land')} alt="" />经营模式
+            </button>
+            <span style={{ fontSize: 10, color: '#555c66', alignSelf: 'center', lineHeight: 1.5 }}>
+              从荒地开始 · 购地扩张<br />任务引导 · 等级解锁
+            </span>
+          </div>
+          </>
+          )}
           <div className="pxc-crowdrow">
             <span className="pxc-lbl">行人</span>
             <button
@@ -591,9 +692,11 @@ export default function PixelCity() {
             ))}
           </div>
           <div className="pxc-row" style={{ marginTop: 4 }}>
-            <button className="pxc-btn" onClick={() => openModal('save')}>
-              <img src={iu('save')} alt="" />存档…
-            </button>
+            {!econ && (
+              <button className="pxc-btn" onClick={() => openModal('save')}>
+                <img src={iu('save')} alt="" />存档…
+              </button>
+            )}
             <button className="pxc-btn" onClick={() => {
               const eng = engineRef.current;
               if (!eng) return;
@@ -624,6 +727,8 @@ export default function PixelCity() {
       {ui.about && (
         <div className="pxc-gbody">
           <div style={{ fontSize: 11, lineHeight: 1.7, color: '#3d434e' }}>
+            <b style={{ color: '#8a6d1a' }}>经营模式</b>：上帝视角从一块荒地起步 —— 修路建房、人口迁入、电力供需、
+            幸福度治理、购地扩张、18 环任务与 12 级市政厅解锁（沙盒模式随时切换）。
             一切画面均由代码程序化生成：{CATALOG.length} 类 {CATALOG.reduce((s, d) => s + d.variants, 0)} 变体建筑，
             256×256 大地图 · 10 种地形 · 一键城市（密度三档可调）·
             行人车辆（九职业 · 遛狗与流浪猫狗 · 广场鸽群 · 结伴出行，智能寻路，数量可调）·
@@ -654,9 +759,14 @@ export default function PixelCity() {
                 <img src={iu('menu')} alt="" width={12} height={12} />
               </button>
             )}
-            {isMobile && (
+            {isMobile && !econ && (
               <button className="pxc-winbtn" title="一键城市" aria-label="一键城市" onClick={doGenCity}>
                 <img src={iu('city')} alt="" width={12} height={12} />
+              </button>
+            )}
+            {isMobile && econ && (
+              <button className="pxc-winbtn" title="财政报告" aria-label="财政报告" onClick={() => openModal('fiscal')}>
+                <img src={iu('chart')} alt="" width={12} height={12} />
               </button>
             )}
             <button className="pxc-winbtn" title="撤销 (Ctrl+Z)" aria-label="撤销"
@@ -745,6 +855,60 @@ export default function PixelCity() {
               title="展开工具条" aria-label="展开工具条" aria-expanded={false}><b>▶</b><span>工具栏</span></button>
           )}
 
+          {/* 经营 HUD（金币/人口/电力/幸福/收入/等级） */}
+          {econ && (
+            <div className="pxc-hud" role="status" aria-label="经营状态">
+              <div className="chip" title="金币：建造与购地的通货">
+                <img src={iu('coin')} alt="" /><b>{fmtG(econ.coins)}</b>
+              </div>
+              <div className="chip" title="人口 / 住房容量（市民逐渐迁入）">
+                <img src={iu('people')} alt="" /><b>{econ.pop}<i>/{econ.cap}</i></b>
+              </div>
+              <div className={`chip${econ.powerDem > econ.powerSup ? ' warn' : ''}`}
+                title={`电力：供给 ${econ.powerSup}MW / 需求 ${econ.powerDem}MW${econ.powerDem > econ.powerSup ? ' —— 缺电！收入大幅打折' : ''}`}>
+                <img src={iu('bolt')} alt="" /><b>{econ.powerSup}<i>/{econ.powerDem}</i></b>
+              </div>
+              <div className="chip" title="幸福度：公共设施加分、工业污染减分，影响税收与迁入">
+                <img src={iu('smile')} alt="" /><b>{econ.happiness}</b>
+              </div>
+              <div className="chip rate"
+                title={`收入构成（G/分）：税收 ${rinc(econ.incomeTax)} + 商业 ${rinc(econ.incomeCom)} + 工业 ${rinc(econ.incomeInd)}`}>
+                <b>+{rinc(econ.income)}/分</b>
+              </div>
+              <button className="chip lv" onClick={() => openModal('fiscal')}
+                title="财政报告（点击市政厅同样可打开）">
+                <img src={iu('star')} alt="" /><b>LV{econ.level}</b>
+                <span className="xp" aria-hidden>
+                  <i style={{ width: `${Math.min(100, Math.round((econ.xp / Math.max(1, econ.xpMax)) * 100))}%` }} />
+                </span>
+              </button>
+            </div>
+          )}
+
+          {/* 任务卡 */}
+          {econ && (
+            <div className={`pxc-quest${ui.quest ? '' : ' closed'}`}>
+              <button className="qh" onClick={() => toggle('quest')} aria-expanded={ui.quest}>
+                <img src={iu('flag')} alt="" />
+                <span>任务 {econ.questIdx >= QUESTS.length ? QUESTS.length : econ.questIdx + 1}/{QUESTS.length}</span>
+                <i>{ui.quest ? '▾' : '▸'}</i>
+              </button>
+              {ui.quest && (
+                <div className="qb">
+                  <div className="qt">{econ.questTitle}</div>
+                  <div className="qsub">{econ.questHint}</div>
+                  <div className="qbar">
+                    <i style={{ width: `${Math.min(100, Math.round((econ.questCur / Math.max(1, econ.questGoal)) * 100))}%` }} />
+                  </div>
+                  <div className="qrow">
+                    <span>{Math.floor(econ.questCur).toLocaleString('zh-CN')} / {econ.questGoal.toLocaleString('zh-CN')}</span>
+                    {econ.questRg > 0 && <span className="qw">+{econ.questRg}G +{econ.questRx}XP</span>}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="pxc-badge">
             ZOOM ×{zoom} · {fps} FPS{ui.crowds ? ` · 行人 ${crowd.peds}${crowd.pets ? ` +${crowd.pets} 宠` : ''}${crowd.birds ? ` +${crowd.birds} 鸽` : ''}` : ''}
           </div>
@@ -800,8 +964,10 @@ export default function PixelCity() {
             {hover ? `X:${hover.tx} Y:${hover.ty}` : 'X:— Y:—'}
           </div>
           <div className="pxc-hint">{hint}</div>
-          <div><b>人口</b> {stats.pop}</div>
+          <div><b>人口</b> {econ ? `${econ.pop}/${econ.cap}` : stats.pop}</div>
           <div><b>建筑</b> {stats.buildings}</div>
+          {econ && <div><b>金币</b> {fmtG(econ.coins)}G</div>}
+          {econ && <div><b>领地</b> {econ.chunks} 块</div>}
           <div><b>道路</b> {stats.roads}</div>
           <div><b>树木</b> {stats.trees}</div>
           <div><b>时间</b> {clock.text} {clock.ph}</div>
@@ -843,7 +1009,7 @@ export default function PixelCity() {
               <i>{ui.drawer ? '▼' : '▲'}</i>
               <span className="t">建 造 中 心</span>
               <span className="s">
-                人口 {stats.pop} · 建筑 {stats.buildings}
+                {econ ? `${fmtG(econ.coins)}G · ` : ''}人口 {econ ? econ.pop : stats.pop} · 建筑 {stats.buildings}
                 {ui.crowds ? ` · 行人 ${crowd.peds}${crowd.pets ? `+${crowd.pets}宠` : ''}${crowd.birds ? `+${crowd.birds}鸽` : ''}` : ''} · {clock.text}
               </span>
             </button>
@@ -897,6 +1063,77 @@ export default function PixelCity() {
         </div>
       )}
 
+      {/* 财政报告模态（经营模式） */}
+      {modal === 'fiscal' && econ && (
+        <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
+          <div className="pxc-modal pxc-fiscal" role="dialog" aria-label="财政报告">
+            <header>
+              市 政 厅 · 财 政 报 告
+              <button className="pxc-x" onClick={() => setModal('none')} aria-label="关闭">×</button>
+            </header>
+            <div className="pxc-body">
+              <div className="pxc-fgrid">
+                <section>
+                  <h3>收入（每分钟）</h3>
+                  <table><tbody>
+                    <tr><td>人口税收</td><td className="g">+{rinc(econ.incomeTax)}G</td></tr>
+                    <tr><td>商业利润</td><td className="g">+{rinc(econ.incomeCom)}G</td></tr>
+                    <tr><td>工业产值</td><td className="g">+{rinc(econ.incomeInd)}G</td></tr>
+                    <tr className="sum"><td>合计</td><td className="g">+{rinc(econ.income)}G</td></tr>
+                  </tbody></table>
+                </section>
+                <section>
+                  <h3>人口与就业</h3>
+                  <table><tbody>
+                    <tr><td>人口 / 容量</td><td>{econ.pop} / {econ.cap}</td></tr>
+                    <tr><td>劳动力</td><td>{econ.workers} 人</td></tr>
+                    <tr><td>岗位</td><td>{econ.jobs} 个</td></tr>
+                    <tr><td>就业率</td><td>{Math.round(econ.staffing * 100)}%</td></tr>
+                    <tr><td>建筑总数</td><td>{econ.buildings} 栋</td></tr>
+                  </tbody></table>
+                </section>
+                <section>
+                  <h3>电力与幸福</h3>
+                  <table><tbody>
+                    <tr className={econ.powerDem > econ.powerSup ? 'bad' : ''}>
+                      <td>电力 供/需</td><td>{econ.powerSup} / {econ.powerDem} MW</td>
+                    </tr>
+                    <tr><td>供电率</td><td>{Math.round(econ.powerMult * 100)}%</td></tr>
+                    <tr><td>幸福度</td><td>{econ.happiness} / 100</td></tr>
+                    <tr><td>宜居 供/需</td><td>{econ.amenitySup} / {econ.amenityNeed}</td></tr>
+                    <tr><td>工业污染</td><td>{econ.pollute} 点</td></tr>
+                  </tbody></table>
+                </section>
+                <section>
+                  <h3>领地</h3>
+                  <table><tbody>
+                    <tr><td>已购领地</td><td>{econ.chunks} 块（每块 16×16 格）</td></tr>
+                    <tr><td>购地方法</td><td>点击迷雾边缘金色虚线框</td></tr>
+                    <tr><td>地价</td><td>随环距递增（150G 起）</td></tr>
+                  </tbody></table>
+                </section>
+              </div>
+              {econ.powerDem > econ.powerSup && (
+                <div className="pxc-fwarn">缺电警告：建造火电厂（LV4）或风车磨坊（LV3）可恢复供电，否则收入大幅打折！</div>
+              )}
+              <div className="pxc-row" style={{ marginTop: 10 }}>
+                <button className="pxc-btn" onClick={switchMode}>
+                  <img src={iu('view')} alt="" />切换沙盒模式
+                </button>
+                {confirmReset ? (
+                  <button className="pxc-btn danger" onClick={doNewGame}>确认重开？</button>
+                ) : (
+                  <button className="pxc-btn danger" onClick={() => {
+                    setConfirmReset(true);
+                    window.setTimeout(() => setConfirmReset(false), 3200);
+                  }}>重开新游戏</button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 帮助模态 */}
       {modal === 'help' && (
         <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
@@ -916,6 +1153,7 @@ export default function PixelCity() {
                     <tr><td>面板</td><td>所有面板都能点标题栏 ▾ / ▸ 收起展开</td></tr>
                     <tr><td>行人</td><td>建造中心 → 市政操作，可自动或手动 0-300 人；街头另有警察/邮递员/学生/主厨/慢跑者/医生/消防员/环卫工/游客出没，猫狗宠物与广场鸽群相伴</td></tr>
                     <tr><td>昼夜</td><td>市政操作：自动循环（×1/×2/×4）或跳转 晨/午/暮/夜</td></tr>
+                    <tr><td>经营</td><td>顶部 HUD 看金币/人口/电力/幸福；点迷雾金框购地；点市政厅开财政报告</td></tr>
                   </tbody>
                 </table>
               ) : (
@@ -927,7 +1165,8 @@ export default function PixelCity() {
                     <tr><td>W A S D / 方向键</td><td>平移视野</td></tr>
                     <tr><td>空格</td><td>视野居中</td></tr>
                     <tr><td>1 – 9</td><td>观察 / 植树 / 道路 / 地形 / 住宅 / 商业 / 工业 / 公共 / 推土</td></tr>
-                    <tr><td>G</td><td>一键生成整座城市（可反复按，每次全新）</td></tr>
+                    <tr><td>G</td><td>一键生成整座城市（沙盒模式；可反复按，每次全新）</td></tr>
+                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · 幸福度；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告；建筑随市政厅等级逐步解锁</td></tr>
                     <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
                     <tr><td>Esc</td><td>切回观察工具</td></tr>
                     <tr><td>收缩</td><td>工具条 / 建造中心可「◀ / 收起」折叠；折叠后点左上角「▶ 工具栏」或右缘「◀ 建造中心」竖签恢复</td></tr>
