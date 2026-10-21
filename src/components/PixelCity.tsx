@@ -31,6 +31,7 @@ const ICON_NAMES = [
   'snow', 'flower', 'dry', 'swamp', 'autumn',
   'coin', 'people', 'bolt', 'smile', 'star', 'lock', 'flag', 'land', 'chart',
   'wheat', 'book', 'flask', 'heart', 'up', 'down', 'job', 'medal',
+  'sun', 'cloud', 'rain', 'snoww',
 ];
 
 type Phase = 'loading' | 'ready';
@@ -865,6 +866,9 @@ export default function PixelCity() {
           <div style={{ fontSize: 11, lineHeight: 1.7, color: '#3d434e' }}>
             <b style={{ color: '#8a6d1a' }}>经营模式</b>：上帝视角从一块荒地起步 —— 修路建房、人口迁入、电力供需、
             九维民生指数（幸福/宜居/粮食/就业/环境/健康/安全/交通/智慧）、可调税率与城市评级、16 项四分支科技树、购地扩张、任务引导与等级解锁（沙盒模式随时切换）；
+            <b style={{ color: '#8a6d1a' }}>动态天气</b>（晴/多云/雨/雪自动轮转：雨滋养粮田、雪阻塞交通，云影飘过山脊）与
+            <b style={{ color: '#8a6d1a' }}>随机事件</b>（火灾/疫病/停电/暴风雨 vs 游客潮/丰收节/科技博览会 —— 消防局、医院与电力冗余能把灾祸化为小插曲）、
+            <b style={{ color: '#8a6d1a' }}>14 枚成就徽章</b>（城市志成就墙）；
             地图具有真实海拔起伏：山脉、丘陵、谷地与岸线，抬升/降低工具随心造山填海。
             一切画面均由代码程序化生成：{CATALOG.length} 类 {CATALOG.reduce((s, d) => s + d.variants, 0)} 变体建筑，
             256×256 大地图 · 10 种地形 · 一键城市（密度三档可调）·
@@ -1052,6 +1056,35 @@ export default function PixelCity() {
                 title={`城市评级：${econ.rating} 分（${econ.ratingGrade} 级）—— 幸福/宜居/粮食/就业/智慧/环境/健康/安全/交通九维加权（点击打开城市志）`}>
                 <img src={iu('medal')} alt="" /><b>{econ.ratingGrade}</b><i>{econ.rating}</i>
               </button>
+              {(() => {
+                const w = econ.weather;
+                const names: Record<string, string> = { clear: '晴', cloudy: '多云', rain: '雨', snow: '雪' };
+                const notes: Record<string, string> = {
+                  clear: '晴空万里：商业 +4%，幸福 +2',
+                  cloudy: '阴云蔽日：一切如常',
+                  rain: '春雨润物：粮食 +30%，商业 −12%，幸福 −3',
+                  snow: '瑞雪纷飞：商业 −15%，交通 −20%，幸福 −5',
+                };
+                return (
+                  <span className="chip wx" title={`天气：${names[w.kind]} —— ${notes[w.kind]}（天气自动轮转，影响经济与幸福）`}>
+                    <img src={iu(w.kind === 'clear' ? 'sun' : w.kind === 'snow' ? 'snoww' : w.kind)} alt="" /><b>{names[w.kind]}</b>
+                  </span>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* v5 事件横幅（进行中随机事件） */}
+          {econ && econ.events.length > 0 && (
+            <div className="pxc-events" role="status" aria-label="进行中事件">
+              {econ.events.map(ev => (
+                <div key={ev.key} className={`pxc-ev ${ev.kind}`}>
+                  <span className="ev-name">{ev.kind === 'bad' ? '⚠' : '✦'} {ev.name}</span>
+                  <span className="ev-note">{ev.note}</span>
+                  <span className="ev-left">{Math.ceil(ev.left)}s</span>
+                  <span className="ev-bar"><i style={{ width: `${Math.max(0, Math.min(100, (ev.left / ev.dur) * 100))}%` }} /></span>
+                </div>
+              ))}
             </div>
           )}
 
@@ -1352,6 +1385,27 @@ export default function PixelCity() {
                     <tr><td>拆除回收</td><td>建筑返还造价 50% · 道路/树木 1G/格</td></tr>
                   </tbody></table>
                 </section>
+                <section className="evlog">
+                  <h3>城市大事记（v5）</h3>
+                  {econ.eventLog.length === 0 ? (
+                    <div className="evempty">暂无事件 —— 城市风平浪静。人口到达 30 后，机遇与灾祸将不期而至</div>
+                  ) : (
+                    <table><tbody>
+                      {econ.eventLog.slice().reverse().map((l, idx) => {
+                        const mm = String(Math.floor(l.t / 60)).padStart(2, '0');
+                        const ss = String(Math.floor(l.t % 60)).padStart(2, '0');
+                        return (
+                          <tr key={idx} className={l.kind === 'bad' ? 'bad' : 'g'}>
+                            <td>{mm}:{ss}</td>
+                            <td>{l.kind === 'bad' ? '⚠' : '✦'} {l.name}</td>
+                            <td>{l.result || '—'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody></table>
+                  )}
+                  <div className="taxhint">消防局压制火灾 · 医院收治疫病 · 电力冗余防停电 —— 指数齐全的城市能把灾祸变成小插曲</div>
+                </section>
               </div>
               {econ.powerDem > econ.powerSup && (
                 <div className="pxc-fwarn">缺电警告：建造火电厂（LV4）或风车磨坊（LV3）可恢复供电，否则收入大幅打折！</div>
@@ -1517,6 +1571,21 @@ export default function PixelCity() {
                   <HistChart data={econ.hist} field="coins" color="#F2D24B" label="金币" unit="G" />
                   <HistChart data={econ.hist} field="net" color="#5BC8B8" label="净收入" unit="G/分" />
                   <HistChart data={econ.hist} field="hap" color="#E05548" label="幸福度" unit="" />
+                </div>
+              </section>
+
+              <section className="dachv">
+                <h3>成就墙（{econ.achvGot} / {econ.achv.length}）</h3>
+                <div className="achgrid">
+                  {econ.achv.map(a => (
+                    <div key={a.id} className={`ach${a.got ? ' got' : ''}`} title={a.got ? `已解锁：${a.desc}` : `${a.desc}（${Math.floor(a.cur).toLocaleString('zh-CN')} / ${a.goal.toLocaleString('zh-CN')}）`}>
+                      <img src={iu(a.icon)} alt="" />
+                      <b>{a.name}</b>
+                      {a.got
+                        ? <span className="done">已解锁</span>
+                        : <span className="prog">{a.cur >= a.goal * 0.999 ? '即将达成' : `${Math.floor(a.cur / a.goal * 100)}%`}</span>}
+                    </div>
+                  ))}
                 </div>
               </section>
 

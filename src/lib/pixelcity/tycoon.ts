@@ -203,6 +203,155 @@ export function techNameOf(id: string | null): string {
   return id ? TECHS.find(t => t.id === id)?.name ?? id : '';
 }
 
+// ------------------------------------------------------------
+// 随机事件系统（v5）：让消防 / 医院 / 电力等指数真正「派上用场」
+// ------------------------------------------------------------
+
+export type WeatherKind = 'clear' | 'cloudy' | 'rain' | 'snow';
+export type WeatherState = { kind: WeatherKind; t: number };
+
+export type ActiveEvent = {
+  key: string; name: string; note: string;
+  kind: 'good' | 'bad';
+  left: number; dur: number;
+  hap: number;
+  mult: { com?: number; ind?: number; food?: number; power?: number; traffic?: number; sp?: number; amenity?: number };
+  fx?: { x: number; y: number };
+};
+
+export type EventLogItem = { t: number; name: string; kind: 'good' | 'bad'; result: string };
+
+type EventTpl = {
+  key: string; name: string; kind: 'good' | 'bad';
+  dur: number; hap: number;
+  mult: ActiveEvent['mult'];
+  note: string;
+  /** 触发权重（0 = 当前条件不可触发） */
+  w: (s: Snap, t: Tycoon) => number;
+  /** 触发时的一次性结算（返回结果文案；不返回 = 纯持续事件） */
+  fire?: (t: Tycoon, s: Snap) => string | void;
+  /** 是否挑选一栋建筑作为事故现场（烟柱特效） */
+  fx?: boolean;
+};
+
+/** 事件模板池：好坏约 5:5，设施齐全可大幅减免灾害 */
+const EVENT_TPLS: EventTpl[] = [
+  {
+    key: 'fire', name: '火灾', kind: 'bad', dur: 20, hap: -10,
+    mult: {}, fx: true,
+    note: '一栋建筑失火！消防站可将损失降至 20%',
+    w: s => (t => t ? (s.firestations > 0 ? 6 : 15) : 0)(s.pop >= 40),
+    fire: (t, s) => {
+      const cut = s.firestations > 0 ? 0.2 : 1;
+      const loss = Math.round((150 + t.pop * 0.6) * cut);
+      t.coins = Math.max(0, t.coins - loss);
+      return s.firestations > 0
+        ? `消防队迅速出动！损失仅 ${loss}G`
+        : `没有消防站，损失 ${loss}G —— 快建消防局`;
+    },
+  },
+  {
+    key: 'plague', name: '疫病流行', kind: 'bad', dur: 25, hap: -8,
+    mult: {},
+    note: '传染病蔓延，医院可将影响降至 1/4',
+    w: s => (s.pop >= 60 ? (s.hospitals > 0 ? 5 : 13) : 0),
+    fire: (t, s) => {
+      const cut = s.hospitals > 0 ? 0.25 : 1;
+      const gone = Math.max(1, Math.round(t.pop * 0.06 * cut));
+      t.pop = Math.max(0, t.pop - gone);
+      return s.hospitals > 0
+        ? `医院全力收治，仅 ${gone} 人病退`
+        : `${gone} 位市民病倒离开 —— 医院不可少`;
+    },
+  },
+  {
+    key: 'blackout', name: '停电事故', kind: 'bad', dur: 40, hap: -4,
+    mult: { power: 0.65 },
+    note: '电网过载跳闸：供电 −35%（电力冗余可避免）',
+    w: s => (s.powerDem > 0 && s.powerSup / s.powerDem < 1.35 ? 11 : 0),
+  },
+  {
+    key: 'storm', name: '暴风雨', kind: 'bad', dur: 45, hap: -5,
+    mult: { power: 0.85, traffic: 0.7, ind: 0.85 },
+    note: '狂风骤雨：交通 −30% · 工业 −15% · 供电 −15%',
+    w: s => (s.pop >= 40 ? 9 : 0),
+    fire: () => { /* engine 侧强制切换为雨天 */ },
+  },
+  {
+    key: 'scandal', name: '税务风波', kind: 'bad', dur: 60, hap: -8,
+    mult: {},
+    note: '高税引发不满：考虑下调税率安抚市民',
+    w: (_s, t) => (t.taxRate > 12 ? 9 : 0),
+  },
+  {
+    key: 'boom', name: '游客潮', kind: 'good', dur: 55, hap: 3,
+    mult: { com: 1.6 },
+    note: '口碑引爆客流：商业收入 ×1.6',
+    w: s => (s.com >= 3 ? 11 : 0),
+    fire: (t, s) => {
+      const gain = Math.round(40 + t.pop * 0.12);
+      t.coins += gain;
+      return `游客消费 +${gain}G`;
+    },
+  },
+  {
+    key: 'harvest', name: '丰收节', kind: 'good', dur: 80, hap: 4,
+    mult: { food: 1.3 },
+    note: '风调雨顺：粮食产量 ×1.3',
+    w: s => (s.foodProd > 1 ? 10 : 0),
+  },
+  {
+    key: 'expo', name: '科技博览会', kind: 'good', dur: 80, hap: 2,
+    mult: { sp: 2 },
+    note: '学界盛会：科技点产出 ×2',
+    w: s => (s.eduCap > 20 ? 9 : 0),
+  },
+  {
+    key: 'festival', name: '街头艺术节', kind: 'good', dur: 70, hap: 6,
+    mult: { amenity: 8 },
+    note: '公园里的艺术节：宜居 +8 · 幸福 +6',
+    w: s => (s.park >= 2 ? 9 : 0),
+  },
+  {
+    key: 'invest', name: '投资热潮', kind: 'good', dur: 0, hap: 0,
+    mult: {},
+    note: '资本青睐你的城市',
+    w: (_s, t) => (t.level >= 3 ? 7 : 0),
+    fire: (t) => {
+      const gain = Math.round(250 + t.level * 35);
+      t.coins += gain;
+      return `投资到账 +${gain}G`;
+    },
+  },
+];
+
+// ------------------------------------------------------------
+// 成就系统（v5）：城市志成就墙
+// ------------------------------------------------------------
+
+export type AchvDef = {
+  id: string; name: string; desc: string; icon: string;
+  goal: number;
+  val: (s: Snap, t: Tycoon) => number;
+};
+
+export const ACHIEVEMENTS: AchvDef[] = [
+  { id: 'pop100', name: '人口破百', desc: '常住人口达到 100', icon: 'people', goal: 100, val: (_s, t) => t.pop },
+  { id: 'pop500', name: '广厦万间', desc: '常住人口达到 500', icon: 'people', goal: 500, val: (_s, t) => t.pop },
+  { id: 'pop1500', name: '特大都市', desc: '常住人口达到 1500', icon: 'people', goal: 1500, val: (_s, t) => t.pop },
+  { id: 'coin5k', name: '小康之家', desc: '金币积累 5000', icon: 'coin', goal: 5000, val: (_s, t) => t.coins },
+  { id: 'coin50k', name: '富甲一方', desc: '金币积累 50000', icon: 'coin', goal: 50000, val: (_s, t) => t.coins },
+  { id: 'bld50', name: '添砖加瓦', desc: '建筑数量达到 50', icon: 'flag', goal: 50, val: s => s.buildings },
+  { id: 'bld300', name: '摩天丛林', desc: '建筑数量达到 300', icon: 'flag', goal: 300, val: s => s.buildings },
+  { id: 'road100', name: '道路通达', desc: '累计修路 100 格', icon: 'bolt', goal: 100, val: (_s, t) => t.roadsBuilt },
+  { id: 'techall', name: '科技全满', desc: '研究全部 16 项科技', icon: 'flask', goal: 16, val: (_s, t) => t.techs.size },
+  { id: 'rateA', name: '金字招牌', desc: '城市评级达到 A（80）', icon: 'medal', goal: 80, val: s => s.rating },
+  { id: 'rateS', name: '都市传奇', desc: '城市评级达到 S（90）', icon: 'medal', goal: 90, val: s => s.rating },
+  { id: 'land9', name: '疆域辽阔', desc: '拥有 9 块领地', icon: 'land', goal: 9, val: s => s.chunks },
+  { id: 'age60', name: '一小时城市', desc: '城市年龄满 1 小时', icon: 'chart', goal: 3600, val: (_s, t) => t.playtime },
+  { id: 'granary', name: '仓廪充实', desc: '粮仓容量达到 300', icon: 'wheat', goal: 300, val: s => s.foodCap },
+];
+
 /** 需特定科技才可建造的建筑 */
 export const TECH_GATE: Record<string, string> = {
   refinery: 'metal',
@@ -325,6 +474,12 @@ export type EconView = {
   hospitals: number; firestations: number;
   playtime: number;
   hist: HistPoint[];
+  // ---- v5：天气 / 事件 / 成就 ----
+  weather: WeatherState;
+  events: Array<{ key: string; name: string; note: string; kind: 'good' | 'bad'; left: number; dur: number }>;
+  eventLog: EventLogItem[];
+  achv: Array<{ id: string; name: string; desc: string; icon: string; got: boolean; cur: number; goal: number }>;
+  achvGot: number;
 };
 
 export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
@@ -343,6 +498,11 @@ type Snap = QS & {
   famine: number; foodIdx: number; jobIdx: number;
   hospitals: number; firestations: number; roadsTotal: number;
   taxMoodV: number;
+  // ---- v5：事件 / 天气快照 ----
+  eventHap: number; eventAmenity: number;
+  multCom: number; multInd: number; multFood: number;
+  multPower: number; multTraffic: number; multSp: number;
+  weather: WeatherState;
 };
 
 export class Tycoon {
@@ -371,7 +531,22 @@ export class Tycoon {
   own = new Uint8Array(CHUNKS * CHUNKS);
 
   msg: ((s: string) => void) | null = null;
-  sfx: ((n: 'coin' | 'quest' | 'level' | 'buy') => void) | null = null;
+  sfx: ((n: 'coin' | 'quest' | 'level' | 'buy' | 'error') => void) | null = null;
+
+  // ---- v5：天气 / 随机事件 / 成就 ----
+  /** 当前天气（engine 每帧回写；纯数据不参与存档，重开随机） */
+  weather: WeatherState = { kind: 'clear', t: 0 };
+  /** 进行中的事件（最多 2 个） */
+  events: ActiveEvent[] = [];
+  /** 最近事件日志（尾部最新，最多 12 条） */
+  eventLog: EventLogItem[] = [];
+  /** 事件调度计时器（秒；首次 130s 后开始 roll） */
+  private eventTimer = 130;
+  /** 已解锁成就 */
+  achv = new Set<string>();
+  private achvTimer = 0;
+  /** 事件请求强制天气（engine 每帧消费：'rain' = 暴风雨） */
+  weatherReq: WeatherKind | null = null;
 
   private snap: Snap | null = null;
   private incomeParts = { tax: 0, com: 0, ind: 0 };
@@ -580,15 +755,47 @@ export class Tycoon {
     if (this.has('poweng')) powerSup = Math.round(powerSup * 1.25);
     if (this.has('green')) pollute *= 0.7;
 
+    // ---- v5：随机事件乘数（连乘各活动事件）+ 天气修正 ----
+    let multCom = 1, multInd = 1, multFood = 1, multPower = 1, multTraffic = 1, multSp = 1;
+    let eventHap = 0, eventAmenity = 0;
+    for (const ev of this.events) {
+      if (ev.mult.com) multCom *= ev.mult.com;
+      if (ev.mult.ind) multInd *= ev.mult.ind;
+      if (ev.mult.food) multFood *= ev.mult.food;
+      if (ev.mult.power) multPower *= ev.mult.power;
+      if (ev.mult.traffic) multTraffic *= ev.mult.traffic;
+      if (ev.mult.sp) multSp *= ev.mult.sp;
+      if (ev.mult.amenity) eventAmenity += ev.mult.amenity;
+      eventHap += ev.hap;
+    }
+    let weatherHap = 0;
+    const wt = this.weather;
+    if (wt.kind === 'rain') {
+      multFood *= 1 + 0.30 * wt.t;          // 雨水滋养：粮食 +30%
+      multCom *= 1 - 0.12 * wt.t;           // 客流减少：商业 −12%
+      weatherHap -= 3 * wt.t;
+    } else if (wt.kind === 'snow') {
+      multCom *= 1 - 0.15 * wt.t;           // 雪天游客稀少
+      multTraffic *= 1 - 0.20 * wt.t;       // 雪天路滑
+      weatherHap -= 5 * wt.t;
+    } else if (wt.kind === 'clear') {
+      multCom *= 1.04;                      // 晴天生意兴隆
+      weatherHap += 2;
+    }
+    foodProd *= multFood;
+    earnCom *= multCom;
+    earnInd *= multInd;
+    spRaw *= multSp;
+
     const pop = this.pop;
     const amenityNeed = Math.ceil(pop / 18);
     const polluteNet = Math.max(0, pollute - park * 1.5);
-    const powerMult = powerDem > 0 ? Math.min(1, powerSup / powerDem) : 1;
+    const powerMult = (powerDem > 0 ? Math.min(1, powerSup / powerDem) : 1) * multPower;
     const roadsTotal = map.roadList().length;
 
-    // 宜居度 v4：设施供需 + 供电（污染剥离至独立的环境指数）
+    // 宜居度 v4：设施供需 + 供电（污染剥离至独立的环境指数）；v5 + 事件加成
     const livability = Math.max(0, Math.min(100, Math.round(
-      50 + 2.2 * (amenitySup - amenityNeed) + (powerMult >= 1 ? 4 : -10),
+      50 + 2.2 * (amenitySup + eventAmenity - amenityNeed) + (powerMult >= 1 ? 4 : -10),
     )));
 
     // 粮食：产量 − 消耗 → 库存与安全指数
@@ -616,20 +823,20 @@ export class Tycoon {
     // 安全：消防救援覆盖（每站 550 人 + 基础 100）
     const shields = firestations * 550 + 100;
     const safetyIdx = pop < 8 ? 80 : Math.max(0, Math.min(100, Math.round(100 * Math.min(1, shields / pop))));
-    // 交通：路网密度（每 3 栋建筑配 1 格道路为满配）
+    // 交通：路网密度（每 3 栋建筑配 1 格道路为满配）；v5 雪天 / 暴风雨折扣
     const trafficIdx = buildings > 0
-      ? Math.max(0, Math.min(100, Math.round(roadsTotal * 100 / (buildings * 3))))
+      ? Math.max(0, Math.min(100, Math.round(roadsTotal * 100 / (buildings * 3) * multTraffic)))
       : 100;
 
     // 智慧：教育容量覆盖人口的比率（图书馆 / 学校 / 博物馆…）
     const wisdom = Math.max(0, Math.min(100, Math.round(60 * eduCap / Math.max(pop, 15))));
 
-    // 幸福 v4：七维加权（宜居 30 / 粮食 18 / 就业 14 / 环境 12 / 健康 9 / 安全 8 / 交通 9）+ 税率情绪 + 饥荒打击
+    // 幸福 v4：七维加权（宜居 30 / 粮食 18 / 就业 14 / 环境 12 / 健康 9 / 安全 8 / 交通 9）+ 税率情绪 + 饥荒打击；v5 + 事件 / 天气情绪
     const famineHit = famine ? (this.has('granary') ? 12 : 25) : 0;
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.30 * livability + 0.18 * foodIdx + 0.14 * jobIdx + 0.12 * envIdx +
-      0.09 * healthIdx + 0.08 * safetyIdx + 0.09 * trafficIdx + mood - famineHit)));
+      0.09 * healthIdx + 0.08 * safetyIdx + 0.09 * trafficIdx + mood + weatherHap + eventHap - famineHit)));
     const happyMult = 0.6 + happiness / 125;
 
     // 城市评级：全维度综合（S≥90 / A≥80 / B≥70 / C≥55 / D≥40）
@@ -650,6 +857,8 @@ export class Tycoon {
       foodProd, foodCap, foodEat, foodNet, eduCap, spRaw, wisdom, livability,
       foodIdx, jobIdx,
       hospitals, firestations, roadsTotal, taxMoodV: mood,
+      eventHap, eventAmenity, multCom, multInd, multFood, multPower, multTraffic, multSp,
+      weather: { kind: wt.kind, t: wt.t },
     };
   }
 
@@ -717,6 +926,84 @@ export class Tycoon {
         this.msg?.(`任务完成「${q.title}」：+${q.rG}G · +${q.rXp}XP`);
       } else break;
     }
+
+    // ---- v5：随机事件调度（人口 ≥ 30 后启动；最多同时 2 个）----
+    this.eventTimer -= dt;
+    if (this.eventTimer <= 0) {
+      this.eventTimer = 110 + Math.random() * 60;
+      if (this.pop >= 30 && this.events.length < 2) this.rollEvent(map, s);
+    }
+    // 事件到期结算
+    for (let i = this.events.length - 1; i >= 0; i--) {
+      const ev = this.events[i];
+      ev.left -= dt;
+      if (ev.left <= 0) {
+        this.events.splice(i, 1);
+        this.msg?.(`「${ev.name}」结束，城市恢复如常`);
+      }
+    }
+
+    // ---- v5：成就检查（每 2 秒一次）----
+    this.achvTimer -= dt;
+    if (this.achvTimer <= 0) {
+      this.achvTimer = 2;
+      for (const a of ACHIEVEMENTS) {
+        if (this.achv.has(a.id)) continue;
+        if (a.val(s, this) >= a.goal) {
+          this.achv.add(a.id);
+          this.sfx?.('level');
+          this.msg?.(`成就解锁「${a.name}」：${a.desc}`);
+        }
+      }
+    }
+  }
+
+  /** 掷骰触发一个随机事件（按条件权重抽取；新手期灾害减半） */
+  private rollEvent(map: CityMap, s: Snap): void {
+    const rookie = this.pop < 80;                       // 新手保护：灾害权重减半
+    const pool = EVENT_TPLS.map(t => ({
+      t, w: t.w(s, this) * (t.kind === 'bad' && rookie ? 0.5 : 1),
+    })).filter(x => x.w > 0);
+    if (!pool.length) return;
+    let sum = 0;
+    for (const p of pool) sum += p.w;
+    let r = Math.random() * sum;
+    let pick = pool[0].t;
+    for (const p of pool) { r -= p.w; if (r <= 0) { pick = p.t; break; } }
+    if (this.events.some(e => e.key === pick.key)) return;   // 同事件不叠加
+
+    // 一次性结算
+    let result = '';
+    if (pick.fire) result = pick.fire(this, s) ?? '';
+    if (pick.key === 'storm') this.weatherReq = 'rain';       // 暴风雨：engine 侧强制雨天
+
+    // 事故现场：从已购领地内挑一栋建筑
+    let fx: { x: number; y: number } | undefined;
+    if (pick.fx) {
+      const cands = [...map.objs.values()].filter(o =>
+        o.id !== 'cityhall' && this.ownedAt(o.ax, o.ay));
+      if (cands.length) {
+        const o = cands[(Math.random() * cands.length) | 0];
+        fx = { x: o.ax, y: o.ay };
+      }
+    }
+
+    // 日志（即时事件不入活动列表）
+    const stamp = Math.floor(this.playtime);
+    this.eventLog.push({ t: stamp, name: pick.name, kind: pick.kind, result });
+    if (this.eventLog.length > 12) this.eventLog.splice(0, this.eventLog.length - 12);
+
+    if (pick.dur > 0) {
+      this.events.push({
+        key: pick.key, name: pick.name, note: pick.note, kind: pick.kind,
+        left: pick.dur, dur: pick.dur, hap: pick.hap, mult: pick.mult, fx,
+      });
+      this.sfx?.(pick.kind === 'bad' ? 'error' : 'coin');
+      this.msg?.(`${pick.kind === 'bad' ? '⚠' : '✦'} 事件「${pick.name}」：${pick.note}${result ? ' · ' + result : ''}`);
+    } else if (result) {
+      this.sfx?.('coin');
+      this.msg?.(`${pick.name}：${result}`);
+    }
   }
 
   /** UI 视图（未 tick 前用缓存） */
@@ -765,6 +1052,19 @@ export class Tycoon {
       hospitals: s?.hospitals ?? 0, firestations: s?.firestations ?? 0,
       playtime: Math.floor(this.playtime),
       hist: this.hist,
+      // ---- v5 ----
+      weather: s?.weather ?? { kind: 'clear', t: 0 },
+      events: this.events.map(e => ({
+        key: e.key, name: e.name, note: e.note, kind: e.kind,
+        left: Math.ceil(e.left), dur: e.dur,
+      })),
+      eventLog: this.eventLog.slice(-8),
+      achv: ACHIEVEMENTS.map(a => ({
+        id: a.id, name: a.name, desc: a.desc, icon: a.icon,
+        got: this.achv.has(a.id),
+        cur: Math.min(a.goal, s ? a.val(s, this) : 0), goal: a.goal,
+      })),
+      achvGot: this.achv.size,
     };
   }
 
@@ -810,6 +1110,14 @@ export class Tycoon {
     this.histAcc = 0;
     this.playtime = 0;
     this.hall = { x: 127, y: 127 };
+    // v5：事件 / 成就 / 天气重置
+    this.events = [];
+    this.eventLog = [];
+    this.eventTimer = 130;
+    this.achv.clear();
+    this.achvTimer = 0;
+    this.weather = { kind: 'clear', t: 0 };
+    this.weatherReq = null;
     this.own.fill(0);
     this.own[7 * CHUNKS + 7] = 1;
     this.own[7 * CHUNKS + 8] = 1;
@@ -823,7 +1131,7 @@ export class Tycoon {
     const own: number[] = [];
     for (let i = 0; i < this.own.length; i++) if (this.own[i]) own.push(i);
     return JSON.stringify({
-      v: 4,
+      v: 5,
       coins: Math.round(this.coins), xp: this.xp, level: this.level,
       pop: this.pop, questIdx: this.questIdx,
       roads: this.roadsBuilt, trees: this.treesPlanted, dozed: this.dozed,
@@ -831,6 +1139,13 @@ export class Tycoon {
       techs: [...this.techs],
       taxRate: this.taxRate, playtime: Math.round(this.playtime),
       hist: this.hist.slice(-HIST_MAX),
+      // v5：事件与成就
+      events: this.events.map(e => ({
+        key: e.key, left: Math.round(e.left),
+        fx: e.fx ? [e.fx.x, e.fx.y] : undefined,
+      })),
+      eventLog: this.eventLog.slice(-12),
+      achv: [...this.achv],
       hall: [this.hall.x, this.hall.y],
       own, last: Date.now(),
       map: map.serialize(),
@@ -880,6 +1195,31 @@ export class Tycoon {
       }
     }
     if (this.hist.length > HIST_MAX) this.hist.splice(0, this.hist.length - HIST_MAX);
+    // v5 事件档：进行中事件（从模板找回参数）/ 日志 / 成就（旧档给空）
+    this.events = [];
+    for (const e of (d.events as Array<{ key: string; left: number; fx?: [number, number] }>) ?? []) {
+      const tpl = EVENT_TPLS.find(t => t.key === e.key);
+      if (!tpl || !tpl.dur) continue;
+      this.events.push({
+        key: tpl.key, name: tpl.name, note: tpl.note, kind: tpl.kind,
+        left: Math.max(1, Math.min(tpl.dur, Number(e.left) || tpl.dur)),
+        dur: tpl.dur, hap: tpl.hap, mult: tpl.mult,
+        fx: Array.isArray(e.fx) ? { x: e.fx[0], y: e.fx[1] } : undefined,
+      });
+    }
+    this.eventLog = [];
+    for (const l of (d.eventLog as EventLogItem[]) ?? []) {
+      if (l && typeof l.name === 'string') {
+        this.eventLog.push({ t: Number(l.t) || 0, name: l.name, kind: l.kind === 'good' ? 'good' : 'bad', result: String(l.result ?? '') });
+      }
+    }
+    this.achv.clear();
+    for (const a of (d.achv as string[]) ?? []) {
+      if (ACHIEVEMENTS.some(x => x.id === a)) this.achv.add(a);
+    }
+    this.eventTimer = 60 + Math.random() * 60;
+    this.weather = { kind: 'clear', t: 0 };
+    this.weatherReq = null;
     const hall = d.hall as [number, number] | undefined;
     this.hall = { x: hall?.[0] ?? 127, y: hall?.[1] ?? 127 };
     this.own.fill(0);
