@@ -110,7 +110,7 @@ export const CATALOG: Def[] = [
   { id: 'gas', name: '加油站', cat: 'com', w: 1, h: 1, variants: 2, pop: 6,
     gen: genGas, desc: '红条雨棚下双泵与价目牌' },
   { id: 'ferry', name: '渡轮码头', cat: 'com', w: 2, h: 2, variants: 1, pop: 20,
-    gen: genFerry, ground: 'parking', desc: '栈桥候船楼与靠泊渡轮' },
+    gen: genFerry, ground: 'parking', desc: '栈桥候船楼：邻水而建即有渡轮出港巡游（冬季冰封停航）' },
   // ---- 工业 ----
   { id: 'factory', name: '工厂', cat: 'ind', w: 2, h: 2, variants: 4, pop: 45,
     gen: genFactory, desc: '锯齿屋顶厂房，烟囱冒烟' },
@@ -164,7 +164,7 @@ export const CATALOG: Def[] = [
   { id: 'castle', name: '城堡', cat: 'civ', w: 2, h: 2, variants: 1, pop: 20,
     gen: genCastle, ground: 'temple', desc: '角塔城墙与中央主楼' },
   { id: 'busstop', name: '巴士站', cat: 'civ', w: 1, h: 1, variants: 2, pop: 2,
-    gen: genBusstop, desc: '候车亭长椅站牌一应俱全' },
+    gen: genBusstop, desc: '候车亭长椅站牌：邻路建两座即开通巴士环线，交通指数 +4/座' },
   { id: 'clocktower', name: '钟楼', cat: 'civ', w: 1, h: 1, variants: 1, pop: 4,
     gen: genClocktower, desc: '红砖塔身，双面大钟' },
   { id: 'observatory', name: '天文台', cat: 'civ', w: 2, h: 2, variants: 1, pop: 12,

@@ -238,7 +238,7 @@ export default function PixelCity() {
   const [tool, setTool] = useState<Tool>({ t: 'view' });
   const [subCat, setSubCat] = useState<SubCat>('terr');
   const [stats, setStats] = useState({ pop: 0, buildings: 0, roads: 0, trees: 0 });
-  const [crowd, setCrowd] = useState({ peds: 0, cars: 0, pets: 0, birds: 0 });
+  const [crowd, setCrowd] = useState({ peds: 0, cars: 0, pets: 0, birds: 0, buses: 0, boats: 0 });
   const [hover, setHover] = useState<{ tx: number; ty: number } | null>(null);
   const [fps, setFps] = useState(0);
   const [zoom, setZoom] = useState(2);
@@ -960,7 +960,7 @@ export default function PixelCity() {
               <img src={iu('zoomin')} alt="" width={12} height={12} />
             </button>
             <button className={`pxc-winbtn${ui.crowds ? ' on' : ''}`}
-              title={ui.crowds ? `行人车辆：开（行人 ${crowd.peds} · 宠物 ${crowd.pets} · 鸽群 ${crowd.birds} · 车辆 ${crowd.cars}）` : '行人车辆：关'}
+              title={ui.crowds ? `行人车辆：开（行人 ${crowd.peds} · 宠物 ${crowd.pets} · 鸽群 ${crowd.birds} · 车辆 ${crowd.cars}${crowd.buses ? ` · 巴士 ${crowd.buses}` : ''}${crowd.boats ? ` · 船 ${crowd.boats}` : ''}）` : '行人车辆：关'}
               aria-label="行人车辆开关" onClick={toggleCrowds}>
               <img src={iu(ui.crowds ? 'person' : 'personoff')} alt="" width={12} height={12} />
             </button>
@@ -1217,7 +1217,7 @@ export default function PixelCity() {
           <div><b>道路</b> {stats.roads}</div>
           <div><b>树木</b> {stats.trees}</div>
           <div><b>时间</b> {clock.text} {clock.ph}</div>
-          {ui.crowds && <div><b>行人</b> {crowd.peds} · {crowd.pets} 宠 · {crowd.birds} 鸽 · {crowd.cars} 车</div>}
+          {ui.crowds && <div><b>行人</b> {crowd.peds} · {crowd.pets} 宠 · {crowd.birds} 鸽 · {crowd.cars} 车{crowd.buses ? ` · ${crowd.buses} 巴士` : ''}{crowd.boats ? ` · ${crowd.boats} 船` : ''}</div>}
         </div>
       )}
 
@@ -1394,7 +1394,16 @@ export default function PixelCity() {
                       <td>安全指数</td><td>{econ.safetyIdx} / 100（消防站 {econ.firestations} 座）</td>
                     </tr>
                     <tr className={econ.trafficIdx < 55 ? 'bad' : ''}>
-                      <td>交通指数</td><td>{econ.trafficIdx} / 100（道路 {Math.round(econ.trafficIdx * (econ.buildings * 3) / 100)} / 需求 {econ.buildings * 3} 格）</td>
+                      <td>交通指数</td>
+                      <td>{econ.trafficIdx} / 100（道路 {Math.round(econ.trafficIdx * (econ.buildings * 3) / 100)} / 需求 {econ.buildings * 3} 格{econ.busBonus > 0 ? ` · 公交 +${econ.busBonus}` : ''}）</td>
+                    </tr>
+                    <tr className={econ.busStops > 0 ? 'g' : ''}>
+                      <td>公共交通</td>
+                      <td>{econ.busStops >= 2 ? `巴士环线运转中（车站 ${econ.busStops} 座）` : econ.busStops === 1 ? '仅 1 座车站 —— 再建一座即开通环线' : '无 —— 两座邻路巴士站开通公交'}</td>
+                    </tr>
+                    <tr className={econ.ferries > 0 ? 'g' : ''}>
+                      <td>航运</td>
+                      <td>{econ.ferries > 0 ? `渡轮码头 ${econ.ferries} 座，船舶巡游中（冬季停航）` : '无 —— 水畔渡轮码头自有船舶出港'}</td>
                     </tr>
                     <tr><td>城市评级</td>
                       <td className={econ.rating >= 80 ? 'g' : ''}>{econ.rating} 分 · {econ.ratingGrade} 级</td>
@@ -1618,6 +1627,8 @@ export default function PixelCity() {
                     <tr><td>银发人口</td><td>{Math.round(econ.pop * 0.18)} 人（18%）—— 健康指数 {econ.healthIdx}</td></tr>
                     <tr><td>粮仓</td><td>{econ.food} / {econ.foodCap}（净额 {rincS(econ.foodNet)}/分）</td></tr>
                     <tr className={econ.waterIdx < 40 ? 'bad' : ''}><td>供水</td><td>覆盖率 {econ.waterIdx}%（总容量 {econ.waterCapT} 人{econ.hasWaterTower ? '' : ' —— 尚无水务设施'}）</td></tr>
+                    <tr className={econ.busStops > 0 ? 'g' : ''}><td>公交</td><td>{econ.busStops >= 2 ? `巴士环线运转中（${econ.busStops} 座车站 · 交通 +${econ.busBonus}）` : econ.busStops === 1 ? '仅 1 座车站 —— 再建一座即开通环线' : '无 —— 两座邻路巴士站开通公交'}</td></tr>
+                    <tr className={econ.ferries > 0 ? 'g' : ''}><td>航运</td><td>{econ.ferries > 0 ? `渡轮码头 ${econ.ferries} 座，船舶巡游中（冬季停航）` : '无 —— 水畔渡轮码头自有船舶出港'}</td></tr>
                     <tr><td>税率</td><td>{econ.taxRate}%（情绪 {econ.taxMood >= 0 ? '+' : ''}{Math.round(econ.taxMood)}）</td></tr>
                     <tr><td>季节</td><td>{SEASONS[econ.season]?.name ?? '夏'}季（{SEASONS[econ.season]?.note ?? ''}）</td></tr>
                   </tbody></table>

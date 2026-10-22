@@ -114,6 +114,9 @@ export class Engine {
   private pointers = new Map<number, { x: number; y: number }>();
   private pinchDist = 0;
   private lastPinch: { x: number; y: number } | null = null;
+  // ---- v7 飞艇：复古观光飞艇定时巡航（高空慢速横穿 · 地面投影随行）----
+  private blimp: { x: number; y: number; dx: number; dy: number } | null = null;
+  private blimpTimer = 40;
   // 拆除尘土 / 金币浮字（细节反馈）
   private puffs: Array<{ x: number; y: number; t0: number; big: boolean }> = [];
   private floats: Array<{ x: number; y: number; t0: number; text: string; color: string }> = [];
@@ -685,11 +688,102 @@ export class Engine {
     }
   }
 
-  crowdCount(): { peds: number; cars: number; pets: number; birds: number } {
+  crowdCount(): { peds: number; cars: number; pets: number; birds: number; buses: number; boats: number } {
     return {
       peds: this.actors.peds, cars: this.actors.cars,
       pets: this.actors.pets, birds: this.actors.birds,
+      buses: this.actors.buses, boats: this.actors.boats,
     };
+  }
+
+  // ---------------- v7 飞艇巡航 ----------------
+
+  /** 飞艇状态机：定时从地图边缘切入，斜穿全图后离场 */
+  private stepBlimp(dt: number): void {
+    const n = this.map.n;
+    if (!this.blimp) {
+      this.blimpTimer -= dt;
+      if (this.blimpTimer > 0) return;
+      // 随机选一条横穿航线（水平 / 纵向，带轻微斜率）
+      const SP = 2.4;                                   // 航速（格/秒）
+      let x: number, y: number, dx: number, dy: number;
+      if (Math.random() < 0.5) {
+        dx = Math.random() < 0.5 ? 1 : -1;
+        dy = (Math.random() - 0.5) * 0.6;
+        x = dx > 0 ? -16 : n + 16;
+        y = 24 + Math.random() * (n - 48);
+      } else {
+        dy = Math.random() < 0.5 ? 1 : -1;
+        dx = (Math.random() - 0.5) * 0.6;
+        y = dy > 0 ? -16 : n + 16;
+        x = 24 + Math.random() * (n - 48);
+      }
+      const len = Math.hypot(dx, dy) || 1;
+      this.blimp = { x, y, dx: dx / len * SP, dy: dy / len * SP };
+      return;
+    }
+    const b = this.blimp;
+    b.x += b.dx * dt;
+    b.y += b.dy * dt;
+    if (b.x < -22 || b.y < -22 || b.x > n + 22 || b.y > n + 22) {
+      this.blimp = null;
+      this.blimpTimer = 140 + Math.random() * 160;      // 2.5-5 分钟一班
+    }
+  }
+
+  /** 飞艇绘制：高空艇身（像素风椭圆 + 红腹带 + 尾翼 + 吊舱）+ 地面投影 */
+  private drawBlimp(ctx: CanvasRenderingContext2D, now: number): void {
+    const b = this.blimp;
+    if (!b) return;
+    const ALT = 104;                                    // 高度偏移（px）
+    const sx = this.w2sx(b.x, b.y);
+    const gy = this.w2sy(b.x, b.y) + this.groundHpx(b.x, b.y);
+    if (sx < -90 || sx > this.lw + 90 || gy < -170 || gy > this.lh + 170) return;
+    // 地面投影（随艇缓移的暗椭圆）
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = '#0B0F24';
+    ctx.beginPath();
+    ctx.ellipse(Math.round(sx), Math.round(gy + 6), 15, 6, 0, 0, 6.3);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    // 艇身：逐行像素风椭圆（奶油主色 / 红腹带 / 顶部高光 + 铆接缝）
+    const bx = Math.round(sx), by = Math.round(gy - ALT);
+    for (let yy = -9; yy <= 9; yy++) {
+      const wHalf = Math.round(Math.sqrt(Math.max(0, 1 - (yy / 10) ** 2)) * 30);
+      if (wHalf <= 1) continue;
+      let col = '#E8DFC8';
+      if (yy >= 3 && yy <= 6) col = '#B3452E';
+      else if (yy < -6) col = '#F4F2E8';
+      ctx.fillStyle = col;
+      ctx.fillRect(bx - wHalf, by + yy, wHalf * 2, 1);
+      ctx.fillStyle = 'rgba(11,15,36,0.18)';
+      for (let xx = -wHalf + 7; xx < wHalf; xx += 8) ctx.fillRect(bx + xx, by + yy, 1, 1);
+    }
+    // 尾翼（艇尾在行进反方向）
+    const fx = b.dx >= 0 ? -1 : 1;
+    ctx.fillStyle = '#B3452E';
+    ctx.fillRect(bx + fx * 27 - 2, by - 5, 5, 4);
+    ctx.fillRect(bx + fx * 27 - 2, by + 3, 5, 4);
+    ctx.fillStyle = '#8A3323';
+    ctx.fillRect(bx + fx * 30 - 2, by - 2, 6, 3);
+    // 吊舱（系索 + 木色客舱 + 亮窗）
+    ctx.fillStyle = '#6B543A';
+    ctx.fillRect(bx - 2, by + 8, 1, 4);
+    ctx.fillRect(bx + 2, by + 8, 1, 4);
+    ctx.fillStyle = '#8A6F4C';
+    ctx.fillRect(bx - 5, by + 12, 11, 4);
+    ctx.fillStyle = '#F2D24B';
+    ctx.fillRect(bx - 3, by + 13, 2, 1);
+    ctx.fillRect(bx + 1, by + 13, 2, 1);
+    // 航行灯：红色闪烁 + 白色频闪
+    if (Math.floor(now / 700) % 2 === 0) {
+      ctx.fillStyle = '#E05548';
+      ctx.fillRect(bx - 1, by - 12, 2, 2);
+    }
+    if (Math.floor(now / 2300) % 2 === 0) {
+      ctx.fillStyle = '#F4F2E8';
+      ctx.fillRect(bx + fx * 31, by - 3, 2, 2);
+    }
   }
 
   cycleZoom(dir: number): void {
@@ -740,8 +834,10 @@ export class Engine {
       this.stepSeason(dh);              // v6：季节时钟随昼夜同步轮转
     }
     this.actors.dayness = 1 - this.dayNight.dark;
+    this.actors.winterIce = this.season === 3;   // v7：冬季冰封 → 船舶归航
     // v5 天气状态机（雨雪粒子 / 云影 / 色调）+ 经营联动回写
     this.stepWeather(dt / 1000);
+    this.stepBlimp(dt / 1000);                   // v7：飞艇巡航
     if (this.tycoon) {
       this.tycoon.weather = { kind: this.wx.kind, t: this.wx.t };
       this.tycoon.season = this.season;   // v6：季节回写（快照层经济联动）
@@ -913,14 +1009,20 @@ export class Engine {
         }
       }
     }
-    // ---- 行人 / 车辆（与建筑同序参与深度排序；贴地随高度）----
+    // ---- 行人 / 车辆 / 巴士 / 船舶 / 骑行者（与建筑同序参与深度排序；贴地随高度）----
     if (this.crowds) {
       for (const a of this.actors.actors) {
         const px = a.fx + a.dx * a.t, py = a.fy + a.dy * a.t;
         let wx: number, wy: number;
-        if (a.kind === 1) {
-          wx = px * 16 - a.dy * 2.3;
-          wy = py * 16 + a.dx * 2.3;
+        if (a.kind === 1 || a.kind === 5 || a.kind === 7) {
+          // 车辆 / 巴士 / 骑行者：车道偏移（靠右 / 贴路缘）
+          const [lx, ly] = this.actors.laneOffset(a);
+          wx = px * 16 + lx;
+          wy = py * 16 + ly;
+        } else if (a.kind === 6) {
+          // 船舶：居中贴水面
+          wx = (px + 0.5) * 16;
+          wy = (py + 0.5) * 16;
         } else {
           wx = (px + 0.5) * 16 + a.offX;
           wy = (py + 0.5) * 16 + a.offY;
@@ -944,6 +1046,78 @@ export class Engine {
           if (!ps) continue;
           const dx = Math.round(sx + ps.ox), dy = Math.round(sy + ps.oy);
           items.push({ key: key - 0.02, draw: () => ctx.drawImage(ps.cv, dx, dy) });
+        } else if (a.kind === 5) {
+          // v7 巴士：双色涂装 + 夜间前灯 / 车窗光带
+          const d = ActorSystem.dirOf(a) as CarDir;
+          const sp = this.actors.busSp(d, a.look);
+          if (!sp) continue;
+          const dx = Math.round(sx + sp.ox), dy = Math.round(sy + sp.oy);
+          items.push({ key, draw: () => ctx.drawImage(sp.cv, dx, dy) });
+          if (dk > 0.02 && this.carPool) {
+            const pool = this.carPool;
+            const fsx = Math.round(sx + (a.dx - a.dy) * 16);
+            const fsy = Math.round(sy + (a.dx + a.dy) * 8 + 4);
+            const winY = dy + Math.round(sp.cv.height * 0.45);
+            const moving = a.wait <= 0;
+            glowJobs.push(() => {
+              if (moving) {
+                ctx.drawImage(pool, fsx - 9, fsy - 5);
+                ctx.fillStyle = '#F4F2E8';
+                ctx.fillRect(fsx - 4, fsy, 2, 2);
+                ctx.fillRect(fsx + 2, fsy, 2, 2);
+              }
+              // 车窗暖光带（夜间车厢灯）
+              ctx.fillStyle = 'rgba(242,210,75,0.5)';
+              ctx.fillRect(dx + 4, winY, Math.max(4, sp.cv.width - 8), 2);
+            });
+          }
+        } else if (a.kind === 6) {
+          // v7 船舶：贴水面航行 + 船尾白浪尾迹（航行时）
+          const d = ActorSystem.dirOf(a) as CarDir;
+          const sp = this.actors.boatSp(d, a.look);
+          if (!sp) continue;
+          const dx = Math.round(sx + sp.ox), dy = Math.round(sy + sp.oy);
+          const wake: Array<[number, number, number]> = [];
+          if (a.wait <= 0) {
+            for (let k = 1; k <= 3; k++) {
+              const bwx = (px - a.dx * (0.55 + k * 0.62)) * 16;
+              const bwy = (py - a.dy * (0.55 + k * 0.62)) * 16;
+              wake.push([
+                (bwx - bwy) - this.cam.x + lw / 2,
+                (bwx + bwy) / 2 - this.cam.y + lh / 2,
+                0.7 - k * 0.2,
+              ]);
+            }
+          }
+          items.push({
+            key,
+            draw: () => {
+              for (const [wxk, wyk, ak] of wake) {
+                ctx.fillStyle = `rgba(244,242,232,${ak.toFixed(2)})`;
+                ctx.fillRect(Math.round(wxk) - 1, Math.round(wyk) + 3, 3, 1);
+                ctx.fillRect(Math.round(wxk) - 2, Math.round(wyk) + 4, 1, 1);
+              }
+              ctx.drawImage(sp.cv, dx, dy);
+            },
+          });
+        } else if (a.kind === 7) {
+          // v7 骑行者：双踏板相位 + 夜间车头灯
+          const d = ActorSystem.dirOf(a) as CarDir;
+          const fr = Math.floor(t / 130 + a.phase) % 4;
+          const sp = this.actors.bikeSp(d, a.look, fr);
+          if (!sp) continue;
+          const dx = Math.round(sx + sp.ox), dy = Math.round(sy + sp.oy);
+          items.push({ key, draw: () => ctx.drawImage(sp.cv, dx, dy) });
+          if (dk > 0.02 && this.carPool) {
+            const fsx = Math.round(sx + (a.dx - a.dy) * 8);
+            const fsy = Math.round(sy + (a.dx + a.dy) * 4 + 3);
+            const pool = this.carPool;
+            glowJobs.push(() => {
+              ctx.drawImage(pool, fsx - 7, fsy - 4);
+              ctx.fillStyle = '#F4F2E8';
+              ctx.fillRect(fsx - 1, fsy, 2, 1);
+            });
+          }
         } else if (a.kind >= 2) {
           // 宠物：狗 / 猫（等待时坐姿）
           const d = ActorSystem.dirOf(a) as Facing;
@@ -978,6 +1152,8 @@ export class Engine {
 
     // ---- v5：事件事故特效（火灾烟柱 / 火点，覆盖在建筑之上）----
     this.drawEventFx(ctx, t);
+    // ---- v7：飞艇巡航（建筑之上 / 云层之下）----
+    this.drawBlimp(ctx, t);
     // ---- v5：云影（缓速漂移的大团软影，覆盖一切顶面）----
     this.drawCloudShade(ctx, t);
     // ---- v5：雨天水面涟漪（白点闪斑，贴地）----

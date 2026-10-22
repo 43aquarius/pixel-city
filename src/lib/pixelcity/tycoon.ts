@@ -162,7 +162,7 @@ export const ECON: Record<string, EconDef> = {
   firestation: D(240, 5, { power: 3, amenity: 3, upk: 1.2 }),
   lighthouse: D(140, 8, { power: 1, amenity: 1, upk: 0.4 }),
   castle: D(2200, 9, { power: 4, amenity: 3, upk: 1.2, edu: 5 }),
-  busstop: D(50, 1, { amenity: 1, upk: 0.4 }),
+  busstop: D(50, 1, { amenity: 2, upk: 0.5 }),
   clocktower: D(150, 3, { power: 1, amenity: 2, upk: 0.8 }),
   observatory: D(620, 7, { power: 5, amenity: 3, upk: 1.2, edu: 20, sp: 2.5 }),
   torii: D(115, 5, { amenity: 2, upk: 0.8 }),
@@ -388,6 +388,9 @@ export const ACHIEVEMENTS: AchvDef[] = [
   // ---- v6 水务 / 桥梁 ----
   { id: 'water100', name: '清流绕城', desc: '供水覆盖率达到 100', icon: 'drop', goal: 100, val: s => s.waterIdx },
   { id: 'bridge16', name: '跨海长虹', desc: '累计架设 16 格跨水桥', icon: 'bridge', goal: 16, val: s => s.bridgeTiles },
+  // ---- v7 公交 / 航运 ----
+  { id: 'transit4', name: '城市动脉', desc: '建造 4 座巴士站，公交网络四通八达', icon: 'road', goal: 4, val: s => s.busStops },
+  { id: 'harbor', name: '港湾灯影', desc: '建造渡轮码头，船舶鸣笛出港', icon: 'land', goal: 1, val: s => s.ferries },
 ];
 
 /** 需特定科技才可建造的建筑 */
@@ -426,6 +429,8 @@ export type QS = {
   safetyIdx: number; trafficIdx: number; rating: number;
   // ---- v6 水务 / 桥梁 ----
   hasWaterTower: number; waterIdx: number; bridgeTiles: number;
+  // ---- v7 公交 / 航运 ----
+  busStops: number; ferries: number; busBonus: number;
 };
 
 export type Quest = {
@@ -466,10 +471,14 @@ export const QUESTS: Quest[] = [
     val: s => s.hasLib, rG: 320, rXp: 135 },
   { id: 'water1', title: '清泉入户', hint: '建造 1 座水塔（覆盖半径内的住宅才有自来水，缺水会拖累幸福与迁入）', goal: 1,
     val: s => s.hasWaterTower, rG: 240, rXp: 115 },
+  { id: 'bus2', title: '公交开线', hint: '建逑2 座巴士站（需邻接道路）：两站即自动开通巴士环线，交通指数 +8 起', goal: 2,
+    val: s => s.busStops, rG: 260, rXp: 125 },
   { id: 'tech1', title: '科技之光', hint: '在科技研究院研究第一项科技（顶部「科」指标进入）', goal: 1,
     val: s => s.techsN, rG: 350, rXp: 150 },
   { id: 'bridge1', title: '跨水长虹', hint: '在水面上修路会自动架桥（15G/格），累计架设 4 格跨水桥', goal: 4,
     val: s => s.bridgeTiles, rG: 380, rXp: 160 },
+  { id: 'ferry1', title: '扬帆起航', hint: '在水畔建逑1 座渡轮码头（需邻接水面）：自有渡轮出港巡游，冬季冰封停航', goal: 1,
+    val: s => s.ferries, rG: 420, rXp: 170 },
   { id: 'hap70', title: '安居乐业', hint: '幸福度达到 70（多建公园与公共设施）', goal: 70,
     val: s => s.happiness, rG: 340, rXp: 140 },
   { id: 'hosp1', title: '仁心仁术', hint: '建造一座医院（健康指数保障城市运转）', goal: 1,
@@ -531,6 +540,8 @@ export type EconView = {
   waterIdx: number; waterCapT: number;
   hasWaterTower: number;
   bridgeTiles: number;
+  // ---- v7：公交 / 航运 ----
+  busStops: number; ferries: number; busBonus: number;
 };
 
 export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
@@ -557,6 +568,8 @@ type Snap = QS & {
   // ---- v6：季节 / 水务 ----
   season: number; seasonHap: number;
   waterIdx: number; waterCapT: number;
+  // ---- v7：公交 / 航运 ----
+  busStops: number; ferries: number; busBonus: number;
 };
 
 export class Tycoon {
@@ -763,6 +776,7 @@ export class Tycoon {
     let hasLib = 0, hasGreen = 0, foodProd = 0, foodCap = FOOD_BASE_CAP, eduCap = 0, spRaw = 0;
     let hospitals = 0, firestations = 0;
     let hasWaterTower = 0, waterCapT = 0;
+    let busStops = 0, ferries = 0;
     const upkFarm = { v: 0 }, upkInd = { v: 0 };
     // v6 水务设施清单（覆盖半径）与住宅清单（覆盖人口统计）
     const waterFacs: Array<{ x: number; y: number; r: number }> = [];
@@ -802,6 +816,9 @@ export class Tycoon {
         if (o.id === 'watertower') hasWaterTower = 1;
       }
       if (o.id === 'tower') hasTower = 1;
+      // v7 公交 / 航运设施计数
+      if (o.id === 'busstop') busStops++;
+      if (o.id === 'ferry') ferries++;
       const pw = e?.power ?? 0;
       if (pw < 0) powerSup += -pw; else powerDem += pw;
       // 公共医疗：医院宜居 +3
@@ -902,8 +919,11 @@ export class Tycoon {
     const shields = firestations * 550 + 100;
     const safetyIdx = pop < 8 ? 80 : Math.max(0, Math.min(100, Math.round(100 * Math.min(1, shields / pop))));
     // 交通：路网密度（每 3 栋建筑配 1 格道路为满配）；v5 雪天 / 暴风雨折扣
+    // v7 公交加成：每座车站 +4（上限 +15）——巴士分担通勤压力，路网不足也能达标
+    const busBonus = pop >= 10 ? Math.min(15, busStops * 4) : 0;
     const trafficIdx = buildings > 0
-      ? Math.max(0, Math.min(100, Math.round(roadsTotal * 100 / (buildings * 3) * multTraffic)))
+      ? Math.max(0, Math.min(100, Math.round(
+          roadsTotal * 100 / (buildings * 3) * multTraffic) + busBonus))
       : 100;
 
     // 智慧：教育容量覆盖人口的比率（图书馆 / 学校 / 博物馆…）
@@ -956,6 +976,7 @@ export class Tycoon {
       hasLib, hasGreen, techsN: this.techs.size, famine,
       employIdx: jobIdx, envIdx, healthIdx, safetyIdx, trafficIdx, rating,
       hasWaterTower, waterIdx, bridgeTiles,
+      busStops, ferries, busBonus,
       jobs, earnCom, earnInd, upk, powerSup, powerDem, amenitySup, pollute,
       happyMult, staffing, powerMult,
       foodProd, foodCap, foodEat, foodNet, eduCap, spRaw, wisdom, livability,
@@ -1178,6 +1199,10 @@ export class Tycoon {
       waterCapT: s?.waterCapT ?? 0,
       hasWaterTower: s?.hasWaterTower ?? 0,
       bridgeTiles: s?.bridgeTiles ?? 0,
+      // ---- v7 ----
+      busStops: s?.busStops ?? 0,
+      ferries: s?.ferries ?? 0,
+      busBonus: s?.busBonus ?? 0,
     };
   }
 
