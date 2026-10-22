@@ -1,6 +1,6 @@
 // ============================================================
 // actors.ts — 街头角色系统 v7：精细行人 + 职业 + 宠物 + 鸽群 + 车辆
-//              + 公交巴士 + 水上船舶 + 骑行者
+//              + 公交巴士 + 水上船舶 + 骑行者 + 有轨电车（v11）
 //
 // v7 公交：≥2 座邻路巴士站自动开通环线——巴士在车站间接驳，
 //          到站停靠上下客（wait 2.2-4s）；车站越多班次越密
@@ -693,6 +693,103 @@ function busModel(axis: 'x' | 'y', forward: 1 | -1, scheme: number): Model {
   return buildModel(faces, 24, 16);
 }
 
+
+// ------------------------------------------------------------
+// v11 有轨电车：复古单节箱体 · 受电弓 · 双色涂装（干线绿 / 观光红）
+// ------------------------------------------------------------
+
+function tramModel(axis: 'x' | 'y', forward: 1 | -1, scheme: number): Model {
+  const faces: Face[] = [];
+  const along = (a: number, c: number): [number, number] => axis === 'x' ? [a, c] : [c, a];
+  const bx = (a0: number, c0: number, a1: number, c1: number, z0: number, z1: number, mats: BoxMats) => {
+    const [x0, y0] = along(a0, c0);
+    const [x1, y1] = along(a1, c1);
+    box(faces, x0, y0, x1, y1, z0, z1, mats);
+  };
+  // 涂装：0 翡翠绿/奶油（城市干线） 1 酒红/奶油（观光线）
+  const main = scheme === 0 ? P.GRASS : P.RFRED;
+  // 下层裙板（奶油 + 深色底盘）
+  bx(2.8, 5.4, 21.2, 10.6, 0.9, 3.4, {
+    right: () => cell(P.CREAM, 0), left: () => cell(P.CREAM, 0),
+  });
+  bx(2.8, 5.4, 21.2, 10.6, 0.5, 0.9, {
+    right: () => cell(P.OUTLINE, 0), left: () => cell(P.OUTLINE, 0),
+  });
+  // 黄色饰条（裙板顶缘）
+  bx(2.8, 5.3, 21.2, 10.7, 3.4, 4.1, {
+    right: () => cell(P.YELLOW, 0), left: () => cell(P.PAINTY, 0),
+  });
+  // 上层主色车身
+  bx(2.8, 5.4, 21.2, 10.6, 4.1, 9.0, {
+    right: () => cell(main, 1), left: () => cell(main, 2),
+  });
+  // 侧窗带：6 扇大车窗
+  for (let k = 0; k < 6; k++) {
+    const a0 = 3.6 + k * 3.0;
+    bx(a0, 5.2, a0 + 2.2, 10.7, 5.2, 8.4, {
+      right: (u, v) => (v % 2 < 1 ? cell(P.GLASS, 0) : cell(P.GLASS, 1)),
+      left: (u, v) => (v % 2 < 1 ? cell(P.GLASS, 1) : cell(P.GLASS, 2)),
+    });
+  }
+  // 圆弧车顶（奶油）
+  bx(3.2, 5.8, 20.8, 10.2, 9.0, 10.2, {
+    top: pFlatRoof(P.CREAM, 1), right: () => cell(P.CREAM, 0), left: () => cell(P.CREAM, 0),
+  });
+  // 受电弓（前部：双斜臂 + 顶横杆）
+  const pA0 = forward === 1 ? 16.2 : 5.0;
+  const pA1 = forward === 1 ? 18.6 : 7.4;
+  bx(pA0 + 0.3, 7.6, pA1 - 0.3, 7.9, 10.2, 13.6, { right: () => cell(P.METAL, 1), left: () => cell(P.METAL, 1) });
+  bx(pA0 + 0.3, 8.1, pA1 - 0.3, 8.4, 10.2, 13.6, { right: () => cell(P.METAL, 1), left: () => cell(P.METAL, 1) });
+  bx(pA0 - 0.6, 7.5, pA1 + 0.6, 8.5, 13.6, 14.3, {
+    top: pFlatRoof(P.METAL, 2), right: () => cell(P.METAL, 0), left: () => cell(P.METAL, 0),
+  });
+  // 前脸：大挡风 + 路牌灯箱 + 双圆头灯（forward 端）
+  const fA = forward === 1 ? 21.2 : 2.8;
+  bx(fA - 0.1, 5.8, fA + 0.9, 10.2, 5.0, 8.8, {
+    right: () => cell(P.GLASS, 2), left: () => cell(P.GLASS, 0),
+  });
+  bx(fA - 0.2, 6.0, fA + 1.0, 10.0, 8.9, 10.1, {
+    right: () => cell(P.CREAM, 0), left: () => cell(P.YELLOW, 0),
+  });
+  bx(fA - 0.1, 5.9, fA + 0.7, 6.7, 3.6, 4.7, {
+    right: () => cell(P.YELLOW, 0), left: () => cell(P.YELLOW, 0),
+  });
+  bx(fA - 0.1, 9.3, fA + 0.7, 10.1, 3.6, 4.7, {
+    right: () => cell(P.YELLOW, 0), left: () => cell(P.YELLOW, 0),
+  });
+  // 尾灯（红）
+  const rA = forward === 1 ? 2.8 : 21.2;
+  bx(rA - 0.1, 5.9, rA + 0.7, 6.7, 3.6, 4.7, {
+    right: () => cell(P.RED, 0), left: () => cell(P.RED, 0),
+  });
+  bx(rA - 0.1, 9.3, rA + 0.7, 10.1, 3.6, 4.7, {
+    right: () => cell(P.RED, 0), left: () => cell(P.RED, 0),
+  });
+  // 车轮（半嵌裙板：前后两轴）
+  for (const a of [5.0, 17.6]) {
+    bx(a, 4.7, a + 2.2, 5.6, 0, 1.8, {
+      right: () => cell(P.OUTLINE, 0), left: () => cell(P.OUTLINE, 0),
+    });
+    bx(a, 10.4, a + 2.2, 11.3, 0, 1.8, {
+      right: () => cell(P.OUTLINE, 0), left: () => cell(P.OUTLINE, 0),
+    });
+  }
+  return buildModel(faces, 24, 16);
+}
+
+export function buildTramSprites(): Map<string, Sprite> {
+  const map = new Map<string, Sprite>();
+  const cfg: Array<[CarDir, 'x' | 'y', 1 | -1]> = [
+    ['e', 'x', 1], ['w', 'x', -1], ['s', 'y', 1], ['n', 'y', -1],
+  ];
+  for (const [dir, axis, fwd] of cfg) {
+    for (let s = 0; s < 2; s++) {
+      map.set(`${dir}#${s}`, renderModel(tramModel(axis, fwd, s), { shadow: false }));
+    }
+  }
+  return map;
+}
+
 export function buildBusSprites(): Map<string, Sprite> {
   const map = new Map<string, Sprite>();
   const cfg: Array<[CarDir, 'x' | 'y', 1 | -1]> = [
@@ -916,7 +1013,7 @@ export function buildBikeSprites(): Map<string, Sprite> {
 // ------------------------------------------------------------
 
 export type Actor = {
-  kind: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7; // 0 行人 / 1 车辆 / 2 狗 / 3 猫 / 4 鸽子 / 5 巴士 / 6 船舶 / 7 骑行者
+  kind: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8; // 0 行人 / 1 车辆 / 2 狗 / 3 猫 / 4 鸽子 / 5 巴士 / 6 船舶 / 7 骑行者 / 8 电车（v11）
   fx: number; fy: number; // 当前出发格
   dx: number; dy: number; // 行进方向
   t: number;              // 0..1 行进进度
@@ -1063,6 +1160,7 @@ export class ActorSystem {
   birds = 0;
   buses = 0;
   boats = 0;
+  trams = 0;                 // v11 有轨电车（独立于巴士计数）
   tourists = 0;              // v10 系统游客（含在 actors 内，独立于 peds 计数）
   enabled = true;
   pedAuto = true;
@@ -1074,6 +1172,7 @@ export class ActorSystem {
   static readonly BIRD_MAX = 14;
   static readonly BUS_MAX = 3;
   static readonly BOAT_MAX = 3;
+  static readonly TRAM_MAX = 2;
   static readonly TOURIST_MAX = 14;
   /** 0=深夜 1=白昼（引擎每帧回写；自动模式下人口随之消长） */
   dayness = 1;
@@ -1088,12 +1187,15 @@ export class ActorSystem {
   private targetPet = 0;
   private targetBird = 0;
   private targetBus = 0;
+  private targetTram = 0;
   private targetBoat = 0;
   private targetTourist = 0;
   private dirty = true;
   private spawnCd = 0;
   /** v7 车站路侧格缓存（巴士环线目的地表） */
   private stopTiles: Array<[number, number]> = [];
+  /** v11 电车站路侧格缓存（电车干线目的地表） */
+  private tramTiles: Array<[number, number]> = [];
   private ferryDocks: Array<[number, number]> = [];
   /** v10 景点周边路格缓存（游客出生点） */
   private attractTiles: Array<[number, number]> = [];
@@ -1103,6 +1205,7 @@ export class ActorSystem {
   private petSprites: Map<string, PersonSprite> | null = null;
   private birdSprites: Map<string, PersonSprite> | null = null;
   private busSprites: Map<string, Sprite> | null = null;
+  private tramSprites: Map<string, Sprite> | null = null;
   private boatSprites: Map<string, Sprite> | null = null;
   private bikeSprites: Map<string, Sprite> | null = null;
 
@@ -1112,6 +1215,7 @@ export class ActorSystem {
     if (!this.petSprites) this.petSprites = buildPetSprites();
     if (!this.birdSprites) this.birdSprites = buildBirdSprites();
     if (!this.busSprites) this.busSprites = buildBusSprites();
+    if (!this.tramSprites) this.tramSprites = buildTramSprites();
     if (!this.boatSprites) this.boatSprites = buildBoatSprites();
     if (!this.bikeSprites) this.bikeSprites = buildBikeSprites();
   }
@@ -1134,6 +1238,10 @@ export class ActorSystem {
 
   busSp(dir: CarDir, scheme: number): Sprite | null {
     return this.busSprites?.get(`${dir}#${scheme % 2}`) ?? null;
+  }
+
+  tramSp(dir: CarDir, scheme: number): Sprite | null {
+    return this.tramSprites?.get(`${dir}#${scheme % 2}`) ?? null;
   }
 
   boatSp(dir: CarDir, kind: number): Sprite | null {
@@ -1177,6 +1285,9 @@ export class ActorSystem {
     // 巴士：≥2 座连通车站才开通环线（2-3 站 1 辆 / 4-5 站 2 辆 / 6+ 站 3 辆）
     this.targetBus = this.stopTiles.length >= 2
       ? Math.min(ActorSystem.BUS_MAX, 1 + ((this.stopTiles.length - 2) >> 1)) : 0;
+    // v11 电车：≥2 座连通车站开通干线（2-5 站 1 列 / 6+ 站 2 列）
+    this.targetTram = this.tramTiles.length >= 2
+      ? Math.min(ActorSystem.TRAM_MAX, 1 + ((this.tramTiles.length - 2) >> 2)) : 0;
     // 船舶：渡轮码头逐座出船（冬季冰封停航）
     this.targetBoat = this.winterIce
       ? 0
@@ -1192,6 +1303,7 @@ export class ActorSystem {
   /** v7 扫描公交车站（邻接道路格）与渡轮码头（邻接水面格） */
   private scanTransit(map: CityMap): void {
     this.stopTiles = [];
+    this.tramTiles = [];
     this.ferryDocks = [];
     this.attractTiles = [];
     for (const o of map.objs.values()) {
@@ -1217,12 +1329,13 @@ export class ActorSystem {
         }
         void cx; void cy;
       }
-      if (o.id === 'busstop') {
-        // 车站 1×1：四向找邻接道路格
+      if (o.id === 'busstop' || o.id === 'tramstop') {
+        // 车站 1×1：四向找邻接道路格（v11 电车站与巴士站同法）
         for (const [dx, dy] of DIRS) {
           const nx = o.ax + dx, ny = o.ay + dy;
           if (map.inB(nx, ny) && map.road[map.idx(nx, ny)]) {
-            this.stopTiles.push([nx, ny]);
+            if (o.id === 'tramstop') this.tramTiles.push([nx, ny]);
+            else this.stopTiles.push([nx, ny]);
             break;
           }
         }
@@ -1424,6 +1537,7 @@ export class ActorSystem {
   /** 给角色安排一次出行（BFS 路径；失败则退化为加权随机漫步）。返回本次路径 */
   private newTrip(map: CityMap, a: Actor): Array<[number, number]> | null {
     if (a.kind === 5) return this.busTrip(map, a);
+    if (a.kind === 8) return this.tramTrip(map, a);
     if (a.kind === 6) return findWaterPath(map, a.fx, a.fy, 14, 64);
     if (a.kind === 7) return findPath(map, a.fx, a.fy, 20, 96);
     const path = a.kind === 1
@@ -1471,6 +1585,43 @@ export class ActorSystem {
     this.busTrip(map, a);
     this.actors.push(a);
     this.buses++;
+  }
+
+  /** v11 电车行程：开往下一座电车站（站距 ≥6 格的干线区间） */
+  private tramTrip(map: CityMap, a: Actor): Array<[number, number]> | null {
+    if (this.tramTiles.length >= 2) {
+      const cands = this.tramTiles
+        .filter(s => Math.abs(s[0] - a.fx) + Math.abs(s[1] - a.fy) >= 6)
+        .sort(() => Math.random() - 0.5);
+      for (const s of cands) {
+        const p = bfsRoad(map, a.fx, a.fy, s);
+        if (p && p.length) { a.path = p; return p; }
+      }
+    }
+    const p = findPath(map, a.fx, a.fy, 24, 120);   // 兜底：普通路网行程
+    a.path = p;
+    return p;
+  }
+
+  /** v11 电车出生：电车站旁路格发车（翡翠绿干线 / 酒红观光线） */
+  private spawnTram(map: CityMap): void {
+    if (this.tramTiles.length < 2) return;
+    const spot = this.tramTiles[Math.floor(Math.random() * this.tramTiles.length)];
+    const [x, y] = spot;
+    const opts = DIRS.filter(([dx, dy]) =>
+      map.inB(x + dx, y + dy) && map.road[map.idx(x + dx, y + dy)]);
+    if (!opts.length) return;
+    const d = opts[Math.floor(Math.random() * opts.length)];
+    const a: Actor = {
+      kind: 8, fx: x, fy: y, dx: d[0], dy: d[1], t: 0,
+      speed: 1.05 + Math.random() * 0.25,      // 电车区间速度（略缓于巴士，起步稳）
+      look: Math.random() < 0.55 ? 0 : 1,       // 涂装：干线翡翠绿 / 观光酒红
+      body: 0, role: 0, phase: Math.random() * 1000,
+      offX: 0, offY: 0, path: null, wait: 0.6, master: null, gone: false,
+    };
+    this.tramTrip(map, a);
+    this.actors.push(a);
+    this.trams++;
   }
 
   /** v7 船舶出生：渡轮码头泊位出航（首艘渡轮 / 后续帆船与渔船混编） */
@@ -1576,8 +1727,8 @@ export class ActorSystem {
       a.dx = chosen[0]; a.dy = chosen[1];
       return true;
     }
-    // —— 宠物分支（v3）——
-    if (a.kind >= 2) {
+    // —— 宠物分支（v3；v11 修复：仅狗/猫，此前 kind>=2 误拦巴士/船舶/骑行者路径）——
+    if (a.kind === 2 || a.kind === 3) {
       // 狗：追主人的行进目标格（尽量不掉头）
       if (a.kind === 2 && a.master) {
         if (a.master.gone) a.master = null;
@@ -1745,6 +1896,14 @@ export class ActorSystem {
         const i = this.actors.findIndex(x => x.kind === 5);
         if (i >= 0) { this.actors[i].gone = true; this.actors.splice(i, 1); this.buses--; }
       }
+      // v11 电车：电车站数量驱动发车 / 收车
+      const deficitTram = this.targetTram - this.trams;
+      if (deficitTram > 0) {
+        this.spawnTram(map);
+      } else if (deficitTram < 0) {
+        const i = this.actors.findIndex(x => x.kind === 8);
+        if (i >= 0) { this.actors[i].gone = true; this.actors.splice(i, 1); this.trams--; }
+      }
       // v7 船舶：码头数量驱动出航 / 归航（冬季冰封全数归航）
       const deficitBoat = this.targetBoat - this.boats;
       if (deficitBoat > 0) {
@@ -1835,6 +1994,7 @@ export class ActorSystem {
         if ((a.kind <= 1 || a.kind >= 5) && (!a.path || a.path.length === 0)) {
           if (a.kind === 0) a.wait = 0.4 + Math.random() * (a.body === 1 ? 1.2 : 2.2);
           else if (a.kind === 5) a.wait = 2.2 + Math.random() * 1.8;   // v7 巴士到站：上下客
+          else if (a.kind === 8) a.wait = 2.6 + Math.random() * 2.2;   // v11 电车到站：乘客上下（低地板稍慢）
           else if (a.kind === 6) a.wait = 0.8 + Math.random() * 1.6;   // v7 船只：锚泊瞭望
           else if (a.kind === 7) a.wait = 0.15 + Math.random() * 0.4;  // v7 骑行者：路口减速
           else a.wait = 0.1 + Math.random() * 0.35;
@@ -1851,13 +2011,14 @@ export class ActorSystem {
     else if (a.kind === 1) this.cars--;
     else if (a.kind === 4) this.birds--;
     else if (a.kind === 5) this.buses--;
+    else if (a.kind === 8) this.trams--;
     else if (a.kind === 6) this.boats--;
     else this.pets--;
   }
 
   /** 车道偏移（世界 px）：车辆/巴士靠右、骑行者贴路缘、行人/宠物用自身偏移 */
   laneOffset(a: Actor): [number, number] {
-    if (a.kind === 5) return [-a.dy * 2.6, a.dx * 2.6];
+    if (a.kind === 5 || a.kind === 8) return [-a.dy * 2.6, a.dx * 2.6];
     if (a.kind === 7) return [-a.dy * 4.6, a.dx * 4.6];
     if (a.kind !== 1) return [a.offX, a.offY];
     return [-a.dy * 2.3, a.dx * 2.3];
@@ -1872,6 +2033,7 @@ export class ActorSystem {
     this.birds = 0;
     this.buses = 0;
     this.boats = 0;
+    this.trams = 0;
     this.tourists = 0;
     this.dirty = true;
   }

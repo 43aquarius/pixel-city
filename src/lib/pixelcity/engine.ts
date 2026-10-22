@@ -688,12 +688,12 @@ export class Engine {
     }
   }
 
-  crowdCount(): { peds: number; cars: number; pets: number; birds: number; buses: number; boats: number; tourists: number } {
+  crowdCount(): { peds: number; cars: number; pets: number; birds: number; buses: number; boats: number; tourists: number; trams: number } {
     return {
       peds: this.actors.peds, cars: this.actors.cars,
       pets: this.actors.pets, birds: this.actors.birds,
       buses: this.actors.buses, boats: this.actors.boats,
-      tourists: this.actors.tourists,
+      tourists: this.actors.tourists, trams: this.actors.trams,
     };
   }
 
@@ -1055,8 +1055,8 @@ export class Engine {
       for (const a of this.actors.actors) {
         const px = a.fx + a.dx * a.t, py = a.fy + a.dy * a.t;
         let wx: number, wy: number;
-        if (a.kind === 1 || a.kind === 5 || a.kind === 7) {
-          // 车辆 / 巴士 / 骑行者：车道偏移（靠右 / 贴路缘）
+        if (a.kind === 1 || a.kind === 5 || a.kind === 7 || a.kind === 8) {
+          // 车辆 / 巴士 / 骑行者 / 电车：车道偏移（靠右 / 贴路缘）
           const [lx, ly] = this.actors.laneOffset(a);
           wx = px * 16 + lx;
           wy = py * 16 + ly;
@@ -1109,6 +1109,31 @@ export class Engine {
               }
               // 车窗暖光带（夜间车厢灯）
               ctx.fillStyle = 'rgba(242,210,75,0.5)';
+              ctx.fillRect(dx + 4, winY, Math.max(4, sp.cv.width - 8), 2);
+            });
+          }
+        } else if (a.kind === 8) {
+          // v11 电车：双色涂装 + 受电弓 + 夜间车窗光带 / 前灯
+          const d = ActorSystem.dirOf(a) as CarDir;
+          const sp = this.actors.tramSp(d, a.look);
+          if (!sp) continue;
+          const dx = Math.round(sx + sp.ox), dy = Math.round(sy + sp.oy);
+          items.push({ key, draw: () => ctx.drawImage(sp.cv, dx, dy) });
+          if (dk > 0.02 && this.carPool) {
+            const pool = this.carPool;
+            const fsx = Math.round(sx + (a.dx - a.dy) * 16);
+            const fsy = Math.round(sy + (a.dx + a.dy) * 8 + 4);
+            const winY = dy + Math.round(sp.cv.height * 0.48);
+            const moving = a.wait <= 0;
+            glowJobs.push(() => {
+              if (moving) {
+                ctx.drawImage(pool, fsx - 9, fsy - 5);
+                ctx.fillStyle = '#F4F2E8';
+                ctx.fillRect(fsx - 4, fsy, 2, 2);
+                ctx.fillRect(fsx + 2, fsy, 2, 2);
+              }
+              // 车窗暖光带（夜间车厢灯）
+              ctx.fillStyle = 'rgba(242,210,75,0.55)';
               ctx.fillRect(dx + 4, winY, Math.max(4, sp.cv.width - 8), 2);
             });
           }
@@ -2670,6 +2695,14 @@ export class Engine {
   /** 研究科技（科技面板点击） */
   research(id: string): 'ok' | 'sp' | 'lock' | 'none' {
     return this.tycoon ? this.tycoon.research(id) : 'none';
+  }
+
+  /** v11 出口市场：切换「随行就市 / 惜售囤货」（财政报告按钮） */
+  setExportHold(v: boolean): boolean {
+    if (!this.tycoon) return false;
+    this.tycoon.exportHold = v;
+    this.hooks.onEcon?.(this.tycoon.view());
+    return true;
   }
 
   loadAuto(): boolean {

@@ -1475,3 +1475,48 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 .pxc.m .pxc-ord { padding: 6px 7px; gap: 7px; }
 .pxc.m .pxc-ord .t2 { font-size: 10px; }
 
+/* ---- v11 出口市场（货物供应链板块内） ---- */
+.pxc-mkt { margin-top: 7px; border-top: 1px dashed #868c95; padding-top: 6px; }
+.pxc-mkt .pxc-mktbar {
+  position: relative;
+  height: 10px;
+  background: #E8E2CE;
+  border: 2px solid;
+  border-color: #8a6d1a #C9C2A8 #C9C2A8 #8a6d1a;
+  overflow: hidden;
+}
+.pxc-mkt .pxc-mktbar i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(90deg, #4A86C8 0 4px, #6FA8DC 4px 8px);
+  transition: width 0.4s steps(6);
+}
+.pxc-mkt .pxc-mktbar .tick {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  background: #23252E;
+}
+.pxc-mkt .pxc-mktrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #23252E;
+}
+.pxc-mkt .pxc-mktrow .g { color: #4E9040; }
+.pxc-mkt .pxc-mktrow .bad { color: #B03A2E; }
+.pxc-mkt .pxc-mktrow .pxc-btn { flex-shrink: 0; font-size: 10.5px; }
+.pxc-mkt .taxhint {
+  margin-top: 5px;
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: #5c626d;
+}
+

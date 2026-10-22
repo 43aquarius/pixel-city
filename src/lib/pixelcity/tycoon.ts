@@ -37,6 +37,8 @@ export const GOODS_BASE_CAP = 100;     // 基础货仓容量（仓库每座 +80�
 export const GOODS_START = 40;         // 开局货存
 export const GOODS_TRICKLE = 0.8;      // 集市自产自销保底（早期小商业无需工厂）
 export const EXPORT_PRICE = 1.35;      // 每单位货物出口价（冶金工艺 +25%）
+export const EXPORT_MKT_MIN = 0.55;    // v11 出口市价下限（55%）
+export const EXPORT_MKT_MAX = 1.55;    // v11 出口市价上限（155%）
 export const TOUR_SPEND = 0.09;        // 每名游客每分钟消费 G
 
 // ------------------------------------------------------------
@@ -159,6 +161,7 @@ export const ECON: Record<string, EconDef> = {
   greenhouse: D(170, 3, { power: 4, earn: 6.5, upk: 1.2, food: 5 }),
   brewery: D(320, 4, { power: 8, earn: 10.8, pollute: 2, upk: 2.1, goodsP: 1.6 }),
   dock: D(560, 8, { power: 10, earn: 20.5, pollute: 3, upk: 3.5, goodsP: 1.2 }),
+  railhub: D(920, 7, { power: 16, earn: 26, pollute: 3, upk: 4.2, goodsP: 1.4, goodsCap: 60 }),  // v11 陆路出口枢纽
   // ---- 公共（宜居；upk 运营开支）v8：维护费 +25%（公共服务更烧钱）----
   park: D(55, 1, { amenity: 2, upk: 1 }),
   plaza: D(85, 2, { power: 1, amenity: 3, upk: 1.5, cul: 0.5 }),
@@ -175,6 +178,7 @@ export const ECON: Record<string, EconDef> = {
   lighthouse: D(140, 8, { power: 1, amenity: 1, upk: 0.5, cul: 1 }),
   castle: D(2200, 9, { power: 4, amenity: 3, upk: 1.5, edu: 5, cul: 3 }),
   busstop: D(50, 1, { amenity: 2, upk: 0.6 }),
+  tramstop: D(240, 5, { power: 3, amenity: 1, upk: 1.2 }),   // v11 电车站（干线整流所另计 +16MW）
   clocktower: D(150, 3, { power: 1, amenity: 2, upk: 1, cul: 1 }),
   observatory: D(620, 7, { power: 5, amenity: 3, upk: 1.5, edu: 20, sp: 2.5 }),
   torii: D(115, 5, { amenity: 2, upk: 1, cul: 1.5 }),
@@ -262,7 +266,7 @@ export type ActiveEvent = {
   kind: 'good' | 'bad';
   left: number; dur: number;
   hap: number;
-  mult: { com?: number; ind?: number; food?: number; power?: number; traffic?: number; sp?: number; amenity?: number; tour?: number };
+  mult: { com?: number; ind?: number; food?: number; power?: number; traffic?: number; sp?: number; amenity?: number; tour?: number; exp?: number };
   fx?: { x: number; y: number };
 };
 
@@ -383,6 +387,19 @@ const EVENT_TPLS: EventTpl[] = [
     note: '负面评价发酵：游客 −55% · 商业 −8%',
     w: s => (s.tourists >= 15 && s.happiness < 48 ? 7 : 0),
   },
+  // ---- v11 出口市场事件 ----
+  {
+    key: 'bullmkt', name: '出口牛市', kind: 'good', dur: 90, hap: 1,
+    mult: { exp: 1.45 },
+    note: '海外订单激增：出口单价 ×1.45 —— 正是抛售良机',
+    w: s => (s.ports + s.railHubs > 0 ? (s.exportEarn > 150 ? 7 : 3) : 0),
+  },
+  {
+    key: 'tradewar', name: '贸易摩擦', kind: 'bad', dur: 70, hap: -2,
+    mult: { exp: 0.6 },
+    note: '关税壁垒高筑：出口单价 −40%（惜售囤货或可止损）',
+    w: s => (s.ports > 0 && s.exportEarn > 250 ? 6 : 0),
+  },
 ];
 
 // ------------------------------------------------------------
@@ -421,6 +438,9 @@ export const ACHIEVEMENTS: AchvDef[] = [
   { id: 'tour200', name: '世界名城', desc: '游客人数达到 200', icon: 'medal', goal: 200, val: s => s.tourists },
   { id: 'export300', name: '货通四海', desc: '累计出口创汇 300G', icon: 'coin', goal: 300, val: s => s.exportEarn },
   { id: 'ords4', name: '政通人和', desc: '同时颁布 4 条市政法令', icon: 'flag', goal: 4, val: s => s.ordsN },
+  // ---- v11 轨道 / 贸易 ----
+  { id: 'tram4', name: '电气化都市', desc: '电车站达到 4 座，干线电车穿梭街巷', icon: 'bolt', goal: 4, val: s => s.tramStops },
+  { id: 'export1500', name: '世界工厂', desc: '累计出口创汇 1500G（善用市价波动与惜售囤货）', icon: 'coin', goal: 1500, val: s => s.exportEarn },
 ];
 
 /** 需特定科技才可建造的建筑
@@ -428,6 +448,7 @@ export const ACHIEVEMENTS: AchvDef[] = [
  *  文旅地标需城市名片，大型结构需建筑工程学，学术设施需高等教育 */
 export const TECH_GATE: Record<string, string> = {
   refinery: 'metal',
+  tramstop: 'poweng', railhub: 'metal',
   tower: 'struct', restower: 'struct', danchi: 'struct', hiapart: 'struct',
   castle: 'struct', stadium: 'struct',
   observatory: 'higher',
@@ -503,6 +524,8 @@ export type QS = {
   // ---- v10 货物 / 旅游 / 法令 ----
   tourists: number; exportEarn: number; ports: number;
   ordsN: number; goodsIdx: number;
+  // ---- v11 轨道交通 ----
+  tramStops: number; railHubs: number;
 };
 
 export type Quest = {
@@ -572,12 +595,17 @@ export const QUESTS: Quest[] = [
   // ---- v10 货物 / 旅游 / 法令时代 ----
   { id: 'goods1', title: '货畅其流', hint: '建造 2 座工业建筑（工厂/木材厂产出货物供给商店：货物短缺会让商业收入大打折扣）', goal: 2,
     val: s => s.ind, rG: 520, rXp: 240 },
-  { id: 'export1', title: '货通四海', hint: '累计出口创汇 300G（货仓超八成且产大于销时，港口吊机/渡轮码头自动以 1.35G/件外销）', goal: 300,
+  { id: 'export1', title: '货通四海', hint: '累计出口创汇 300G（货仓超八成且产大于销时，港口吊机/渡轮码头/铁路货运站自动外销，单价随市价浮动）', goal: 300,
     val: s => s.exportEarn, rG: 640, rXp: 270 },
   { id: 'ord2', title: '政令时代', hint: '在市政法令厅颁布 2 条法令（各有代价与收益，随时可废止）', goal: 2,
     val: s => s.ordsN, rG: 560, rXp: 250 },
   { id: 'tourist60', title: '宾至如归', hint: '游客人数达到 60（摩天轮/水族馆/博物馆是吸引力大户；酒店床位决定接待上限）', goal: 60,
     val: s => s.tourists, rG: 620, rXp: 280 },
+  // ---- v11 轨道时代 / 钢铁动脉 ----
+  { id: 'tram2', title: '轨道时代', hint: '建造 2 座电车站（需先研究「电力工程」；邻路而建，两站即开通电车干线：交通 +3/座 · 幸福 +2 · 整流所用电 +16MW）', goal: 2,
+    val: s => s.tramStops, rG: 540, rXp: 250 },
+  { id: 'rail1', title: '钢铁动脉', hint: '建造铁路货运站（需研究「冶金工艺」）：内陆城市也能出口创汇，4 件/分吞吐是港口近两倍；出口单价随市价浮动，低吸高抛', goal: 1,
+    val: s => s.railHubs, rG: 660, rXp: 280 },
 ];
 
 // ------------------------------------------------------------
@@ -633,6 +661,9 @@ export type EconView = {
   incomeTour: number; incomeExp: number; ordCost: number;
   ords: Array<{ id: string; name: string; desc: string; cost: number; lv: number;
     reqNote: string; on: boolean; lockLv: boolean; reqOk: boolean }>;
+  // ---- v11：轨道交通 / 出口市场 ----
+  tramStops: number; railHubs: number; tramBonus: number;
+  mkt: number; mktTrend: number; expPrice: number; exportHold: boolean;
 };
 
 export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
@@ -661,6 +692,9 @@ type Snap = QS & {
   waterIdx: number; waterCapT: number;
   // ---- v7：公交 / 航运 ----
   busStops: number; ferries: number; busBonus: number;
+  // ---- v11：轨道交通 / 出口市场 ----
+  tramStops: number; railHubs: number; tramBonus: number;
+  multExp: number; expPrice: number;
   // ---- v8：文化 / 科研指数 ----
   cultureSup: number; cultureNeed: number; cultureIdx: number; sciIdx: number;
   // ---- v10：货物 / 旅游 / 法令 ----
@@ -725,6 +759,14 @@ export class Tycoon {
   /** 当前游客人数（快照回写；引擎同步给行人系统） */
   tourists = 0;
   private goodsWarned = false;
+
+  // ---- v11：出口市场（随行就市 / 惜售囤货）----
+  /** 出口市价系数（0.55..1.55；1 = 基准价；随机游走 + 均值回归） */
+  mkt = 1;
+  private mktPrev = 1;
+  private mktTimer = 0;
+  /** 惜售囤货：暂停自动出口，囤货待涨（货仓满后生产滞销） */
+  exportHold = false;
 
   hasOrd(id: string): boolean { return this.ords.has(id); }
 
@@ -907,6 +949,7 @@ export class Tycoon {
     let hospitals = 0, firestations = 0;
     let hasWaterTower = 0, waterCapT = 0;
     let busStops = 0, ferries = 0;
+    let tramStops = 0, railHubs = 0;   // v11 轨道交通
     // v10：货物 / 旅游累计器
     let goodsP = 0, goodsC = 0, goodsCapV = GOODS_BASE_CAP;
     let hotelBeds = 0, attract = 0, ports = 0;
@@ -952,6 +995,8 @@ export class Tycoon {
       // v7 公交 / 航运设施计数
       if (o.id === 'busstop') busStops++;
       if (o.id === 'ferry') ferries++;
+      if (o.id === 'tramstop') tramStops++;      // v11
+      if (o.id === 'railhub') railHubs++;
       // v10：货物供应链 / 旅游设施
       if (e?.goodsP) goodsP += e.goodsP;
       if (e?.goodsC) goodsC += e.goodsC;
@@ -979,6 +1024,8 @@ export class Tycoon {
       // v8 文化点：城市名片科技让文旅建筑供给 +25%
       if (e?.cul) culSup += e.cul * (this.has('brand') ? 1.25 : 1);
     }
+    // v11 电车干线：牵引整流所用电 +16MW（两站起开通）
+    if (tramStops >= 2) powerDem += 16;
     // 科技倍率
     if (this.has('irrig')) foodProd *= 1.3;
     if (this.has('vfarm')) foodProd *= 1.5;
@@ -992,7 +1039,7 @@ export class Tycoon {
     if (this.hasOrd('organic')) upk += upkFarm.v * 0.25;
 
     // ---- v5：随机事件乘数（连乘各活动事件）+ 天气修正 ----
-    let multCom = 1, multInd = 1, multFood = 1, multPower = 1, multTraffic = 1, multSp = 1, multTour = 1;
+    let multCom = 1, multInd = 1, multFood = 1, multPower = 1, multTraffic = 1, multSp = 1, multTour = 1, multExp = 1;
     let eventHap = 0, eventAmenity = 0;
     for (const ev of this.events) {
       if (ev.mult.com) multCom *= ev.mult.com;
@@ -1002,6 +1049,7 @@ export class Tycoon {
       if (ev.mult.traffic) multTraffic *= ev.mult.traffic;
       if (ev.mult.sp) multSp *= ev.mult.sp;
       if (ev.mult.tour) multTour *= ev.mult.tour;
+      if (ev.mult.exp) multExp *= ev.mult.exp;   // v11 出口单价事件乘数
       if (ev.mult.amenity) eventAmenity += ev.mult.amenity;
       eventHap += ev.hap;
     }
@@ -1077,9 +1125,11 @@ export class Tycoon {
     // 交通：路网密度（每 3 栋建筑配 1 格道路为满配）；v5 雪天 / 暴风雨折扣
     // v7 公交加成：每座车站 +4（上限 +15）——巴士分担通勤压力，路网不足也能达标
     const busBonus = (pop >= 10 ? Math.min(15, busStops * 4) : 0) + (this.hasOrd('transit') ? 10 : 0);
+    // v11 电车干线：每站交通 +3（上限 +12；两站起算 —— 巴士是骨架，电车是大动脉）
+    const tramBonus = tramStops >= 2 ? Math.min(12, tramStops * 3) : 0;
     const trafficIdx = buildings > 0
       ? Math.max(0, Math.min(100, Math.round(
-          roadsTotal * 100 / (buildings * 3) * multTraffic) + busBonus))
+          roadsTotal * 100 / (buildings * 3) * multTraffic) + busBonus + tramBonus))
       : 100;
 
     // 智慧：教育容量覆盖人口的比率（图书馆 / 学校 / 博物馆…）
@@ -1136,7 +1186,8 @@ export class Tycoon {
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
-      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap - famineHit)));
+      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap
+      + (tramStops >= 2 ? 2 : 0) - famineHit)));   // v11 电车干线通车：出行体面 +2 幸福
     const happyMult = 0.6 + happiness / 125;
 
     // ---- v10 旅游：景点吸引力 × 文化/幸福 × 季节/天气 → 游客（酒店床位为接待上限）----
@@ -1158,9 +1209,12 @@ export class Tycoon {
     const goodsIdx = Math.round(100 * goodsSupply);
     const goodsNet = goodsProd - goodsCons;
     earnCom *= goodsMult;
-    // 出口：货仓 >80% 且产大于销 → 港口按 2.2 件/分·座外销
-    const exportRate = ports > 0 && goodsNet > 0 && stockRatio >= 0.8
-      ? Math.min(goodsNet, 2.2 * ports) : 0;
+    // v11 出口：货仓 >80% 且产大于销 → 港口 2.2 / 铁路 4.0 件/分·座（惜售囤货时暂停外销）
+    const expThroughput = 2.2 * ports + 4.0 * railHubs;
+    const exportRate = (ports + railHubs) > 0 && goodsNet > 0 && stockRatio >= 0.8 && !this.exportHold
+      ? Math.min(goodsNet, expThroughput) : 0;
+    // v11 出口单价：基准 × 市价 × 事件 × 冶金加成
+    const expPrice = EXPORT_PRICE * this.mkt * multExp * (this.has('metal') ? 1.25 : 1);
 
     // 城市评级 v8：十二维综合（权重和 = 1；S≥90 / A≥80 / B≥70 / C≥55 / D≥40）
     //   幸福 0.20 / 宜居 0.12 / 粮 0.10 / 就业 0.10 / 供水 0.075 / 智慧 0.07 /
@@ -1179,7 +1233,7 @@ export class Tycoon {
       hasLib, hasGreen, techsN: this.techs.size, famine,
       employIdx: jobIdx, envIdx, healthIdx, safetyIdx, trafficIdx, rating,
       hasWaterTower, waterIdx, bridgeTiles,
-      busStops, ferries, busBonus,
+      busStops, ferries, busBonus, tramStops, railHubs, tramBonus,
       jobs, earnCom, earnInd, upk, powerSup, powerDem, amenitySup, pollute,
       happyMult, staffing, powerMult,
       foodProd, foodCap, foodEat, foodNet, eduCap, spRaw, wisdom, livability,
@@ -1195,7 +1249,7 @@ export class Tycoon {
       ordsN: this.ords.size, goodsIdx,
       goodsP: goodsProd, goodsC: goodsCons, goodsCap: goodsCapV, goodsNet,
       exportRate, beds: hotelBeds, attract, tourIdx,
-      multTour, ordCost, ordHap, migMult,
+      multTour, multExp, expPrice, ordCost, ordHap, migMult,
     };
   }
 
@@ -1220,6 +1274,14 @@ export class Tycoon {
       if (this.hist.length > HIST_MAX) this.hist.splice(0, this.hist.length - HIST_MAX);
     }
 
+    // v11 出口市价：随机游走 + 均值回归（每 3 秒一步；55%..155%）
+    this.mktTimer -= dt;
+    if (this.mktTimer <= 0) {
+      this.mktTimer = 3;
+      this.mktPrev = this.mkt;
+      this.mkt = Math.max(EXPORT_MKT_MIN, Math.min(EXPORT_MKT_MAX,
+        this.mkt + (Math.random() - 0.5) * 0.13 + (1 - this.mkt) * 0.045));
+    }
     // 收入 − 维护（G/分 → 按秒累积；可能为负 = 赤字，需拆除减负）
     // 税收 v4：可调税率（0-20%）驱动，高税多金但市民不满
     const tax = this.pop * (this.taxRate / 100) * (this.has('taxref') ? 1.15 : 1) * s.happyMult * s.powerMult;
@@ -1227,7 +1289,7 @@ export class Tycoon {
     const ind = s.earnInd * s.staffing * s.powerMult;
     // v10：旅游消费 + 港口出口 − 法令行政开支
     const tour = s.tourists * TOUR_SPEND * (this.has('brand') ? 1.2 : 1);
-    const exp = s.exportRate * EXPORT_PRICE * (this.has('metal') ? 1.25 : 1);
+    const exp = s.exportRate * s.expPrice;   // v11：市价 × 事件 × 冶金已并入单价
     this.coins += (tax + com + ind + tour + exp - s.upk - s.ordCost) * dt / 60;
     this.exportTotal += exp * dt / 60;
     this.tourists = s.tourists;
@@ -1446,6 +1508,14 @@ export class Tycoon {
         lockLv: this.level < o.lv,
         reqOk: !o.req || (!!s && o.req(s)),
       })),
+      // ---- v11 ----
+      tramStops: s?.tramStops ?? 0,
+      railHubs: s?.railHubs ?? 0,
+      tramBonus: s?.tramBonus ?? 0,
+      mkt: this.mkt,
+      mktTrend: this.mkt - this.mktPrev,
+      expPrice: s?.expPrice ?? EXPORT_PRICE,
+      exportHold: this.exportHold,
     };
   }
 
@@ -1505,6 +1575,11 @@ export class Tycoon {
     this.ords.clear();
     this.tourists = 0;
     this.goodsWarned = false;
+    // v11 出口市场重置
+    this.mkt = 1;
+    this.mktPrev = 1;
+    this.mktTimer = 0;
+    this.exportHold = false;
     this.own.fill(0);
     this.own[7 * CHUNKS + 7] = 1;
     this.own[7 * CHUNKS + 8] = 1;
@@ -1518,7 +1593,7 @@ export class Tycoon {
     const own: number[] = [];
     for (let i = 0; i < this.own.length; i++) if (this.own[i]) own.push(i);
     return JSON.stringify({
-      v: 7,
+      v: 8,
       coins: Math.round(this.coins), xp: this.xp, level: this.level,
       pop: this.pop, questIdx: this.questIdx,
       roads: this.roadsBuilt, trees: this.treesPlanted, dozed: this.dozed,
@@ -1539,6 +1614,9 @@ export class Tycoon {
       goods: Math.round(this.goods),
       exportTotal: Math.round(this.exportTotal),
       ords: [...this.ords],
+      // v11：出口市场
+      mkt: Math.round(this.mkt * 1000) / 1000,
+      exportHold: this.exportHold,
       hall: [this.hall.x, this.hall.y],
       own, last: Date.now(),
       map: map.serialize(),
@@ -1623,6 +1701,11 @@ export class Tycoon {
       if (ORDS.some(x => x.id === oid)) this.ords.add(oid);
     }
     this.goodsWarned = false;
+    // v11 出口市场档（旧档给默认基准价）
+    this.mkt = Math.max(EXPORT_MKT_MIN, Math.min(EXPORT_MKT_MAX, Number(d.mkt) || 1));
+    this.mktPrev = this.mkt;
+    this.mktTimer = 0;
+    this.exportHold = d.exportHold === true;
     const hall = d.hall as [number, number] | undefined;
     this.hall = { x: hall?.[0] ?? 127, y: hall?.[1] ?? 127 };
     this.own.fill(0);
@@ -1647,7 +1730,7 @@ export class Tycoon {
     const tax = this.pop * (this.taxRate / 100) * (this.has('taxref') ? 1.15 : 1) * s.happyMult * s.powerMult;
     const com = s.earnCom * (this.has('finhub') ? 1.15 : 1) * s.staffing * s.powerMult;
     const tourInc = s.tourists * TOUR_SPEND * (this.has('brand') ? 1.2 : 1);
-    const expInc = s.exportRate * EXPORT_PRICE * (this.has('metal') ? 1.25 : 1);
+    const expInc = s.exportRate * s.expPrice;   // v11：单价已含市价/事件/冶金
     const perMin = tax + com + s.earnInd * s.staffing * s.powerMult + tourInc + expInc - s.upk - s.ordCost;
     const earned = Math.floor(Math.max(0, perMin) * mins * 0.30);
     if (earned > 0) this.coins += earned;

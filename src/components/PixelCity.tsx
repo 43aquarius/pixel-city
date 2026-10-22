@@ -239,7 +239,7 @@ export default function PixelCity() {
   const [tool, setTool] = useState<Tool>({ t: 'view' });
   const [subCat, setSubCat] = useState<SubCat>('terr');
   const [stats, setStats] = useState({ pop: 0, buildings: 0, roads: 0, trees: 0 });
-  const [crowd, setCrowd] = useState({ peds: 0, cars: 0, pets: 0, birds: 0, buses: 0, boats: 0, tourists: 0 });
+  const [crowd, setCrowd] = useState({ peds: 0, cars: 0, pets: 0, birds: 0, buses: 0, boats: 0, tourists: 0, trams: 0 });
   const [hover, setHover] = useState<{ tx: number; ty: number } | null>(null);
   const [fps, setFps] = useState(0);
   const [zoom, setZoom] = useState(2);
@@ -610,6 +610,18 @@ export default function PixelCity() {
       const mood = taxMood(after);
       say(`税率调整为 ${after}%：税收随之增减${mood !== 0 ? `，幸福度${mood > 0 ? ' +' : ' '}${Math.round(mood)}` : ''}`);
     }
+  }, [say]);
+
+  /** v11 出口市场：切换「随行就市 / 惜售囤货」（财政报告按钮） */
+  const toggleHold = useCallback(() => {
+    const eng = engineRef.current;
+    if (!eng?.tycoon) return;
+    const next = !eng.tycoon.exportHold;
+    eng.setExportHold(next);
+    beeperRef.current?.play('buy');
+    say(next
+      ? '惜售囤货：暂停自动出口，货仓囤货待涨 —— 市价走高后再恢复抛售'
+      : '随行就市：恢复自动出口，货仓超八成即按当前市价外销');
   }, [say]);
 
   /** 研究科技（科技面板） */
@@ -1071,7 +1083,7 @@ export default function PixelCity() {
                 <em className={econ.foodNet < 0 ? 'dn' : 'up'}>{rincS(econ.foodNet)}</em>
               </button>
               <button className={`chip${econ.goodsIdx < 45 ? ' warn' : ''}`} onClick={() => openModal('fiscal')}
-                title={`货物供应链：库存 ${econ.goods}/${econ.goodsCap} · 产量 ${rinc(econ.goodsProd)}/分 − 消耗 ${rinc(econ.goodsCons)}/分（工业产货供给零售商业；缺货商业收入大打折扣）${econ.exportRate > 0 ? ` · 出口 ${rinc(econ.exportRate)} 件/分` : ''}${econ.goodsIdx < 45 ? ' —— 货物短缺！快建工厂/木材厂' : ''}`}>
+                title={`货物供应链：库存 ${econ.goods}/${econ.goodsCap} · 产量 ${rinc(econ.goodsProd)}/分 − 消耗 ${rinc(econ.goodsCons)}/分（工业产货供给零售商业；缺货商业收入大打折扣）${econ.exportRate > 0 ? ` · 出口 ${rinc(econ.exportRate)} 件/分 @ ${econ.expPrice.toFixed(2)}G/件` : ''}${econ.exportHold ? ' · 惜售囤货中（暂停出口）' : ''}${econ.goodsIdx < 45 ? ' —— 货物短缺！快建工厂/木材厂' : ''}`}>
                 <img src={iu('box')} alt="" /><b>{econ.goods}<i>/{econ.goodsCap}</i></b>
                 <em className={econ.goodsNet < 0 ? 'dn' : 'up'}>{rincS(econ.goodsNet)}</em>
               </button>
@@ -1234,7 +1246,7 @@ export default function PixelCity() {
           <div><b>道路</b> {stats.roads}</div>
           <div><b>树木</b> {stats.trees}</div>
           <div><b>时间</b> {clock.text} {clock.ph}</div>
-          {ui.crowds && <div><b>行人</b> {crowd.peds} · {crowd.pets} 宠 · {crowd.birds} 鸽 · {crowd.cars} 车{crowd.buses ? ` · ${crowd.buses} 巴士` : ''}{crowd.boats ? ` · ${crowd.boats} 船` : ''}</div>}
+          {ui.crowds && <div><b>行人</b> {crowd.peds} · {crowd.pets} 宠 · {crowd.birds} 鸽 · {crowd.cars} 车{crowd.buses ? ` · ${crowd.buses} 巴士` : ''}{crowd.trams ? ` · ${crowd.trams} 电车` : ''}{crowd.boats ? ` · ${crowd.boats} 船` : ''}</div>}
         </div>
       )}
 
@@ -1374,7 +1386,7 @@ export default function PixelCity() {
                       <td>旅游消费</td><td>+{rinc(econ.incomeTour)}G</td>
                     </tr>
                     {econ.incomeExp > 0 && (
-                      <tr className="g"><td>港口出口</td><td>+{rinc(econ.incomeExp)}G</td></tr>
+                      <tr className="g"><td>出口贸易</td><td>+{rinc(econ.incomeExp)}G（市价 {Math.round(econ.mkt * 100)}%）</td></tr>
                     )}
                     {econ.ordCost > 0 && (
                       <tr><td>法令开支</td><td className="bad">−{rinc(econ.ordCost)}G</td></tr>
@@ -1435,6 +1447,10 @@ export default function PixelCity() {
                       <td>公共交通</td>
                       <td>{econ.busStops >= 2 ? `巴士环线运转中（车站 ${econ.busStops} 座）` : econ.busStops === 1 ? '仅 1 座车站 —— 再建一座即开通环线' : '无 —— 两座邻路巴士站开通公交'}</td>
                     </tr>
+                    <tr className={econ.tramStops >= 2 ? 'g' : ''}>
+                      <td>有轨电车</td>
+                      <td>{econ.tramStops >= 2 ? `电车干线运转中（电车站 ${econ.tramStops} 座 · 交通 +${econ.tramBonus} · 幸福 +2 · 整流所 16MW）` : econ.tramStops === 1 ? '仅 1 座电车站 —— 再建一座即开通干线（需研究「电力工程」）' : '无 —— 两座邻路电车站开通干线'}</td>
+                    </tr>
                     <tr className={econ.ferries > 0 ? 'g' : ''}>
                       <td>航运</td>
                       <td>{econ.ferries > 0 ? `渡轮码头 ${econ.ferries} 座，船舶巡游中（冬季停航）` : '无 —— 水畔渡轮码头自有船舶出港'}</td>
@@ -1493,14 +1509,33 @@ export default function PixelCity() {
                       <td>{econ.goodsIdx}% → 商业收入 ×{(0.55 + 0.45 * econ.goodsIdx / 100).toFixed(2)}</td>
                     </tr>
                     <tr className={econ.exportRate > 0 ? 'g' : ''}>
-                      <td>港口出口</td>
-                      <td>{econ.ports > 0
+                      <td>出口吞吐</td>
+                      <td>{(econ.ports + econ.railHubs) > 0
                         ? (econ.exportRate > 0
                           ? `${rinc(econ.exportRate)} 件/分 · 累计创汇 ${econ.exportTotal}G`
-                          : '待命 —— 货仓超八成且产大于销时自动外销')
-                        : '无 —— 建港口吊机/渡轮码头可外销余货'}</td>
+                          : econ.exportHold ? '惜售囤货中 —— 恢复出口即按市价外销' : '待命 —— 货仓超八成且产大于销时自动外销')
+                        : '无 —— 建港口吊机/渡轮码头/铁路货运站可外销余货'}</td>
+                    </tr>
+                    <tr>
+                      <td>出口单价</td>
+                      <td>{econ.expPrice.toFixed(2)}G/件（基准 1.35 × 市价 {Math.round(econ.mkt * 100)}%{econ.mktTrend > 0.005 ? ' ↑' : econ.mktTrend < -0.005 ? ' ↓' : ' →'}{econ.techs.includes('metal') ? ' × 冶金 1.25' : ''}）</td>
                     </tr>
                   </tbody></table>
+                  <div className="pxc-mkt">
+                    <div className="pxc-mktbar" aria-hidden>
+                      <i style={{ width: `${Math.round((econ.mkt - 0.55) / 1.0 * 100)}%` }} />
+                      <span className="tick" style={{ left: '45%' }} />
+                    </div>
+                    <div className="pxc-mktrow">
+                      <span className={econ.mkt >= 1.15 ? 'g' : econ.mkt <= 0.75 ? 'bad' : ''}>
+                        市价 {Math.round(econ.mkt * 100)}%{econ.mktTrend > 0.005 ? ' ↑ 看涨' : econ.mktTrend < -0.005 ? ' ↓ 看跌' : ' → 盘整'}（55% – 155% 波动）
+                      </span>
+                      <button className={`pxc-btn${econ.exportHold ? ' primary' : ''}`} onClick={toggleHold}>
+                        {econ.exportHold ? '恢复出口（随行就市）' : '惜售囤货（暂停出口）'}
+                      </button>
+                    </div>
+                    <div className="taxhint">低吸高抛：市价低迷时囤货惜售，行情看涨时恢复出口多赚差价；铁路货运站吞吐 4 件/分（港口 2.2），内陆城市也可出口</div>
+                  </div>
                 </section>
                 <section>
                   <h3>观光经济（v10）</h3>
@@ -1770,6 +1805,7 @@ export default function PixelCity() {
                     <tr><td>粮仓</td><td>{econ.food} / {econ.foodCap}（净额 {rincS(econ.foodNet)}/分）</td></tr>
                     <tr className={econ.waterIdx < 40 ? 'bad' : ''}><td>供水</td><td>覆盖率 {econ.waterIdx}%（总容量 {econ.waterCapT} 人{econ.hasWaterTower ? '' : ' —— 尚无水务设施'}）</td></tr>
                     <tr className={econ.busStops > 0 ? 'g' : ''}><td>公交</td><td>{econ.busStops >= 2 ? `巴士环线运转中（${econ.busStops} 座车站 · 交通 +${econ.busBonus}）` : econ.busStops === 1 ? '仅 1 座车站 —— 再建一座即开通环线' : '无 —— 两座邻路巴士站开通公交'}</td></tr>
+                    <tr className={econ.tramStops >= 2 ? 'g' : ''}><td>电车</td><td>{econ.tramStops >= 2 ? `电车干线运转中（${econ.tramStops} 座电车站 · 交通 +${econ.tramBonus} · 幸福 +2）` : '未开通 —— 两座邻路电车站（需「电力工程」）'}</td></tr>
                     <tr className={econ.ferries > 0 ? 'g' : ''}><td>航运</td><td>{econ.ferries > 0 ? `渡轮码头 ${econ.ferries} 座，船舶巡游中（冬季停航）` : '无 —— 水畔渡轮码头自有船舶出港'}</td></tr>
                     <tr><td>税率</td><td>{econ.taxRate}%（情绪 {econ.taxMood >= 0 ? '+' : ''}{Math.round(econ.taxMood)}）</td></tr>
                     <tr><td>季节</td><td>{SEASONS[econ.season]?.name ?? '夏'}季（{SEASONS[econ.season]?.note ?? ''}）</td></tr>
@@ -1835,7 +1871,7 @@ export default function PixelCity() {
                     <tr><td>行人</td><td>建造中心 → 市政操作，可自动或手动 0-300 人；街头另有警察/邮递员/学生/主厨/慢跑者/医生/消防员/环卫工/游客出没，猫狗宠物与广场鸽群相伴</td></tr>
                     <tr><td>昼夜</td><td>市政操作：自动循环（×1/×2/×4）或跳转 晨/午/暮/夜；<b>四季</b>随时钟轮转（每季 4 分钟×1），冬季封冻 / 春樱秋红；沙盒可手动切季</td></tr>
                     <tr><td>桥梁</td><td>道路工具拖过水面自动架桥（15G/格），桥面与岸上齐平，行人车辆畅通无阻</td></tr>
-                    <tr><td>经营</td><td>顶部 HUD 看金币/人口/电力/幸福；点迷雾金框购地；点市政厅开财政报告；工业产货供商业、缺货打折，景点招游客消费，财政报告里可进市政法令厅颁布政策</td></tr>
+                    <tr><td>经营</td><td>顶部 HUD 看金币/人口/电力/幸福；点迷雾金框购地；点市政厅开财政报告；工业产货供商业、缺货打折，景点招游客消费；两座电车站开通电车干线，铁路货运站让内陆城市出口；出口市价随行就市波动，可惜售囤货低吸高抛；财政报告里可进市政法令厅颁布政策</td></tr>
                   </tbody>
                 </table>
               ) : (
@@ -1851,7 +1887,7 @@ export default function PixelCity() {
                     <tr><td>地形</td><td>真实海拔起伏：抬升造山、降低挖谷（挖到 0 化为水域）；山坡建房自动整地（另付小额费用）；行人车辆会爬坡</td></tr>
                     <tr><td>桥梁</td><td>道路工具拖过水面自动架桥（15G/格，物流网络科技打折），桥面与岸上路面齐平，行人车辆畅通无阻</td></tr>
                     <tr><td>四季</td><td>春樱/夏绿/秋红/冬雪随时钟轮转（每季 4 分钟×1）：春季樱花瓣飘落、冬季水面封冻大地积雪；粮产/商业/用电随季节联动</td></tr>
-                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
+                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
                     <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
                     <tr><td>Esc</td><td>切回观察工具</td></tr>
                     <tr><td>收缩</td><td>工具条 / 建造中心可「◀ / 收起」折叠；折叠后点左上角「▶ 工具栏」或右缘「◀ 建造中心」竖签恢复</td></tr>

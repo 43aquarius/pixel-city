@@ -20,3 +20,6 @@ worklog.md
 dev.log
 *.tsbuildinfo
 tool-results/
+scripts/v11_shot*.png
+scripts/v11_probe.png
+scripts/v11_vlm*.json

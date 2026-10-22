@@ -25,7 +25,7 @@ import {
 import {
   genMachiya, genDanchi, genIzakaya, genCinema, genMarket,
   genLumber, genSilo, genDock, genBusstop, genClocktower,
-  genObservatory, genTorii,
+  genObservatory, genTorii, genTramstop, genRailhub,
 } from './b_more';
 import {
   genHiapart, genNagaya, genMinshuku, genElectown, genFerris,
@@ -134,6 +134,8 @@ export const CATALOG: Def[] = [
     gen: genBrewery, desc: '铜釜蒸汽，麦香四溢' },
   { id: 'dock', name: '港口吊机', cat: 'ind', w: 2, h: 2, variants: 1, pop: 30,
     gen: genDock, ground: 'parking', desc: '集装箱阵与黄色龙门吊' },
+  { id: 'railhub', name: '铁路货运站', cat: 'ind', w: 2, h: 2, variants: 1, pop: 40,
+    gen: genRailhub, desc: '集装箱列车与龙门吊：陆路出口枢纽（无需临水）· 吞吐 4 件/分（需研究「冶金工艺」）' },
   // ---- 公共 ----
   { id: 'park', name: '街心公园', cat: 'civ', w: 1, h: 1, variants: 3, pop: 0,
     gen: genPark, ground: 'park', seasonal: true, desc: '小径、水塘与绿荫（四季换装：春樱秋红冬雪）' },
@@ -165,6 +167,8 @@ export const CATALOG: Def[] = [
     gen: genCastle, ground: 'temple', desc: '角塔城墙与中央主楼' },
   { id: 'busstop', name: '巴士站', cat: 'civ', w: 1, h: 1, variants: 2, pop: 2,
     gen: genBusstop, desc: '候车亭长椅站牌：邻路建两座即开通巴士环线，交通指数 +4/座' },
+  { id: 'tramstop', name: '电车站', cat: 'civ', w: 1, h: 1, variants: 2, pop: 2,
+    gen: genTramstop, desc: '低月台与受电杆：邻路建两座即开通电车干线，交通 +3/座 · 幸福 +2（需研究「电力工程」）' },
   { id: 'clocktower', name: '钟楼', cat: 'civ', w: 1, h: 1, variants: 1, pop: 4,
     gen: genClocktower, desc: '红砖塔身，双面大钟' },
   { id: 'observatory', name: '天文台', cat: 'civ', w: 2, h: 2, variants: 1, pop: 12,
