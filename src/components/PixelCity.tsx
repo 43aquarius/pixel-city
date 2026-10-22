@@ -33,7 +33,7 @@ const ICON_NAMES = [
   'wheat', 'book', 'flask', 'heart', 'up', 'down', 'job', 'medal',
   'sun', 'cloud', 'rain', 'snoww',
   'spr', 'sum', 'fall', 'win', 'drop', 'bridge',
-  'camera', 'box',
+  'camera', 'box', 'fire', 'shield',
 ];
 
 type Phase = 'loading' | 'ready';
@@ -239,7 +239,7 @@ export default function PixelCity() {
   const [tool, setTool] = useState<Tool>({ t: 'view' });
   const [subCat, setSubCat] = useState<SubCat>('terr');
   const [stats, setStats] = useState({ pop: 0, buildings: 0, roads: 0, trees: 0 });
-  const [crowd, setCrowd] = useState({ peds: 0, cars: 0, pets: 0, birds: 0, buses: 0, boats: 0, tourists: 0, trams: 0 });
+  const [crowd, setCrowd] = useState({ peds: 0, cars: 0, pets: 0, birds: 0, buses: 0, boats: 0, tourists: 0, trams: 0, firetrucks: 0, ambulances: 0, patrols: 0 });
   const [hover, setHover] = useState<{ tx: number; ty: number } | null>(null);
   const [fps, setFps] = useState(0);
   const [zoom, setZoom] = useState(2);
@@ -976,7 +976,7 @@ export default function PixelCity() {
               <img src={iu('zoomin')} alt="" width={12} height={12} />
             </button>
             <button className={`pxc-winbtn${ui.crowds ? ' on' : ''}`}
-              title={ui.crowds ? `行人车辆：开（行人 ${crowd.peds} · 宠物 ${crowd.pets} · 鸽群 ${crowd.birds} · 车辆 ${crowd.cars}${crowd.buses ? ` · 巴士 ${crowd.buses}` : ''}${crowd.boats ? ` · 船 ${crowd.boats}` : ''}）` : '行人车辆：关'}
+              title={ui.crowds ? `行人车辆：开（行人 ${crowd.peds} · 宠物 ${crowd.pets} · 鸽群 ${crowd.birds} · 车辆 ${crowd.cars}${crowd.buses ? ` · 巴士 ${crowd.buses}` : ''}${crowd.boats ? ` · 船 ${crowd.boats}` : ''}${crowd.firetrucks ? ` · 消防 ${crowd.firetrucks}` : ''}${crowd.ambulances ? ` · 急救 ${crowd.ambulances}` : ''}${crowd.patrols ? ` · 巡逻 ${crowd.patrols}` : ''}）` : '行人车辆：关'}
               aria-label="行人车辆开关" onClick={toggleCrowds}>
               <img src={iu(ui.crowds ? 'person' : 'personoff')} alt="" width={12} height={12} />
             </button>
@@ -1246,7 +1246,7 @@ export default function PixelCity() {
           <div><b>道路</b> {stats.roads}</div>
           <div><b>树木</b> {stats.trees}</div>
           <div><b>时间</b> {clock.text} {clock.ph}</div>
-          {ui.crowds && <div><b>行人</b> {crowd.peds} · {crowd.pets} 宠 · {crowd.birds} 鸽 · {crowd.cars} 车{crowd.buses ? ` · ${crowd.buses} 巴士` : ''}{crowd.trams ? ` · ${crowd.trams} 电车` : ''}{crowd.boats ? ` · ${crowd.boats} 船` : ''}</div>}
+          {ui.crowds && <div><b>行人</b> {crowd.peds} · {crowd.pets} 宠 · {crowd.birds} 鸽 · {crowd.cars} 车{crowd.buses ? ` · ${crowd.buses} 巴士` : ''}{crowd.trams ? ` · ${crowd.trams} 电车` : ''}{crowd.boats ? ` · ${crowd.boats} 船` : ''}{crowd.firetrucks ? ` · <b style={{ color: '#E05548' }}>消防 ${crowd.firetrucks} 出动</b>` : ''}{crowd.ambulances ? ` · <b style={{ color: '#E05548' }}>急救 ${crowd.ambulances} 出动</b>` : ''}{crowd.patrols ? ` · 巡逻 ${crowd.patrols}` : ''}</div>}
         </div>
       )}
 
@@ -1454,6 +1454,10 @@ export default function PixelCity() {
                     <tr className={econ.ferries > 0 ? 'g' : ''}>
                       <td>航运</td>
                       <td>{econ.ferries > 0 ? `渡轮码头 ${econ.ferries} 座，船舶巡游中（冬季停航）` : '无 —— 水畔渡轮码头自有船舶出港'}</td>
+                    </tr>
+                    <tr className={econ.kobans + econ.firestations + econ.hospitals > 0 ? 'g' : ''}>
+                      <td>应急联动</td>
+                      <td>{`交番 ${econ.kobans}${crowd.patrols ? `（巡逻车 ${crowd.patrols} 辆在途）` : ''} · 消防局 ${econ.firestations} · 医院 ${econ.hospitals} —— 消防扑救 ${econ.rescueFire} 次 · 急救处置 ${econ.rescueAid} 次；火灾/疫病两段结算：应急车到场免余损，设施务必邻路`}</td>
                     </tr>
                     <tr><td>城市评级</td>
                       <td className={econ.rating >= 80 ? 'g' : ''}>{econ.rating} 分 · {econ.ratingGrade} 级</td>
@@ -1887,7 +1891,7 @@ export default function PixelCity() {
                     <tr><td>地形</td><td>真实海拔起伏：抬升造山、降低挖谷（挖到 0 化为水域）；山坡建房自动整地（另付小额费用）；行人车辆会爬坡</td></tr>
                     <tr><td>桥梁</td><td>道路工具拖过水面自动架桥（15G/格，物流网络科技打折），桥面与岸上路面齐平，行人车辆畅通无阻</td></tr>
                     <tr><td>四季</td><td>春樱/夏绿/秋红/冬雪随时钟轮转（每季 4 分钟×1）：春季樱花瓣飘落、冬季水面封冻大地积雪；粮产/商业/用电随季节联动</td></tr>
-                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
+                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>城市卫士应急联动</b>（交番驻巡逻警车·治安+220 护盾；火灾/疫病来袭消防车救护车沿路驰援——到场喷水/接载并免余损，设施邻路是关键）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
                     <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
                     <tr><td>Esc</td><td>切回观察工具</td></tr>
                     <tr><td>收缩</td><td>工具条 / 建造中心可「◀ / 收起」折叠；折叠后点左上角「▶ 工具栏」或右缘「◀ 建造中心」竖签恢复</td></tr>

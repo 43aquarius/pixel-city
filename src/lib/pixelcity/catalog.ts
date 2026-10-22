@@ -19,7 +19,7 @@ import {
 } from './b_civ';
 import {
   genManor, genResTower, genConvenience, genHotel, genMall, genParking,
-  genRefinery, genPower, genChurch, genMuseum, genFireStation,
+  genRefinery, genPower, genChurch, genMuseum, genFireStation, genKoban,
   genLighthouse, genCastle,
 } from './b_extra';
 import {
@@ -160,7 +160,9 @@ export const CATALOG: Def[] = [
   { id: 'museum', name: '博物馆', cat: 'civ', w: 2, h: 2, variants: 1, pop: 30,
     gen: genMuseum, ground: 'plaza', desc: '石柱回廊与青绿穹顶' },
   { id: 'firestation', name: '消防局', cat: 'civ', w: 1, h: 1, variants: 2, pop: 25,
-    gen: genFireStation, desc: '红色卷闸门与瞭望塔' },
+    gen: genFireStation, desc: '红色卷闸门与瞭望塔：火灾损失降至 35%，消防车可出动扑救（需道路连通）' },
+  { id: 'koban', name: '交番', cat: 'civ', w: 1, h: 1, variants: 1, pop: 8,
+    gen: genKoban, desc: '警务岗亭：安全护盾 +220 人 · 常驻一辆巡逻警车（治安巡逻令再 +1 辆）' },
   { id: 'lighthouse', name: '灯塔', cat: 'civ', w: 1, h: 1, variants: 1, pop: 2,
     gen: genLighthouse, desc: '红白环纹塔身，顶端闪光' },
   { id: 'castle', name: '城堡', cat: 'civ', w: 2, h: 2, variants: 1, pop: 20,

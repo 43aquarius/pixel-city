@@ -654,7 +654,8 @@ export class Engine {
     const eco = this.tycoon;
     if (!eco) return;
     for (const ev of eco.events) {
-      if (!ev.fx) continue;
+      // v12：烟柱火点仅火灾（疫病 fx 只作救护车出动目的地）
+      if (!ev.fx || ev.key !== 'fire') continue;
       const sx = this.w2sx(ev.fx.x, ev.fx.y);
       const sy = this.w2sy(ev.fx.x, ev.fx.y) + this.hOfs(ev.fx.x, ev.fx.y);
       // 火点：建筑顶部两簇橙红交替闪
@@ -688,12 +689,14 @@ export class Engine {
     }
   }
 
-  crowdCount(): { peds: number; cars: number; pets: number; birds: number; buses: number; boats: number; tourists: number; trams: number } {
+  crowdCount(): { peds: number; cars: number; pets: number; birds: number; buses: number; boats: number; tourists: number; trams: number; firetrucks: number; ambulances: number; patrols: number } {
     return {
       peds: this.actors.peds, cars: this.actors.cars,
       pets: this.actors.pets, birds: this.actors.birds,
       buses: this.actors.buses, boats: this.actors.boats,
       tourists: this.actors.tourists, trams: this.actors.trams,
+      firetrucks: this.actors.firetrucks, ambulances: this.actors.ambulances,
+      patrols: this.actors.patrols,
     };
   }
 
@@ -846,6 +849,20 @@ export class Engine {
         this.setWeather(this.tycoon.weatherReq);
         this.tycoon.weatherReq = null;
       }
+      // v12 应急联动：消费出动请求（消防车/救护车驰援事故现场）
+      while (this.tycoon.dispatch.length) {
+        const q = this.tycoon.dispatch.shift()!;
+        this.actors.dispatchEmergency(this.map, q.kind, q.hx, q.hy, q.tx, q.ty);
+      }
+      // v12 巡逻编制：交班常驻 + 治安巡逻令 +1（上限 3 辆）
+      this.actors.patrolCap = Math.min(3,
+        this.tycoon.kobansNow + (this.tycoon.hasOrd('patrol') ? 1 : 0));
+      // v12 到场回调 → 提前终结事件 + 豁免余损
+      this.actors.onRescueArrive = (kind) => {
+        this.tycoon?.resolveEvent(kind === 9 ? 'fire' : 'plague');
+      };
+    } else {
+      this.actors.patrolCap = 0;
     }
     // 经营模式：行人密度跟随实际人口（荒地开局无人，市民迁入后街巷渐热闹）
     this.actors.popNow = this.tycoon ? this.tycoon.pop : null;
@@ -1087,6 +1104,59 @@ export class Engine {
           if (!ps) continue;
           const dx = Math.round(sx + ps.ox), dy = Math.round(sy + ps.oy);
           items.push({ key: key - 0.02, draw: () => ctx.drawImage(ps.cv, dx, dy) });
+        } else if (a.kind >= 9 && a.kind <= 11) {
+          // v12 应急车队：消防车/救护车/巡逻警车 + 顶灯闪烁 + 消防喷水作业
+          const d = ActorSystem.dirOf(a) as CarDir;
+          const sp = this.actors.emergencySp(a.kind as 9 | 10 | 11, d);
+          if (!sp) continue;
+          const dx = Math.round(sx + sp.ox), dy = Math.round(sy + sp.oy);
+          items.push({ key, draw: () => ctx.drawImage(sp.cv, dx, dy) });
+          const blink = Math.floor(t / 240) % 2 === 0;
+          const emg = a;
+          if (blink || (emg.kind === 9 && emg.mission?.phase === 1)) {
+            glowJobs.push(() => {
+              // 顶部警灯交替闪红（救护车红/青交替）
+              if (Math.floor(t / 240) % 2 === 0) {
+                const bx = dx + (sp.cv.width >> 1) - 1, by = dy + 2;
+                ctx.fillStyle = emg.kind === 10
+                  ? (Math.floor(t / 240) % 4 < 2 ? '#E05548' : '#5BC8B8')
+                  : '#E05548';
+                ctx.fillRect(bx - 2, by, 2, 2);
+                ctx.fillRect(bx + 2, by, 2, 2);
+              }
+              // 消防喷水：水炮弧线射向事故建筑 + 落点水花
+              if (emg.kind === 9 && emg.mission && emg.mission.phase === 1 && emg.wait > 0) {
+                const m = emg.mission;
+                const bx2 = this.w2sx(m.tx, m.ty);
+                const by2 = this.w2sy(m.tx, m.ty) + this.hOfs(m.tx, m.ty) - 26;
+                const ox = dx + (sp.cv.width >> 1), oy = dy + 3;
+                for (let k = 0; k <= 8; k++) {
+                  const q = k / 8;
+                  const wx2 = ox + (bx2 - ox) * q;
+                  const wy2 = oy + (by2 - oy) * q - Math.sin(q * Math.PI) * 14 - 2;
+                  if (Math.floor(t / 90 + k) % 3 === 0) continue;   // 水流断续感
+                  ctx.fillStyle = k % 2 ? '#A8D8EA' : '#D6F3FF';
+                  ctx.fillRect(Math.round(wx2), Math.round(wy2), 2, 2);
+                }
+                const fl2 = Math.floor(t / 130) % 2 === 0;
+                ctx.fillStyle = '#D6F3FF';
+                ctx.fillRect(Math.round(bx2 - 3), Math.round(by2 + (fl2 ? 0 : 2)), 2, 2);
+                ctx.fillRect(Math.round(bx2 + 2), Math.round(by2 + (fl2 ? 2 : 0)), 2, 2);
+              }
+            });
+          }
+          // 夜间前灯（复用车辆光池）
+          if (dk > 0.02 && this.carPool) {
+            const fsx = Math.round(sx + (a.dx - a.dy) * 13);
+            const fsy = Math.round(sy + (a.dx + a.dy) * 6.5 + 3);
+            const pool = this.carPool;
+            glowJobs.push(() => {
+              ctx.drawImage(pool, fsx - 8, fsy - 5);
+              ctx.fillStyle = '#F4F2E8';
+              ctx.fillRect(fsx - 3, fsy, 2, 2);
+              ctx.fillRect(fsx + 1, fsy, 2, 2);
+            });
+          }
         } else if (a.kind === 5) {
           // v7 巴士：双色涂装 + 夜间前灯 / 车窗光带
           const d = ActorSystem.dirOf(a) as CarDir;
