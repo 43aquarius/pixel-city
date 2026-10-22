@@ -4,7 +4,7 @@
 //   挂载到 Engine.econ 后所有建造行为过经济门禁（扣费/等级/领地）
 // ============================================================
 
-import { defById, CATALOG } from './catalog';
+import { defById, CATALOG, ATTRACT } from './catalog';
 import { CityMap, TERR_GRASS } from './map';
 
 export const CHUNK = 16;                 // 领地块边长（格）
@@ -32,6 +32,12 @@ export const HIST_SAMPLE = 15;          // 城市历史采样间隔（秒）
 export const HIST_MAX = 96;             // 历史样本上限（约 24 分钟窗口）
 export const SAVE_KEY = 'pxc_tycoon_v1';
 export const MODE_KEY = 'pxc_mode_v1';
+// ---- v10 货物供应链 / 旅游 / 法令 ----
+export const GOODS_BASE_CAP = 100;     // 基础货仓容量（仓库每座 +80）
+export const GOODS_START = 40;         // 开局货存
+export const GOODS_TRICKLE = 0.8;      // 集市自产自销保底（早期小商业无需工厂）
+export const EXPORT_PRICE = 1.35;      // 每单位货物出口价（冶金工艺 +25%）
+export const TOUR_SPEND = 0.09;        // 每名游客每分钟消费 G
 
 // ------------------------------------------------------------
 // 四季体系（v6）：季节由 engine 时钟驱动，经济在快照层联动
@@ -93,19 +99,23 @@ export type EconDef = {
   cul?: number;       // v8 文化点（文化指数供给：文旅/精神/地标类建筑）
   waterR?: number;    // v6 供水半径（格；水塔/净水厂）
   waterCap?: number;  // v6 供水容量（覆盖人口上限）
+  goodsP?: number;    // v10 货物产量（件/分：工业供货）
+  goodsC?: number;    // v10 货物消耗（件/分：零售商业上货）
+  goodsCap?: number;  // v10 货仓容量增量
 };
 
 const D = (
   cost: number, unlock: number,
   o: { earn?: number; power?: number; amenity?: number; pollute?: number; upk?: number;
     food?: number; foodCap?: number; edu?: number; sp?: number; cul?: number;
-    waterR?: number; waterCap?: number } = {},
+    waterR?: number; waterCap?: number; goodsP?: number; goodsC?: number; goodsCap?: number } = {},
 ): EconDef => ({
   cost, unlock,
   earn: o.earn ?? 0, power: o.power ?? 0,
   amenity: o.amenity ?? 0, pollute: o.pollute ?? 0, upk: o.upk ?? 0,
   food: o.food, foodCap: o.foodCap, edu: o.edu, sp: o.sp, cul: o.cul,
   waterR: o.waterR, waterCap: o.waterCap,
+  goodsP: o.goodsP, goodsC: o.goodsC, goodsCap: o.goodsCap,
 });
 
 export const ECON: Record<string, EconDef> = {
@@ -119,36 +129,36 @@ export const ECON: Record<string, EconDef> = {
   danchi: D(1450, 8, { power: 26 }),
   hiapart: D(2100, 9, { power: 34 }),
   nagaya: D(135, 6, { power: 4 }),
-  minshuku: D(145, 6, { power: 3 }),
+  minshuku: D(145, 6, { power: 3, goodsC: 0.3 }),
   // ---- 商业（岗位 = 目录 pop；earn 满员收入；upk 人力租金）----
   // v8 紧平衡：收入 −7%、维护费 +20%（回本周期 18→24 分钟，更需经营头脑）
-  shop: D(80, 1, { power: 3, earn: 4.2, upk: 1.2 }),
+  shop: D(80, 1, { power: 3, earn: 4.2, upk: 1.2, goodsC: 0.5 }),
   office: D(420, 4, { power: 10, earn: 20, upk: 5.8 }),
   tower: D(1700, 9, { power: 26, earn: 57, upk: 13 }),
-  conv: D(70, 1, { power: 2, earn: 3.3, upk: 1 }),
-  hotel: D(1350, 7, { power: 22, earn: 44, upk: 9.6 }),
-  mall: D(1250, 7, { power: 24, earn: 40, upk: 11.6 }),
+  conv: D(70, 1, { power: 2, earn: 3.3, upk: 1, goodsC: 0.35 }),
+  hotel: D(1350, 7, { power: 22, earn: 44, upk: 9.6, goodsC: 1.8 }),
+  mall: D(1250, 7, { power: 24, earn: 40, upk: 11.6, goodsC: 2.2 }),
   parking: D(100, 4, { power: 1, earn: 0.75, upk: 0.25 }),
-  izakaya: D(140, 4, { power: 3, earn: 5.5, upk: 1.6 }),
-  cinema: D(780, 6, { power: 12, earn: 22, upk: 3.6, cul: 2 }),
-  market: D(90, 2, { power: 2, earn: 3.5, upk: 1 }),
-  electown: D(300, 6, { power: 5, earn: 9.2, upk: 1.9 }),
-  ferris: D(550, 5, { power: 6, earn: 2.7, amenity: 2, upk: 1.7, cul: 2 }),
-  bakery: D(80, 2, { power: 2, earn: 3.9, upk: 1.15 }),
-  gas: D(170, 2, { power: 2, earn: 5.5, upk: 1.3 }),
+  izakaya: D(140, 4, { power: 3, earn: 5.5, upk: 1.6, goodsC: 0.5 }),
+  cinema: D(780, 6, { power: 12, earn: 22, upk: 3.6, cul: 2, goodsC: 0.9 }),
+  market: D(90, 2, { power: 2, earn: 3.5, upk: 1, goodsC: 0.4 }),
+  electown: D(300, 6, { power: 5, earn: 9.2, upk: 1.9, goodsC: 0.8 }),
+  ferris: D(550, 5, { power: 6, earn: 2.7, amenity: 2, upk: 1.7, cul: 2, goodsC: 0.15 }),
+  bakery: D(80, 2, { power: 2, earn: 3.9, upk: 1.15, goodsC: 0.55 }),
+  gas: D(170, 2, { power: 2, earn: 5.5, upk: 1.3, goodsC: 0.25 }),
   ferry: D(720, 5, { power: 6, earn: 12, upk: 2.2 }),
   // ---- 工业（污染；upk 设备折旧）v8：收入 −5%、维护费 +15% ----
-  factory: D(620, 5, { power: 14, earn: 30, pollute: 4, upk: 6.7 }),
-  warehouse: D(270, 6, { power: 6, earn: 9.4, pollute: 1, upk: 1.6 }),
-  tankfarm: D(210, 5, { power: 5, earn: 7.5, pollute: 2, upk: 1.4 }),
-  refinery: D(1050, 7, { power: 20, earn: 47, pollute: 6, upk: 10.4 }),
+  factory: D(620, 5, { power: 14, earn: 30, pollute: 4, upk: 6.7, goodsP: 2.2 }),
+  warehouse: D(270, 6, { power: 6, earn: 9.4, pollute: 1, upk: 1.6, goodsP: 0.8, goodsCap: 80 }),
+  tankfarm: D(210, 5, { power: 5, earn: 7.5, pollute: 2, upk: 1.4, goodsP: 1.0 }),
+  refinery: D(1050, 7, { power: 20, earn: 47, pollute: 6, upk: 10.4, goodsP: 3.5 }),
   power: D(620, 4, { power: -120, pollute: 5, upk: 4 }),
-  lumber: D(230, 3, { power: 6, earn: 11, pollute: 2, upk: 2.5 }),
-  silo: D(140, 4, { power: 3, earn: 5.6, pollute: 1, upk: 1.3, food: 1.5, foodCap: 120 }),
+  lumber: D(230, 3, { power: 6, earn: 11, pollute: 2, upk: 2.5, goodsP: 1.4 }),
+  silo: D(140, 4, { power: 3, earn: 5.6, pollute: 1, upk: 1.3, food: 1.5, foodCap: 120, goodsP: 0.6 }),
   windmill: D(160, 3, { power: -15, earn: 2, upk: 0.3, food: 1 }),
   greenhouse: D(170, 3, { power: 4, earn: 6.5, upk: 1.2, food: 5 }),
-  brewery: D(320, 4, { power: 8, earn: 10.8, pollute: 2, upk: 2.1 }),
-  dock: D(560, 8, { power: 10, earn: 20.5, pollute: 3, upk: 3.5 }),
+  brewery: D(320, 4, { power: 8, earn: 10.8, pollute: 2, upk: 2.1, goodsP: 1.6 }),
+  dock: D(560, 8, { power: 10, earn: 20.5, pollute: 3, upk: 3.5, goodsP: 1.2 }),
   // ---- 公共（宜居；upk 运营开支）v8：维护费 +25%（公共服务更烧钱）----
   park: D(55, 1, { amenity: 2, upk: 1 }),
   plaza: D(85, 2, { power: 1, amenity: 3, upk: 1.5, cul: 0.5 }),
@@ -252,7 +262,7 @@ export type ActiveEvent = {
   kind: 'good' | 'bad';
   left: number; dur: number;
   hap: number;
-  mult: { com?: number; ind?: number; food?: number; power?: number; traffic?: number; sp?: number; amenity?: number };
+  mult: { com?: number; ind?: number; food?: number; power?: number; traffic?: number; sp?: number; amenity?: number; tour?: number };
   fx?: { x: number; y: number };
 };
 
@@ -360,6 +370,19 @@ const EVENT_TPLS: EventTpl[] = [
       return `投资到账 +${gain}G`;
     },
   },
+  // ---- v10 旅游事件 ----
+  {
+    key: 'tourseason', name: '旅游旺季', kind: 'good', dur: 70, hap: 2,
+    mult: { tour: 1.7 },
+    note: '假期观光潮涌入：游客人数 ×1.7',
+    w: s => (s.tourists >= 8 ? 8 : 0),
+  },
+  {
+    key: 'badreview', name: '差评风波', kind: 'bad', dur: 50, hap: -3,
+    mult: { tour: 0.45, com: 0.92 },
+    note: '负面评价发酵：游客 −55% · 商业 −8%',
+    w: s => (s.tourists >= 15 && s.happiness < 48 ? 7 : 0),
+  },
 ];
 
 // ------------------------------------------------------------
@@ -393,6 +416,11 @@ export const ACHIEVEMENTS: AchvDef[] = [
   // ---- v7 公交 / 航运 ----
   { id: 'transit4', name: '城市动脉', desc: '建造 4 座巴士站，公交网络四通八达', icon: 'road', goal: 4, val: s => s.busStops },
   { id: 'harbor', name: '港湾灯影', desc: '建造渡轮码头，船舶鸣笛出港', icon: 'land', goal: 1, val: s => s.ferries },
+  // ---- v10 货物 / 旅游 / 法令 ----
+  { id: 'tour60a', name: '门庭若市', desc: '游客人数达到 60', icon: 'people', goal: 60, val: s => s.tourists },
+  { id: 'tour200', name: '世界名城', desc: '游客人数达到 200', icon: 'medal', goal: 200, val: s => s.tourists },
+  { id: 'export300', name: '货通四海', desc: '累计出口创汇 300G', icon: 'coin', goal: 300, val: s => s.exportEarn },
+  { id: 'ords4', name: '政通人和', desc: '同时颁布 4 条市政法令', icon: 'flag', goal: 4, val: s => s.ordsN },
 ];
 
 /** 需特定科技才可建造的建筑
@@ -407,6 +435,38 @@ export const TECH_GATE: Record<string, string> = {
   dock: 'logistic',
   brewery: 'metal',
 };
+
+// ------------------------------------------------------------
+// v10 市政法令：各有代价与收益的开关式政策（政令厅可随时颁布 / 废止）
+// ------------------------------------------------------------
+
+export type OrdDef = {
+  id: string; name: string; desc: string;
+  cost: number;              // 每分钟行政开支（G；0 = 零成本）
+  lv: number;                // 所需市政厅等级
+  reqNote?: string;          // 额外条件说明（不满足时锁定）
+  req?: (s: Snap) => boolean;
+};
+
+export const ORDS: OrdDef[] = [
+  { id: 'welcome', name: '开放落户', lv: 2, cost: 0.6,
+    desc: '人口迁入 +28%，宜居需求 +10%，幸福 −1' },
+  { id: 'energy', name: '节能令', lv: 3, cost: 0,
+    desc: '全城用电 −12%，幸福 −2（拉闸限电不得民心）' },
+  { id: 'organic', name: '有机农业', lv: 3, cost: 0.8,
+    desc: '粮食产量 +18%，农业设施维护 +25%' },
+  { id: 'patrol', name: '治安巡逻', lv: 3, cost: 1.4,
+    desc: '安全指数 +15，幸福 +1' },
+  { id: 'night', name: '夜间经济', lv: 4, cost: 1.2,
+    desc: '商业收入 +10%，用电 +6%，幸福 +1' },
+  { id: 'transit', name: '公交优先', lv: 4, cost: 1.6,
+    desc: '交通指数 +10，人口迁入 +12%',
+    reqNote: '需 2 座巴士站', req: s => s.busStops >= 2 },
+  { id: 'voucher', name: '消费券', lv: 5, cost: 2.8,
+    desc: '商业收入 +15%（发券刺激消费，行政开支不菲）' },
+  { id: 'ecolaw', name: '环保条例', lv: 6, cost: 0,
+    desc: '工业污染 −28%，工业收入 −7%（企业治污代价）' },
+];
 
 export function costOf(id: string): number { return ECON[id]?.cost ?? 0; }
 export function unlockOf(id: string): number { return ECON[id]?.unlock ?? 1; }
@@ -440,6 +500,9 @@ export type QS = {
   hasWaterTower: number; waterIdx: number; bridgeTiles: number;
   // ---- v7 公交 / 航运 ----
   busStops: number; ferries: number; busBonus: number;
+  // ---- v10 货物 / 旅游 / 法令 ----
+  tourists: number; exportEarn: number; ports: number;
+  ordsN: number; goodsIdx: number;
 };
 
 export type Quest = {
@@ -506,6 +569,15 @@ export const QUESTS: Quest[] = [
     val: s => s.rating, rG: 720, rXp: 280 },
   { id: 'pop2500', title: '都市之父', hint: '人口达到 2500 人 —— 终极成就！', goal: 2500,
     val: s => s.pop, rG: 880, rXp: 330 },
+  // ---- v10 货物 / 旅游 / 法令时代 ----
+  { id: 'goods1', title: '货畅其流', hint: '建造 2 座工业建筑（工厂/木材厂产出货物供给商店：货物短缺会让商业收入大打折扣）', goal: 2,
+    val: s => s.ind, rG: 520, rXp: 240 },
+  { id: 'export1', title: '货通四海', hint: '累计出口创汇 300G（货仓超八成且产大于销时，港口吊机/渡轮码头自动以 1.35G/件外销）', goal: 300,
+    val: s => s.exportEarn, rG: 640, rXp: 270 },
+  { id: 'ord2', title: '政令时代', hint: '在市政法令厅颁布 2 条法令（各有代价与收益，随时可废止）', goal: 2,
+    val: s => s.ordsN, rG: 560, rXp: 250 },
+  { id: 'tourist60', title: '宾至如归', hint: '游客人数达到 60（摩天轮/水族馆/博物馆是吸引力大户；酒店床位决定接待上限）', goal: 60,
+    val: s => s.tourists, rG: 620, rXp: 280 },
 ];
 
 // ------------------------------------------------------------
@@ -553,6 +625,14 @@ export type EconView = {
   busStops: number; ferries: number; busBonus: number;
   // ---- v8：文化 / 科研指数 ----
   cultureSup: number; cultureNeed: number; cultureIdx: number; sciIdx: number;
+  // ---- v10：货物 / 旅游 / 法令 ----
+  goods: number; goodsCap: number; goodsProd: number; goodsCons: number;
+  goodsNet: number; goodsIdx: number;
+  exportRate: number; exportTotal: number; ports: number;
+  tourists: number; tourIdx: number; beds: number; attract: number;
+  incomeTour: number; incomeExp: number; ordCost: number;
+  ords: Array<{ id: string; name: string; desc: string; cost: number; lv: number;
+    reqNote: string; on: boolean; lockLv: boolean; reqOk: boolean }>;
 };
 
 export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
@@ -583,6 +663,11 @@ type Snap = QS & {
   busStops: number; ferries: number; busBonus: number;
   // ---- v8：文化 / 科研指数 ----
   cultureSup: number; cultureNeed: number; cultureIdx: number; sciIdx: number;
+  // ---- v10：货物 / 旅游 / 法令 ----
+  goodsP: number; goodsC: number; goodsCap: number; goodsNet: number; goodsIdx: number;
+  exportRate: number; ports: number;
+  tourists: number; tourIdx: number; beds: number; attract: number;
+  multTour: number; ordCost: number; ordHap: number; migMult: number;
 };
 
 export class Tycoon {
@@ -630,8 +715,40 @@ export class Tycoon {
   /** 事件请求强制天气（engine 每帧消费：'rain' = 暴风雨） */
   weatherReq: WeatherKind | null = null;
 
+  // ---- v10：货物 / 旅游 / 法令 ----
+  /** 货仓库存（件） */
+  goods = GOODS_START;
+  /** 累计出口创汇（G） */
+  exportTotal = 0;
+  /** 在颁布法令 */
+  ords = new Set<string>();
+  /** 当前游客人数（快照回写；引擎同步给行人系统） */
+  tourists = 0;
+  private goodsWarned = false;
+
+  hasOrd(id: string): boolean { return this.ords.has(id); }
+
+  /** 颁布 / 废止法令（等级或条件不满足时锁定） */
+  toggleOrd(id: string): 'on' | 'off' | 'lock' {
+    const o = ORDS.find(x => x.id === id);
+    if (!o) return 'lock';
+    if (!this.ords.has(id)) {
+      if (this.level < o.lv) return 'lock';
+      const s = this.snap;
+      if (o.req && (!s || !o.req(s))) return 'lock';
+      this.ords.add(id);
+      this.sfx?.('level');
+      this.msg?.(`颁布「${o.name}」：${o.desc}${o.cost > 0 ? `（行政开支 ${o.cost}G/分）` : ''}`);
+      return 'on';
+    }
+    this.ords.delete(id);
+    this.sfx?.('buy');
+    this.msg?.(`废止「${o.name}」，相关效果随之解除`);
+    return 'off';
+  }
+
   private snap: Snap | null = null;
-  private incomeParts = { tax: 0, com: 0, ind: 0 };
+  private incomeParts = { tax: 0, com: 0, ind: 0, tour: 0, exp: 0 };
   private famineWarned = false;
   private histAcc = 0;
 
@@ -790,6 +907,9 @@ export class Tycoon {
     let hospitals = 0, firestations = 0;
     let hasWaterTower = 0, waterCapT = 0;
     let busStops = 0, ferries = 0;
+    // v10：货物 / 旅游累计器
+    let goodsP = 0, goodsC = 0, goodsCapV = GOODS_BASE_CAP;
+    let hotelBeds = 0, attract = 0, ports = 0;
     const upkFarm = { v: 0 }, upkInd = { v: 0 };
     // v6 水务设施清单（覆盖半径）与住宅清单（覆盖人口统计）
     const waterFacs: Array<{ x: number; y: number; r: number }> = [];
@@ -832,6 +952,15 @@ export class Tycoon {
       // v7 公交 / 航运设施计数
       if (o.id === 'busstop') busStops++;
       if (o.id === 'ferry') ferries++;
+      // v10：货物供应链 / 旅游设施
+      if (e?.goodsP) goodsP += e.goodsP;
+      if (e?.goodsC) goodsC += e.goodsC;
+      if (e?.goodsCap) goodsCapV += e.goodsCap;
+      const at = ATTRACT[o.id];
+      if (at) attract += at;
+      if (o.id === 'hotel') hotelBeds += 160;
+      if (o.id === 'minshuku') hotelBeds += 24;
+      if (o.id === 'dock' || o.id === 'ferry') ports++;
       const pw = e?.power ?? 0;
       if (pw < 0) powerSup += -pw; else powerDem += pw;
       // 公共医疗：医院宜居 +3
@@ -858,9 +987,12 @@ export class Tycoon {
     if (this.has('auto')) upk -= upkInd.v * 0.25;
     if (this.has('poweng')) powerSup = Math.round(powerSup * 1.25);
     if (this.has('green')) pollute *= 0.7;
+    // v10 法令：环保条例减排 / 有机农业维护上浮
+    if (this.hasOrd('ecolaw')) pollute *= 0.72;
+    if (this.hasOrd('organic')) upk += upkFarm.v * 0.25;
 
     // ---- v5：随机事件乘数（连乘各活动事件）+ 天气修正 ----
-    let multCom = 1, multInd = 1, multFood = 1, multPower = 1, multTraffic = 1, multSp = 1;
+    let multCom = 1, multInd = 1, multFood = 1, multPower = 1, multTraffic = 1, multSp = 1, multTour = 1;
     let eventHap = 0, eventAmenity = 0;
     for (const ev of this.events) {
       if (ev.mult.com) multCom *= ev.mult.com;
@@ -869,6 +1001,7 @@ export class Tycoon {
       if (ev.mult.power) multPower *= ev.mult.power;
       if (ev.mult.traffic) multTraffic *= ev.mult.traffic;
       if (ev.mult.sp) multSp *= ev.mult.sp;
+      if (ev.mult.tour) multTour *= ev.mult.tour;
       if (ev.mult.amenity) eventAmenity += ev.mult.amenity;
       eventHap += ev.hap;
     }
@@ -891,14 +1024,22 @@ export class Tycoon {
     foodProd *= sn.food;
     multCom *= sn.com;
     powerDem *= sn.powerDem;                 // 夏空调 / 冬取暖抬升用电
+    // v10 法令：节能令 / 夜间经济 / 有机农业
+    if (this.hasOrd('energy')) powerDem *= 0.88;
+    if (this.hasOrd('night')) powerDem *= 1.06;
+    if (this.hasOrd('organic')) foodProd *= 1.18;
     const seasonHap = sn.hap;
     foodProd *= multFood;
     earnCom *= multCom;
     earnInd *= multInd;
     spRaw *= multSp;
+    // v10 法令：夜间经济 / 消费券 / 环保条例
+    if (this.hasOrd('night')) earnCom *= 1.10;
+    if (this.hasOrd('voucher')) earnCom *= 1.15;
+    if (this.hasOrd('ecolaw')) earnInd *= 0.93;
 
     const pop = this.pop;
-    const amenityNeed = Math.ceil(pop / 18);
+    const amenityNeed = Math.ceil(pop / 18 * (this.hasOrd('welcome') ? 1.1 : 1));
     const polluteNet = Math.max(0, pollute - park * 1.5);
     const powerMult = (powerDem > 0 ? Math.min(1, powerSup / powerDem) : 1) * multPower;
     const roadsTotal = map.roadList().length;
@@ -932,10 +1073,10 @@ export class Tycoon {
     const healthIdx = pop < 8 ? 80 : Math.max(0, Math.min(100, Math.round(100 * Math.min(1, beds / pop))));
     // 安全：消防救援覆盖（每站 550 人 + 基础 100）
     const shields = firestations * 550 + 100;
-    const safetyIdx = pop < 8 ? 80 : Math.max(0, Math.min(100, Math.round(100 * Math.min(1, shields / pop))));
+    const safetyIdx = pop < 8 ? 80 : Math.max(0, Math.min(100, Math.round(100 * Math.min(1, shields / pop)) + (this.hasOrd('patrol') ? 15 : 0)));
     // 交通：路网密度（每 3 栋建筑配 1 格道路为满配）；v5 雪天 / 暴风雨折扣
     // v7 公交加成：每座车站 +4（上限 +15）——巴士分担通勤压力，路网不足也能达标
-    const busBonus = pop >= 10 ? Math.min(15, busStops * 4) : 0;
+    const busBonus = (pop >= 10 ? Math.min(15, busStops * 4) : 0) + (this.hasOrd('transit') ? 10 : 0);
     const trafficIdx = buildings > 0
       ? Math.max(0, Math.min(100, Math.round(
           roadsTotal * 100 / (buildings * 3) * multTraffic) + busBonus))
@@ -981,15 +1122,45 @@ export class Tycoon {
     const rl = map.road;
     for (let i = 0; i < rl.length; i++) if (rl[i] === 2) bridgeTiles++;
 
+    // ---- v10 法令汇总（情绪 / 迁入 / 行政开支）----
+    let ordCost = 0;
+    for (const o of ORDS) if (this.ords.has(o.id)) ordCost += o.cost;
+    const ordHap = (this.hasOrd('energy') ? -2 : 0) + (this.hasOrd('night') ? 1 : 0) +
+      (this.hasOrd('patrol') ? 1 : 0) + (this.hasOrd('welcome') ? -1 : 0);
+    const migMult = (this.hasOrd('welcome') ? 1.28 : 1) * (this.hasOrd('transit') ? 1.12 : 1);
+
     // 幸福 v8：九维加权（宜居 24 / 粮食 15 / 就业 12 / 供水 11 / 文化 9 / 环境 9 /
     //   健康 7 / 安全 6 / 交通 7；权重和 = 100）
-    //   + 税率情绪 + 饥荒打击；v5 + 事件 / 天气情绪；v6 + 季节情绪
+    //   + 税率情绪 + 饥荒打击；v5 + 事件 / 天气情绪；v6 + 季节情绪；v10 + 法令情绪
     const famineHit = famine ? (this.has('granary') ? 12 : 25) : 0;
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
-      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap - famineHit)));
+      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap - famineHit)));
     const happyMult = 0.6 + happiness / 125;
+
+    // ---- v10 旅游：景点吸引力 × 文化/幸福 × 季节/天气 → 游客（酒店床位为接待上限）----
+    const weatherTourK = wt.kind === 'clear' ? 1.15 : wt.kind === 'cloudy' ? 1.0 : wt.kind === 'rain' ? 0.7 : 0.6;
+    const seasonTourK = [1.1, 1.25, 1.15, 0.55][Math.max(0, Math.min(3, this.season))];
+    const appeal = attract * (0.6 + 0.4 * cultureIdx / 100) * (0.5 + 0.5 * happiness / 100);
+    const capVisit = hotelBeds * 2 + 30;
+    const tourists = attract < 1 ? 0
+      : Math.min(capVisit, appeal * seasonTourK * weatherTourK * multTour);
+    const tourIdx = Math.max(0, Math.min(100, Math.round(attract * 2.4)));
+
+    // ---- v10 货物供应链：工业产货 → 零售上货 → 港口外销 ----
+    const goodsProd = (goodsP + GOODS_TRICKLE) * staffing * powerMult;
+    const goodsCons = goodsC + tourists * 0.008;           // 游客也买货架上的货
+    const goodsSelf = goodsProd / Math.max(0.01, goodsCons);
+    const stockRatio = Math.min(1, this.goods / Math.max(1, goodsCapV));
+    const goodsSupply = Math.min(1, goodsSelf + 0.25 * stockRatio);
+    const goodsMult = 0.55 + 0.45 * goodsSupply;           // 供货率 → 商业收入折扣
+    const goodsIdx = Math.round(100 * goodsSupply);
+    const goodsNet = goodsProd - goodsCons;
+    earnCom *= goodsMult;
+    // 出口：货仓 >80% 且产大于销 → 港口按 2.2 件/分·座外销
+    const exportRate = ports > 0 && goodsNet > 0 && stockRatio >= 0.8
+      ? Math.min(goodsNet, 2.2 * ports) : 0;
 
     // 城市评级 v8：十二维综合（权重和 = 1；S≥90 / A≥80 / B≥70 / C≥55 / D≥40）
     //   幸福 0.20 / 宜居 0.12 / 粮 0.10 / 就业 0.10 / 供水 0.075 / 智慧 0.07 /
@@ -1019,6 +1190,12 @@ export class Tycoon {
       season: this.season, seasonHap,
       waterCapT,
       cultureSup, cultureNeed, cultureIdx, sciIdx,
+      // ---- v10 ----
+      tourists, exportEarn: this.exportTotal, ports,
+      ordsN: this.ords.size, goodsIdx,
+      goodsP: goodsProd, goodsC: goodsCons, goodsCap: goodsCapV, goodsNet,
+      exportRate, beds: hotelBeds, attract, tourIdx,
+      multTour, ordCost, ordHap, migMult,
     };
   }
 
@@ -1037,7 +1214,7 @@ export class Tycoon {
         t: Math.round(this.playtime),
         pop: Math.floor(this.pop),
         coins: Math.floor(this.coins),
-        net: this.incomeParts.tax + this.incomeParts.com + this.incomeParts.ind - s.upk,
+        net: this.incomeParts.tax + this.incomeParts.com + this.incomeParts.ind + this.incomeParts.tour + this.incomeParts.exp - s.upk - s.ordCost,
         hap: s.happiness,
       });
       if (this.hist.length > HIST_MAX) this.hist.splice(0, this.hist.length - HIST_MAX);
@@ -1048,8 +1225,13 @@ export class Tycoon {
     const tax = this.pop * (this.taxRate / 100) * (this.has('taxref') ? 1.15 : 1) * s.happyMult * s.powerMult;
     const com = s.earnCom * (this.has('finhub') ? 1.15 : 1) * s.staffing * s.powerMult;
     const ind = s.earnInd * s.staffing * s.powerMult;
-    this.coins += (tax + com + ind - s.upk) * dt / 60;
-    this.incomeParts = { tax, com, ind };
+    // v10：旅游消费 + 港口出口 − 法令行政开支
+    const tour = s.tourists * TOUR_SPEND * (this.has('brand') ? 1.2 : 1);
+    const exp = s.exportRate * EXPORT_PRICE * (this.has('metal') ? 1.25 : 1);
+    this.coins += (tax + com + ind + tour + exp - s.upk - s.ordCost) * dt / 60;
+    this.exportTotal += exp * dt / 60;
+    this.tourists = s.tourists;
+    this.incomeParts = { tax, com, ind, tour, exp };
 
     // 粮仓：产量 − 口粮，入库 / 出库（库存夹在 [0, cap]）
     this.food = Math.max(0, Math.min(s.foodCap, this.food + s.foodNet * dt / 60));
@@ -1057,6 +1239,13 @@ export class Tycoon {
       this.famineWarned = true;
       this.msg?.('饥荒！粮仓见底：市民正在挨饿迁离，快建温室大棚');
     } else if (!s.famine) this.famineWarned = false;
+
+    // v10 货仓：产 − 销 − 出口（库存夹在 [0, cap]）
+    this.goods = Math.max(0, Math.min(s.goodsCap, this.goods + (s.goodsNet - s.exportRate) * dt / 60));
+    if (s.goodsIdx < 45 && s.goodsC > 1.2 && !this.goodsWarned) {
+      this.goodsWarned = true;
+      this.msg?.('货物短缺！商店缺货、商业收入大打折扣 —— 建工厂/木材厂扩大产能');
+    } else if (s.goodsIdx >= 45) this.goodsWarned = false;
 
     // 科技点累积（教育设施 × 智慧加成）
     this.sp += s.spRaw * (0.5 + s.wisdom / 100) * (this.has('higher') ? 1.35 : 1) * dt / 60;
@@ -1069,7 +1258,7 @@ export class Tycoon {
       if (s.happiness < 25) {
         this.pop = Math.max(0, this.pop - 0.3 * dt);
       } else {
-        const rate = (0.0045 + 0.006 * (s.happiness / 100)) * (this.has('health') ? 1.2 : 1) * waterGrow;
+        const rate = (0.0045 + 0.006 * (s.happiness / 100)) * (this.has('health') ? 1.2 : 1) * waterGrow * s.migMult;
         this.pop = Math.min(s.cap, this.pop + Math.max(0.05, (s.cap - this.pop) * rate) * dt);
       }
     } else if (this.pop > s.cap) {
@@ -1182,9 +1371,9 @@ export class Tycoon {
       incomeTax: this.incomeParts.tax,
       incomeCom: this.incomeParts.com,
       incomeInd: this.incomeParts.ind,
-      income: this.incomeParts.tax + this.incomeParts.com + this.incomeParts.ind,
+      income: this.incomeParts.tax + this.incomeParts.com + this.incomeParts.ind + this.incomeParts.tour + this.incomeParts.exp,
       incomeUpk: s?.upk ?? 0,
-      incomeNet: this.incomeParts.tax + this.incomeParts.com + this.incomeParts.ind - (s?.upk ?? 0),
+      incomeNet: this.incomeParts.tax + this.incomeParts.com + this.incomeParts.ind + this.incomeParts.tour + this.incomeParts.exp - (s?.upk ?? 0) - (s?.ordCost ?? 0),
       jobs: s?.jobs ?? 0,
       workers: Math.floor(this.pop * 0.62),
       staffing: s?.staffing ?? 1,
@@ -1241,6 +1430,22 @@ export class Tycoon {
       cultureNeed: s?.cultureNeed ?? 0,
       cultureIdx: s?.cultureIdx ?? 80,
       sciIdx: s?.sciIdx ?? 0,
+      // ---- v10 ----
+      goods: Math.floor(this.goods), goodsCap: s?.goodsCap ?? GOODS_BASE_CAP,
+      goodsProd: s?.goodsP ?? 0, goodsCons: s?.goodsC ?? 0,
+      goodsNet: s?.goodsNet ?? 0, goodsIdx: s?.goodsIdx ?? 100,
+      exportRate: s?.exportRate ?? 0, exportTotal: Math.floor(this.exportTotal),
+      ports: s?.ports ?? 0, tourists: Math.floor(this.tourists),
+      tourIdx: s?.tourIdx ?? 0, beds: s?.beds ?? 0, attract: s?.attract ?? 0,
+      incomeTour: this.incomeParts.tour, incomeExp: this.incomeParts.exp,
+      ordCost: s?.ordCost ?? 0,
+      ords: ORDS.map(o => ({
+        id: o.id, name: o.name, desc: o.desc, cost: o.cost, lv: o.lv,
+        reqNote: o.reqNote ?? '',
+        on: this.ords.has(o.id),
+        lockLv: this.level < o.lv,
+        reqOk: !o.req || (!!s && o.req(s)),
+      })),
     };
   }
 
@@ -1294,6 +1499,12 @@ export class Tycoon {
     this.achvTimer = 0;
     this.weather = { kind: 'clear', t: 0 };
     this.weatherReq = null;
+    // v10：货物 / 旅游 / 法令重置
+    this.goods = GOODS_START;
+    this.exportTotal = 0;
+    this.ords.clear();
+    this.tourists = 0;
+    this.goodsWarned = false;
     this.own.fill(0);
     this.own[7 * CHUNKS + 7] = 1;
     this.own[7 * CHUNKS + 8] = 1;
@@ -1307,7 +1518,7 @@ export class Tycoon {
     const own: number[] = [];
     for (let i = 0; i < this.own.length; i++) if (this.own[i]) own.push(i);
     return JSON.stringify({
-      v: 6,
+      v: 7,
       coins: Math.round(this.coins), xp: this.xp, level: this.level,
       pop: this.pop, questIdx: this.questIdx,
       roads: this.roadsBuilt, trees: this.treesPlanted, dozed: this.dozed,
@@ -1324,6 +1535,10 @@ export class Tycoon {
       achv: [...this.achv],
       // v6：季节
       season: this.season,
+      // v10：货物 / 法令
+      goods: Math.round(this.goods),
+      exportTotal: Math.round(this.exportTotal),
+      ords: [...this.ords],
       hall: [this.hall.x, this.hall.y],
       own, last: Date.now(),
       map: map.serialize(),
@@ -1400,6 +1615,14 @@ export class Tycoon {
     this.weatherReq = null;
     // v6 季节档（旧档默认更替中的春季；engine 会同步时钟相位）
     this.season = Math.max(0, Math.min(3, Number(d.season) || 0));
+    // v10 货物 / 法令档（旧档给默认）
+    this.goods = Math.max(0, Number(d.goods) || GOODS_START);
+    this.exportTotal = Math.max(0, Number(d.exportTotal) || 0);
+    this.ords.clear();
+    for (const oid of (d.ords as string[]) ?? []) {
+      if (ORDS.some(x => x.id === oid)) this.ords.add(oid);
+    }
+    this.goodsWarned = false;
     const hall = d.hall as [number, number] | undefined;
     this.hall = { x: hall?.[0] ?? 127, y: hall?.[1] ?? 127 };
     this.own.fill(0);
@@ -1423,12 +1646,17 @@ export class Tycoon {
     const mins = Math.min(capH * 60, Math.max(0, (Date.now() - last) / 60000));
     const tax = this.pop * (this.taxRate / 100) * (this.has('taxref') ? 1.15 : 1) * s.happyMult * s.powerMult;
     const com = s.earnCom * (this.has('finhub') ? 1.15 : 1) * s.staffing * s.powerMult;
-    const perMin = tax + com + s.earnInd * s.staffing * s.powerMult - s.upk;
+    const tourInc = s.tourists * TOUR_SPEND * (this.has('brand') ? 1.2 : 1);
+    const expInc = s.exportRate * EXPORT_PRICE * (this.has('metal') ? 1.25 : 1);
+    const perMin = tax + com + s.earnInd * s.staffing * s.powerMult + tourInc + expInc - s.upk - s.ordCost;
     const earned = Math.floor(Math.max(0, perMin) * mins * 0.30);
     if (earned > 0) this.coins += earned;
     // 离线粮仓同步（30% 速率结算，不出饥荒惩罚）
     this.food = Math.max(0, Math.min(s.foodCap, this.food + s.foodNet * mins * 0.30));
     this.sp += s.spRaw * (0.5 + s.wisdom / 100) * (this.has('higher') ? 1.35 : 1) * mins * 0.30;
+    // v10 离线：货仓 settle + 游客数同步
+    this.goods = Math.max(0, Math.min(s.goodsCap, this.goods + (s.goodsNet - s.exportRate) * mins * 0.30));
+    this.tourists = s.tourists;
     this.save(map);
     return earned;
   }

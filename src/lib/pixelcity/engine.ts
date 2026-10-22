@@ -688,11 +688,12 @@ export class Engine {
     }
   }
 
-  crowdCount(): { peds: number; cars: number; pets: number; birds: number; buses: number; boats: number } {
+  crowdCount(): { peds: number; cars: number; pets: number; birds: number; buses: number; boats: number; tourists: number } {
     return {
       peds: this.actors.peds, cars: this.actors.cars,
       pets: this.actors.pets, birds: this.actors.birds,
       buses: this.actors.buses, boats: this.actors.boats,
+      tourists: this.actors.tourists,
     };
   }
 
@@ -848,6 +849,7 @@ export class Engine {
     }
     // 经营模式：行人密度跟随实际人口（荒地开局无人，市民迁入后街巷渐热闹）
     this.actors.popNow = this.tycoon ? this.tycoon.pop : null;
+    this.actors.touristsNow = this.tycoon ? this.tycoon.tourists : 0;   // v10 游客漫步
     if (now - this.lastInvalT > 2500) {
       this.lastInvalT = now;
       this.actors.invalidate();

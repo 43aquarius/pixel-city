@@ -190,6 +190,17 @@ export function defById(id: string): Def {
   return CATALOG.find(d => d.id === id)!;
 }
 
+/** v10 旅游系统：景点吸引力分（tycoon 旅游人数 / actors 游客漫步共用）
+ *  数值 = 景点档位：5 地标级 / 4 大型 / 3 中型 / 2 小型 / 1 点缀 / 0.5 市井 */
+export const ATTRACT: Record<string, number> = {
+  ferris: 5, aquarium: 5, castle: 5,
+  museum: 4, stadium: 4,
+  temple: 3, observatory: 3,
+  church: 2, monument: 2, lighthouse: 2, torii: 2,
+  cinema: 1.5, clocktower: 1,
+  park: 0.5, plaza: 0.5, pavilion: 0.5, market: 0.5,
+};
+
 // ------------------------------------------------------------
 // 精灵图集
 // ------------------------------------------------------------

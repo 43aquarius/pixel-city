@@ -1445,3 +1445,33 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 .pxc.m .pxc-ev .ev-note { white-space: normal; }
 .pxc.m .achgrid { grid-template-columns: repeat(3, 1fr); gap: 5px; }
 .pxc.m .ach b { font-size: 10px; }
+
+/* ---- v10 市政法令厅 ---- */
+.pxc-policy { width: min(560px, calc(100vw - 24px)); }
+.pxc-policy .pxc-ordsum {
+  font-size: 12px; color: #3d434e; margin-bottom: 8px;
+  background: #F2EFE3; border: 1px solid #C9C2A8; border-radius: 3px; padding: 6px 8px;
+}
+.pxc-policy .pxc-ordsum b { color: #8a6d1a; }
+.pxc-policy .pxc-ordsum b.bad { color: #B03A2E; }
+.pxc-ordlist { display: flex; flex-direction: column; gap: 6px; }
+.pxc-ord {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid #C9C2A8; border-radius: 3px; padding: 7px 9px;
+  background: #FAF8EF;
+}
+.pxc-ord.on { border-color: #4E9040; background: #EFF5E8; }
+.pxc-ord.lock { opacity: 0.62; }
+.pxc-ord .pxc-ordinfo { flex: 1; min-width: 0; }
+.pxc-ord .t1 { font-size: 13px; font-weight: 700; color: #23252E; display: flex; align-items: center; gap: 6px; }
+.pxc-ord .t1 .st { color: #4E9040; font-size: 10px; }
+.pxc-ord.lock .t1 .st { color: #85878F; }
+.pxc-ord .t1 .cost { font-size: 10px; color: #B03A2E; font-weight: 600; }
+.pxc-ord .t1 .lv { font-size: 10px; color: #85878F; border: 1px solid #C9C2A8; border-radius: 2px; padding: 0 3px; }
+.pxc-ord .t2 { font-size: 11px; color: #555c66; margin-top: 2px; line-height: 1.5; }
+.pxc-ord .t3 { font-size: 10px; color: #B03A2E; margin-top: 2px; }
+.pxc-ord .pxc-btn { flex-shrink: 0; min-width: 64px; }
+.pxc-ord .pxc-btn.dis { opacity: 0.55; cursor: not-allowed; }
+.pxc.m .pxc-ord { padding: 6px 7px; gap: 7px; }
+.pxc.m .pxc-ord .t2 { font-size: 10px; }
+
