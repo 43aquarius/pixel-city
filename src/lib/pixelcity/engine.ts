@@ -13,7 +13,7 @@ import { ghostSprite, renderModel, type Sprite } from './softrender';
 import { genTree } from './b_civ';
 import { PALETTE } from './palette';
 import type { Beeper } from './audio';
-import { hash2 } from './rng';
+import { hash2, fbm } from './rng';
 import { generateCity, type GenReport } from './citygen';
 import { ActorSystem, lampModel, glowPool, type Facing, type CarDir } from './actors';
 import {
@@ -953,6 +953,25 @@ export class Engine {
           const sp = seasonArr[tv % seasonArr.length];
           const key = tx + ty;
           const dx = Math.round(sx + sp.ox), dy = Math.round(sy + sp.oy);
+          // v9 树影：格菱形向西北偏 (−2, −4) 的轻投影
+          const shA2 = 0.16 * (1 - dk * 0.85);
+          if (shA2 > 0.02) {
+            items.push({
+              key: key - 0.4,
+              draw: () => {
+                ctx.globalAlpha = shA2;
+                ctx.fillStyle = PALETTE[65];
+                ctx.beginPath();
+                ctx.moveTo(sx - 2, sy - 4);
+                ctx.lineTo(sx + 14, sy + 4);
+                ctx.lineTo(sx - 2, sy + 12);
+                ctx.lineTo(sx - 18, sy + 4);
+                ctx.closePath();
+                ctx.fill();
+                ctx.globalAlpha = 1;
+              },
+            });
+          }
           items.push({ key, draw: () => ctx.drawImage(sp.cv, dx, dy) });
         }
 
@@ -977,6 +996,26 @@ export class Engine {
           const my = smk ? bsy + (smk[0] + smk[1]) / 2 - smk[2] : 0;
           const lx = blk ? bsx + (blk[0] - blk[1]) : 0;
           const ly = blk ? bsy + (blk[0] + blk[1]) / 2 - blk[2] : 0;
+          items.push({
+            key: key - 0.4,
+            draw: () => {
+              // v9 接地投影：占地菱形向西北偏 (−2, −6) 的暗影（先画，本体盖住中心、
+              // 露出背光侧月牙边 → 建筑与地面「长在一起」；夜色越深影子越淡）
+              const shA = 0.17 * (1 - dk * 0.85);
+              if (shA > 0.02) {
+                ctx.globalAlpha = shA;
+                ctx.fillStyle = PALETTE[65];
+                ctx.beginPath();
+                ctx.moveTo(bsx - 2, bsy - 6);
+                ctx.lineTo(bsx + 16 * d.w - 2, bsy + 8 * d.w - 6);
+                ctx.lineTo(bsx + 16 * (d.w - d.h) - 2, bsy + 8 * (d.w + d.h) - 6);
+                ctx.lineTo(bsx - 16 * d.h - 2, bsy + 8 * d.h - 6);
+                ctx.closePath();
+                ctx.fill();
+                ctx.globalAlpha = 1;
+              }
+            },
+          });
           items.push({
             key,
             draw: () => {
@@ -1425,10 +1464,10 @@ export class Engine {
             const g = getGround('farm', { variant: v, edge });
             ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
           } else if (k === TERR_ROCK) {
-            const g = getGround('rock', { variant: v, edge });
+            const g = getGround('rock', { variant: v, edge, snow: this.snowEdge(tx, ty) });
             ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
           } else if (k === TERR_SNOW) {
-            const g = getGround('snow', { variant: v, edge });
+            const g = getGround('snow', { variant: v, edge, snow: this.rockEdge(tx, ty) });
             ctx.drawImage(g.cv, Math.round(sx + g.ox), Math.round(sy + g.oy));
           } else if (k === TERR_FLOWER) {
             const g = getGround('flower', { variant: v, edge });
@@ -1458,8 +1497,8 @@ export class Engine {
           const hN2 = m.inB(tx, ty - 1) ? m.h[m.idx(tx, ty - 1)] : -1;
           const hE2 = m.inB(tx + 1, ty) ? m.h[m.idx(tx + 1, ty)] : -1;
           const hS2 = m.inB(tx, ty + 1) ? m.h[m.idx(tx, ty + 1)] : -1;
-          const litA = Math.min(0.17, Math.max(0, (Math.max(hE2, hS2) - lv) * 0.042));
-          const darkA = Math.min(0.15, Math.max(0, (Math.max(hW2, hN2) - lv) * 0.034));
+          const litA = Math.min(0.22, Math.max(0, (Math.max(hE2, hS2) - lv) * 0.055));
+          const darkA = Math.min(0.19, Math.max(0, (Math.max(hW2, hN2) - lv) * 0.042));
           if (litA - darkA > 0.012 || darkA - litA > 0.012) {
             if (litA > darkA) {
               ctx.globalAlpha = litA - darkA;
@@ -1489,6 +1528,34 @@ export class Engine {
             ctx.closePath();
             ctx.fill();
             ctx.globalAlpha = 1;
+          }
+          // ---- v9 宏观明暗斑驳：世界坐标低频光照（~19 格周期的柔和光斑，
+          //      打破 tile 纹理的平铺感；亮斑暖白 / 暗斑冷黑，均≤0.09）----
+          if (lv > 0) {
+            const dvt = (fbm(tx / 19, ty / 19, 0x9EED) - 0.5) * 2;
+            if (dvt > 0.26) {
+              ctx.globalAlpha = Math.min(0.09, (dvt - 0.26) * 0.26);
+              ctx.fillStyle = PALETTE[64];
+              ctx.beginPath();
+              ctx.moveTo(sx, sy);
+              ctx.lineTo(sx + 16, sy + 8);
+              ctx.lineTo(sx, sy + 16);
+              ctx.lineTo(sx - 16, sy + 8);
+              ctx.closePath();
+              ctx.fill();
+              ctx.globalAlpha = 1;
+            } else if (dvt < -0.26) {
+              ctx.globalAlpha = Math.min(0.09, (-dvt - 0.26) * 0.26);
+              ctx.fillStyle = PALETTE[65];
+              ctx.beginPath();
+              ctx.moveTo(sx, sy);
+              ctx.lineTo(sx + 16, sy + 8);
+              ctx.lineTo(sx, sy + 16);
+              ctx.lineTo(sx - 16, sy + 8);
+              ctx.closePath();
+              ctx.fill();
+              ctx.globalAlpha = 1;
+            }
           }
           // 崖脚投影：东/南邻格更高 → 本格顶面沿共享边压暗（接地接触阴影）
           if (hE2 > lv || hS2 > lv) {
@@ -1629,6 +1696,24 @@ export class Engine {
     if (!m.inB(tx + 1, ty) || m.terr[m.idx(tx + 1, ty)] !== TERR_WATER) v |= 2;
     if (!m.inB(tx, ty + 1) || m.terr[m.idx(tx, ty + 1)] !== TERR_WATER) v |= 4;
     if (!m.inB(tx - 1, ty) || m.terr[m.idx(tx - 1, ty)] !== TERR_WATER) v |= 8;
+    return v;
+  }
+
+  /** v9 雪线过渡（rock tile 用）：北/东邻为雪地 → 顶缘挂雪犬牙 */
+  private snowEdge(tx: number, ty: number): number {
+    const m = this.map;
+    let v = 0;
+    if (m.inB(tx, ty - 1) && m.terr[m.idx(tx, ty - 1)] === TERR_SNOW) v |= 1;
+    if (m.inB(tx + 1, ty) && m.terr[m.idx(tx + 1, ty)] === TERR_SNOW) v |= 2;
+    return v;
+  }
+
+  /** v9 雪线过渡（snow tile 用）：南/西邻为岩地 → 底缘露岩犬牙 */
+  private rockEdge(tx: number, ty: number): number {
+    const m = this.map;
+    let v = 0;
+    if (m.inB(tx, ty + 1) && m.terr[m.idx(tx, ty + 1)] === TERR_ROCK) v |= 4;
+    if (m.inB(tx - 1, ty) && m.terr[m.idx(tx - 1, ty)] === TERR_ROCK) v |= 8;
     return v;
   }
 

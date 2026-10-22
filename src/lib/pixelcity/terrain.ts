@@ -34,6 +34,7 @@ type GroundCtx = {
   edge: number;      // 1=N(y−1) 2=E(x+1) 4=S(y+1) 8=W(x−1)：草地→水相邻 / 水→陆相邻
   road: number;      // 道路连接掩码（同上位）
   frame: number;     // 水面动画帧
+  snow: number;      // v9 雪线过渡掩码：rockPat 读 1=N雪 2=E雪（高处挂雪）；snowPat 读 4=S岩 8=W岩（低处露岩）
 };
 
 type GroundPat = (X: number, Y: number, px: number, py: number, c: GroundCtx) => number;
@@ -41,11 +42,11 @@ type GroundPat = (X: number, Y: number, px: number, py: number, c: GroundCtx) =>
 const P = RAMP;
 const ramp = (r: number, l: number): number => RAMPS[r][l];
 
-/** 草簇位置（每变体 3 处，模块加载时定型） */
+/** 草簇位置（v9：每变体 5 处，模块加载时定型） */
 const TUFT_POS: Array<Array<[number, number]>> = [0, 1, 2, 3].map(vi =>
-  [0, 1, 2].map(k => [
-    1.5 + hash2(vi * 9 + 1, k * 3 + 1, 31) * 12,
-    1.5 + hash2(vi * 7 + 2, k * 5 + 2, 33) * 12,
+  [0, 1, 2, 3, 4].map(k => [
+    1.5 + hash2(vi * 9 + 1, k * 3 + 1, 31) * 12.5,
+    1.5 + hash2(vi * 7 + 2, k * 5 + 2, 33) * 12.5,
   ] as [number, number]),
 );
 
@@ -71,11 +72,39 @@ const grassPat: GroundPat = (X, Y, px, py, c) => {
     if (Math.abs(X - fx2) < 0.6 && Math.abs(Y - fy2) < 0.6) return ramp(P.WHITE, 0);
     const fx3 = 2 + hash2(9, 10, 9) * 12, fy3 = 2 + hash2(11, 12, 9) * 12;
     if (Math.abs(X - fx3) < 0.6 && Math.abs(Y - fy3) < 0.6) return ramp(P.RED, 0);
+    // v9 第四朵：粉樱小点
+    const fx4 = 2 + hash2(13, 14, 9) * 12, fy4 = 2 + hash2(15, 16, 9) * 12;
+    if (Math.abs(X - fx4) < 0.55 && Math.abs(Y - fy4) < 0.55) return ramp(P.SAKURA, 0);
   } else if (c.variant === 3) {
     const sx = 3 + hash2(11, 12, 9) * 10, sy = 3 + hash2(13, 14, 9) * 10;
     if (Math.abs(X - sx) < 0.7 && Math.abs(Y - sy) < 0.7) return ramp(P.SIDE, 1);
+    // v9 第二处石子（小档）
+    const sx2 = 3 + hash2(17, 18, 9) * 10, sy2 = 3 + hash2(19, 20, 9) * 10;
+    if (Math.abs(X - sx2) < 0.5 && Math.abs(Y - sy2) < 0.5) return ramp(P.SIDE, 2);
+  } else if (c.variant === 0) {
+    // v9 三叶草簇：3×2 亮绿双叶 + 中心白点
+    const cx0 = 3 + hash2(21, 22, 9) * 10, cy0 = 3 + hash2(23, 24, 9) * 10;
+    const dxc = Math.abs(X - cx0), dyc = Math.abs(Y - cy0);
+    if (dxc < 1.4 && dyc < 1.0) {
+      if (dxc < 0.45 && dyc < 0.45) return ramp(P.WHITE, 0);
+      if (dxc + dyc * 0.8 < 1.15) return ramp(P.GRASS, 0);
+    }
+    // v9 露土斑：小片褐色浮土（椭圆边缘抖动）
+    const ex0 = 3 + hash2(25, 26, 9) * 10, ey0 = 3 + hash2(27, 28, 9) * 10;
+    const dre = Math.hypot((X - ex0) / 2.1, (Y - ey0) / 1.4);
+    if (dre < 1) {
+      const b = (BAYER8[(py & 7) * 8 + (px & 7)] + 0.5) / 64;
+      return b < 0.78 ? ramp(P.DIRT, 1) : ramp(P.DIRT, 0);
+    }
+  } else if (c.variant === 1) {
+    // v9 蘑菇：红帽 2×1 + 白茎（亭亭小蘑菇，背光侧帽暗一档）
+    const mx0 = 4 + hash2(29, 30, 9) * 9, my0 = 4 + hash2(31, 32, 9) * 9;
+    if (Math.abs(X - mx0) < 1.0 && Math.abs(Y - my0) < 1.5) {
+      if (Y - my0 > 0.5) return ramp(P.WHITE, 0);            // 茎
+      return X < mx0 ? ramp(P.RED, 0) : ramp(P.BRICK, 0);    // 帽（左亮右暗）
+    }
   }
-  // 草簇：三两处深色草叶（所有变体，左亮右暗）
+  // 草簇：五处深色草叶（所有变体，左亮右暗）
   for (const [tx, ty] of TUFT_POS[c.variant]) {
     if (X >= tx && X < tx + 1.6 && Y >= ty && Y < ty + 2.6) {
       return (X - tx) < 0.8 ? ramp(P.GRASS, 2) : ramp(P.GRASS, 3);
@@ -228,6 +257,21 @@ const farmPat: GroundPat = (X, Y, px, py, c) => {
 };
 
 const rockPat: GroundPat = (X, Y, px, py, c) => {
+  // v9 雪线锯齿：北/东邻为雪地 → 顶缘犬牙状积雪垂挂（积雪顺坡蔓延，边界犬牙交错）
+  const sn: Array<[number, number, number]> = [
+    [c.snow & 1, Y, X], [c.snow & 2, 16 - X, Y],
+  ];
+  for (const [e, d, along] of sn) {
+    if (!e) continue;
+    const tooth = Math.floor(along / 2.2);                       // 齿距 2.2px
+    const has = hash2(tooth, 41, 84) < 0.62;                     // 38% 的位置无齿（断续）
+    const dep = 1.1 + hash2(tooth, 43, 85) * 2.9;                // 齿深 1.1~4.0
+    if (has && d < dep) {
+      const b = (BAYER8[(py & 7) * 8 + (px & 7)] + 0.5) / 64;
+      if (d > dep - 1.4 && b > 0.5) continue;                    // 齿尖 Bayer 虚化
+      return b < 0.16 ? ramp(P.PBLUE, 0) : ramp(P.WHITE, 0);
+    }
+  }
   // 水缘：砾石滩
   const bands: Array<[number, number]> = [
     [c.edge & 1, Y], [c.edge & 4, 16 - Y], [c.edge & 2, 16 - X], [c.edge & 8, X],
@@ -293,12 +337,28 @@ const snowPat: GroundPat = (X, Y, px, py, c) => {
       return b < t ? ramp(P.CYAN, 0) : ramp(P.WHITE, 0);
     }
   }
+  // v9 雪线锯齿：南/西邻为岩地 → 底缘犬牙状露岩（岩坡从雪被下探出）
+  const rk: Array<[number, number, number]> = [
+    [c.snow & 4, 16 - Y, X], [c.snow & 8, X, Y],
+  ];
+  for (const [e, d, along] of rk) {
+    if (!e) continue;
+    const tooth = Math.floor(along / 2.4);
+    const has = hash2(tooth, 45, 86) < 0.55;
+    const dep = 1.0 + hash2(tooth, 47, 87) * 2.6;
+    if (has && d < dep) {
+      const b = (BAYER8[(py & 7) * 8 + (px & 7)] + 0.5) / 64;
+      if (d > dep - 1.2 && b > 0.5) continue;
+      return b < 0.4 ? ramp(P.SIDE, 2) : ramp(P.SIDE, 1);
+    }
+  }
   // 雪面闪光 + 露出的灰岩（风蚀斑块）
   if (hash2(Math.floor(X), Math.floor(Y), 93) < 0.012) return ramp(P.CYAN, 0);
   if (hash2(Math.floor(X / 3), Math.floor(Y / 3), 94) < 0.025) return ramp(P.SIDE, 1);
   const n = vnoise(X / 5.2, Y / 5.2, 91 + c.variant);
   const drift = vnoise(X / 13, Y / 13, 92);
-  const v = 0.5 + (n - 0.5) * 0.2 + (drift - 0.5) * 0.34;
+  // v9b 雪面对比加强：drift 0.34→0.52（雪白/青灰/冷蓝三档读得出来）
+  const v = 0.5 + (n - 0.5) * 0.26 + (drift - 0.5) * 0.52;
   const q = dquant(v, px, py, 3);
   return q === 0 ? ramp(P.WHITE, 0) : ramp(P.PBLUE, q - 1);   // 雪白→青灰阴影
 };
@@ -584,6 +644,7 @@ export type GroundOpts = {
   edge?: number;    // 地形过渡掩码
   road?: number;    // 道路连接掩码
   frame?: number;   // 水面动画帧 0/1
+  snow?: number;    // v9 雪线过渡掩码
 };
 
 /** 生成（或取缓存）地面精灵 */
@@ -592,7 +653,8 @@ export function getGround(kind: GroundKind, o: GroundOpts = {}): Sprite {
   const edge = o.edge ?? 0;
   const road = o.road ?? 0;
   const frame = o.frame ?? 0;
-  const key = (KIND_IDX[kind] << 18) | (edge << 14) | (road << 10) | (variant << 6) | frame;
+  const snow = o.snow ?? 0;
+  const key = (KIND_IDX[kind] << 18) | (snow << 24) | (edge << 14) | (road << 10) | (variant << 6) | frame;
   const hit = cache.get(key);
   if (hit) return hit;
 
@@ -604,7 +666,7 @@ export function getGround(kind: GroundKind, o: GroundOpts = {}): Sprite {
   const ctx = cv.getContext('2d')!;
   const img = ctx.createImageData(W, H);
   const u32 = new Uint32Array(img.data.buffer);
-  const c: GroundCtx = { variant, edge, road, frame };
+  const c: GroundCtx = { variant, edge, road, frame, snow };
 
   for (let py = 0; py < H; py++) {
     for (let px = 0; px < W; px++) {
@@ -646,15 +708,20 @@ const cliffEarth: CliffPat = (px, py, depth, total, lit) => {
   // 顶檐：1px 亮草唇 + 草皮檐口（顶部 2.5px 草色）
   if (depth < 1) return ramp(P.GRASS, 1);
   if (depth < 2.5) return ramp(P.GRASS, Math.min(3, lit + 2));
-  // 崖脚：接地暗带（2.5px）+ 根须垂丝
-  if (depth > total - 2.5) {
+  // v9 崖脚：接地暗带加宽（3.6px）+ 根须垂丝 + 落石
+  if (depth > total - 3.6) {
     if (hash2(px, 3, 69) < 0.14 && (py & 1) === 0) return ramp(P.DIRT, 1);
+    if (hash2(px >> 1, py >> 1, 76) < 0.10) return ramp(P.SIDE, Math.min(2, lit + 1));  // v9 嵌石
     return ramp(P.DIRT, 2);
   }
   // 偶发石块嵌入
   if (hash2(px >> 1, py >> 1, 61) < 0.05) return ramp(P.SIDE, Math.min(2, lit + 1));
   // 根须（浅层深色细条纹）
   if (depth < 7 && hash2(px, 7, 62) < 0.10 && (py & 1) === 0) return ramp(P.DIRT, 2);
+  // v9 苔痕：土面零星苔绿点（背光侧更潮）
+  if (depth > 3 && depth < total - 4 && hash2(px, py >> 1, 75) < (lit ? 0.045 : 0.02)) {
+    return ramp(P.GRASS, 3);
+  }
   // 土层带：4.5px 分层 + 边界抖动 + 横向摆动；接缝加宽（1.4）对比更强
   const wob = Math.sin(px * 0.72) * 1.15;
   const band = Math.floor((depth + wob) / 4.5);
@@ -665,20 +732,39 @@ const cliffEarth: CliffPat = (px, py, depth, total, lit) => {
 const cliffRock: CliffPat = (px, py, depth, total, lit) => {
   // 顶檐：1px 亮石唇（受光側亮、背光側中灰）
   if (depth < 1) return ramp(P.SIDE, Math.min(1, lit));
-  // 崖脚崩积堆：暗色基座上撒亮色碎石（岩屑扇）
-  if (depth > total - 3.4) {
-    if (hash2(px >> 1, (py + 3) >> 1, 68) < 0.32) return ramp(P.SIDE, Math.min(1, lit));
+  // v9 崖脚崩积堆加宽（4.6px）：暗色基座 + 粗碎石扇（2×2 块）+ 底部埋土
+  if (depth > total - 4.6) {
+    if (depth > total - 1.8 && hash2(px >> 1, py >> 2, 79) < 0.5) return ramp(P.DIRT, 2);  // 崖底埋土
+    if (hash2(px >> 1, (py + 3) >> 1, 68) < 0.40) return ramp(P.SIDE, Math.min(1, lit));
+    if (hash2(px >> 1, (py + 1) >> 1, 78) < 0.16) return ramp(P.WHITE, 0);                // 亮砾
     return ramp(P.ASPH, 2);
   }
-  // 竖向裂纹（固定 x 位置的暗色断线）
+  // v9 层理：3.8px 三档色岩层带（亮/中/暗循环）+ 断层错位（每层独立水平偏移）
+  const band = Math.floor((depth + Math.sin(px * 0.55 + depth * 0.12) * 1.4) / 3.8);
+  const off = (hash2(band, 3, 72) - 0.5) * 2.6;                       // 断层错位量
+  const inBand = (depth + Math.sin(px * 0.55 + depth * 0.12) * 1.4 + off) % 3.8;
+  // 竖向节理（固定 x 位置的暗色断线，穿层）
   const cr = hash2(Math.floor(px / 4), 3, 63) < 0.22;
   if (cr && hash2(px, py >> 2, 64) < 0.5) return ramp(P.OUTLINE, 0);
-  // 坚硬岩层：3.6px 强对比两档（亮层 / 暗层交替，棱线分明）
-  const band = Math.floor((depth + Math.sin(px * 0.55 + depth * 0.12) * 1.4) / 3.6);
-  if (hash2(px >> 1, py >> 1, 65) < 0.035) return ramp(P.ASPH, 2);   // 暗色矿斑
-  return (band & 1) === 0
-    ? ramp(P.SIDE, Math.min(1, lit))     // 亮岩层
-    : ramp(P.SIDE, 2);                   // 暗岩层
+  // 暗色矿斑
+  if (hash2(px >> 1, py >> 1, 65) < 0.035) return ramp(P.ASPH, 2);
+  // v9 苔藓/灌木镶嵌：中下部背光缝隙里的墨绿簇（连 2 像素；v9b 密度上调）
+  if (depth > 4 && hash2(px >> 1, py >> 1, 73) < 0.07) {
+    if (hash2((px >> 1) + 1, py >> 1, 74) < 0.6) return ramp(P.PINE, lit);   // 2×1 草簇
+    return ramp(P.PINE, 2);
+  }
+  const layer3 = ((band % 3) + 3) % 3;
+  if (inBand < 1.0) {
+    // 层间暗缝（断层线）；v9b 越深处缝隙越宽（风化加深）
+    const deepW = 1.0 + (depth / Math.max(1, total)) * 0.5;
+    if (inBand < deepW) return ramp(P.ASPH, 2);
+    return ramp(P.SIDE, Math.min(1, lit));
+  }
+  // v9b 高度渐变：上部风化亮、深部潮湿暗（整体明度随 depth 下压 0/1 档）
+  const dim = depth > total * 0.66 ? 1 : 0;
+  if (layer3 === 0) return ramp(P.SIDE, Math.min(2, Math.min(1, lit) + dim));     // 亮岩层
+  if (layer3 === 1) return dim ? ramp(P.ASPH, 1) : ramp(P.SIDE, 2);               // 中暗岩层
+  return ramp(P.ASPH, Math.min(2, Math.max(0, lit) + dim));                       // 冷灰深层
 };
 
 const cliffSand: CliffPat = (px, _py, depth, total, lit) => {
@@ -709,18 +795,30 @@ const cliffDry: CliffPat = (px, py, depth, total, lit) => {
 
 const cliffSnow: CliffPat = (px, py, depth, total, lit) => {
   if (depth < 1) return ramp(P.WHITE, 0);          // 顶檐：纯雪亮唇
+  // v9 雪檐厚度：1~2px 亮白实体（表现积雪「盖」上去的厚度而非贴图）
+  if (depth < 2) {
+    const b = (BAYER8[(py & 7) * 8 + (px & 7)] + 0.5) / 64;
+    return b < 0.22 && depth > 1.4 ? ramp(P.PBLUE, 0) : ramp(P.WHITE, 0);
+  }
   if (depth < 4) {
     // 积雪檐：亮白 + 青灰抖动流痕
     const b = (BAYER8[(py & 7) * 8 + (px & 7)] + 0.5) / 64;
     return b < 0.18 && depth > 1.5 ? ramp(P.PBLUE, 0) : ramp(P.WHITE, 0);
+  }
+  // v9 悬冰/雪檐垂坠：檐下偶尔挂 1~2px 青白冰凌（断续犬牙）
+  if (depth < 6.5 && hash2(px >> 1, 0, 81) < 0.28) {
+    const icicle = 4 + hash2(px >> 1, 1, 82) * 2.4;
+    if (depth < icicle) return depth < icicle - 1.2 ? ramp(P.WHITE, 0) : ramp(P.CYAN, 0);
   }
   if (depth < 8) {
     // 冰壳过渡
     const b = (BAYER8[(py & 7) * 8 + (px & 7)] + 0.5) / 64;
     return b < (depth - 4) / 4 ? ramp(P.SIDE, Math.min(2, lit + 1)) : ramp(P.PBLUE, 0);
   }
-  // 深处岩体（雪檐下探 5px 后接岩层理）
-  return cliffRock(px, py, depth - 5, total - 5, lit);
+  // 深处岩体（雪檐下探 5px 后接岩层理）；v9 偶发岩尖刺破雪层
+  const deep = cliffRock(px, py, depth - 5, total - 5, lit);
+  if (hash2(px >> 2, (py + 7) >> 2, 83) < 0.035 && depth > 9) return ramp(P.SIDE, Math.min(1, lit));
+  return deep;
 };
 
 const CLIFF_PATS: Record<CliffStyle, CliffPat> = {
