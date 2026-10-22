@@ -19,7 +19,7 @@ export const REFUND_RATE = 0.5;          // 拆除建筑返还造价比例
 export const TAX_MIN = 0;
 export const TAX_MAX = 20;
 export const TAX_DEFAULT = 9;
-export const START_COINS = 380;
+export const START_COINS = 320;
 export const MAX_LEVEL = 12;
 export const LIFT_COST = 5;              // 抬升 / 降低地形每级
 export const WATER_COST = 12;            // 填海成陆 / 挖湖成水
@@ -90,6 +90,7 @@ export type EconDef = {
   foodCap?: number;   // 粮仓容量增量
   edu?: number;       // 教育容量（智慧指数供给）
   sp?: number;        // 科技点产量 /分
+  cul?: number;       // v8 文化点（文化指数供给：文旅/精神/地标类建筑）
   waterR?: number;    // v6 供水半径（格；水塔/净水厂）
   waterCap?: number;  // v6 供水容量（覆盖人口上限）
 };
@@ -97,13 +98,13 @@ export type EconDef = {
 const D = (
   cost: number, unlock: number,
   o: { earn?: number; power?: number; amenity?: number; pollute?: number; upk?: number;
-    food?: number; foodCap?: number; edu?: number; sp?: number;
+    food?: number; foodCap?: number; edu?: number; sp?: number; cul?: number;
     waterR?: number; waterCap?: number } = {},
 ): EconDef => ({
   cost, unlock,
   earn: o.earn ?? 0, power: o.power ?? 0,
   amenity: o.amenity ?? 0, pollute: o.pollute ?? 0, upk: o.upk ?? 0,
-  food: o.food, foodCap: o.foodCap, edu: o.edu, sp: o.sp,
+  food: o.food, foodCap: o.foodCap, edu: o.edu, sp: o.sp, cul: o.cul,
   waterR: o.waterR, waterCap: o.waterCap,
 });
 
@@ -120,58 +121,59 @@ export const ECON: Record<string, EconDef> = {
   nagaya: D(135, 6, { power: 4 }),
   minshuku: D(145, 6, { power: 3 }),
   // ---- 商业（岗位 = 目录 pop；earn 满员收入；upk 人力租金）----
-  shop: D(80, 1, { power: 3, earn: 4.5, upk: 1 }),
-  office: D(420, 4, { power: 10, earn: 22, upk: 4.8 }),
-  tower: D(1700, 9, { power: 26, earn: 62, upk: 11 }),
-  conv: D(70, 1, { power: 2, earn: 3.6, upk: 0.8 }),
-  hotel: D(1350, 7, { power: 22, earn: 48, upk: 8 }),
-  mall: D(1250, 7, { power: 24, earn: 44, upk: 9.7 }),
-  parking: D(100, 4, { power: 1, earn: 0.8, upk: 0.2 }),
-  izakaya: D(140, 4, { power: 3, earn: 6, upk: 1.3 }),
-  cinema: D(780, 6, { power: 12, earn: 24, upk: 3 }),
-  market: D(90, 2, { power: 2, earn: 3.8, upk: 0.85 }),
-  electown: D(300, 6, { power: 5, earn: 10, upk: 1.6 }),
-  ferris: D(550, 5, { power: 6, earn: 3, amenity: 2, upk: 1.4 }),
-  bakery: D(80, 2, { power: 2, earn: 4.2, upk: 0.95 }),
-  gas: D(170, 2, { power: 2, earn: 6, upk: 1.1 }),
-  ferry: D(720, 5, { power: 6, earn: 13, upk: 1.8 }),
-  // ---- 工业（污染；upk 设备折旧）----
-  factory: D(620, 5, { power: 14, earn: 32, pollute: 4, upk: 5.8 }),
-  warehouse: D(270, 6, { power: 6, earn: 10, pollute: 1, upk: 1.4 }),
-  tankfarm: D(210, 5, { power: 5, earn: 8, pollute: 2, upk: 1.2 }),
-  refinery: D(1050, 7, { power: 20, earn: 50, pollute: 6, upk: 9 }),
-  power: D(620, 4, { power: -120, pollute: 5, upk: 3.5 }),
-  lumber: D(230, 3, { power: 6, earn: 12, pollute: 2, upk: 2.2 }),
-  silo: D(140, 4, { power: 3, earn: 6, pollute: 1, upk: 1.1, food: 1.5, foodCap: 120 }),
+  // v8 紧平衡：收入 −7%、维护费 +20%（回本周期 18→24 分钟，更需经营头脑）
+  shop: D(80, 1, { power: 3, earn: 4.2, upk: 1.2 }),
+  office: D(420, 4, { power: 10, earn: 20, upk: 5.8 }),
+  tower: D(1700, 9, { power: 26, earn: 57, upk: 13 }),
+  conv: D(70, 1, { power: 2, earn: 3.3, upk: 1 }),
+  hotel: D(1350, 7, { power: 22, earn: 44, upk: 9.6 }),
+  mall: D(1250, 7, { power: 24, earn: 40, upk: 11.6 }),
+  parking: D(100, 4, { power: 1, earn: 0.75, upk: 0.25 }),
+  izakaya: D(140, 4, { power: 3, earn: 5.5, upk: 1.6 }),
+  cinema: D(780, 6, { power: 12, earn: 22, upk: 3.6, cul: 2 }),
+  market: D(90, 2, { power: 2, earn: 3.5, upk: 1 }),
+  electown: D(300, 6, { power: 5, earn: 9.2, upk: 1.9 }),
+  ferris: D(550, 5, { power: 6, earn: 2.7, amenity: 2, upk: 1.7, cul: 2 }),
+  bakery: D(80, 2, { power: 2, earn: 3.9, upk: 1.15 }),
+  gas: D(170, 2, { power: 2, earn: 5.5, upk: 1.3 }),
+  ferry: D(720, 5, { power: 6, earn: 12, upk: 2.2 }),
+  // ---- 工业（污染；upk 设备折旧）v8：收入 −5%、维护费 +15% ----
+  factory: D(620, 5, { power: 14, earn: 30, pollute: 4, upk: 6.7 }),
+  warehouse: D(270, 6, { power: 6, earn: 9.4, pollute: 1, upk: 1.6 }),
+  tankfarm: D(210, 5, { power: 5, earn: 7.5, pollute: 2, upk: 1.4 }),
+  refinery: D(1050, 7, { power: 20, earn: 47, pollute: 6, upk: 10.4 }),
+  power: D(620, 4, { power: -120, pollute: 5, upk: 4 }),
+  lumber: D(230, 3, { power: 6, earn: 11, pollute: 2, upk: 2.5 }),
+  silo: D(140, 4, { power: 3, earn: 5.6, pollute: 1, upk: 1.3, food: 1.5, foodCap: 120 }),
   windmill: D(160, 3, { power: -15, earn: 2, upk: 0.3, food: 1 }),
   greenhouse: D(170, 3, { power: 4, earn: 6.5, upk: 1.2, food: 5 }),
-  brewery: D(320, 4, { power: 8, earn: 11.5, pollute: 2, upk: 1.8 }),
-  dock: D(560, 8, { power: 10, earn: 22, pollute: 3, upk: 3 }),
-  // ---- 公共（宜居；upk 运营开支）----
-  park: D(55, 1, { amenity: 2, upk: 0.8 }),
-  plaza: D(85, 2, { power: 1, amenity: 3, upk: 1.2 }),
-  school: D(460, 5, { power: 8, amenity: 5, upk: 2, edu: 40, sp: 1.2 }),
-  library: D(320, 3, { power: 4, amenity: 3, upk: 1.4, edu: 35, sp: 2 }),
-  hospital: D(720, 6, { power: 12, amenity: 6, upk: 2.4 }),
-  temple: D(420, 6, { power: 2, amenity: 4, upk: 1.6, edu: 8 }),
-  stadium: D(1800, 9, { power: 16, amenity: 5, upk: 2 }),
-  radiotower: D(220, 5, { power: 4, amenity: 1, upk: 0.4, sp: 0.8 }),
-  monument: D(110, 3, { amenity: 3, upk: 1.2 }),
-  church: D(180, 4, { power: 1, amenity: 3, upk: 1.2 }),
-  museum: D(550, 7, { power: 6, amenity: 4, upk: 1.6, edu: 25, sp: 1.5 }),
-  firestation: D(240, 5, { power: 3, amenity: 3, upk: 1.2 }),
-  lighthouse: D(140, 8, { power: 1, amenity: 1, upk: 0.4 }),
-  castle: D(2200, 9, { power: 4, amenity: 3, upk: 1.2, edu: 5 }),
-  busstop: D(50, 1, { amenity: 2, upk: 0.5 }),
-  clocktower: D(150, 3, { power: 1, amenity: 2, upk: 0.8 }),
-  observatory: D(620, 7, { power: 5, amenity: 3, upk: 1.2, edu: 20, sp: 2.5 }),
-  torii: D(115, 5, { amenity: 2, upk: 0.8 }),
-  pavilion: D(75, 2, { amenity: 2, upk: 0.8 }),
-  aquarium: D(880, 8, { power: 10, amenity: 4, upk: 1.6, edu: 10, sp: 0.5 }),
-  cellmast: D(120, 7, { power: 2, upk: 0.2 }),
+  brewery: D(320, 4, { power: 8, earn: 10.8, pollute: 2, upk: 2.1 }),
+  dock: D(560, 8, { power: 10, earn: 20.5, pollute: 3, upk: 3.5 }),
+  // ---- 公共（宜居；upk 运营开支）v8：维护费 +25%（公共服务更烧钱）----
+  park: D(55, 1, { amenity: 2, upk: 1 }),
+  plaza: D(85, 2, { power: 1, amenity: 3, upk: 1.5, cul: 0.5 }),
+  school: D(460, 5, { power: 8, amenity: 5, upk: 2.5, edu: 40, sp: 1.2 }),
+  library: D(320, 3, { power: 4, amenity: 3, upk: 1.75, edu: 35, sp: 2 }),
+  hospital: D(720, 6, { power: 12, amenity: 6, upk: 3 }),
+  temple: D(420, 6, { power: 2, amenity: 4, upk: 2, edu: 8, cul: 2.5 }),
+  stadium: D(1800, 9, { power: 16, amenity: 5, upk: 2.5, cul: 2.5 }),
+  radiotower: D(220, 5, { power: 4, amenity: 1, upk: 0.5, sp: 0.8 }),
+  monument: D(110, 3, { amenity: 3, upk: 1.5, cul: 2 }),
+  church: D(180, 4, { power: 1, amenity: 3, upk: 1.5, cul: 2 }),
+  museum: D(550, 7, { power: 6, amenity: 4, upk: 2, edu: 25, sp: 1.5, cul: 4 }),
+  firestation: D(240, 5, { power: 3, amenity: 3, upk: 1.5 }),
+  lighthouse: D(140, 8, { power: 1, amenity: 1, upk: 0.5, cul: 1 }),
+  castle: D(2200, 9, { power: 4, amenity: 3, upk: 1.5, edu: 5, cul: 3 }),
+  busstop: D(50, 1, { amenity: 2, upk: 0.6 }),
+  clocktower: D(150, 3, { power: 1, amenity: 2, upk: 1, cul: 1 }),
+  observatory: D(620, 7, { power: 5, amenity: 3, upk: 1.5, edu: 20, sp: 2.5 }),
+  torii: D(115, 5, { amenity: 2, upk: 1, cul: 1.5 }),
+  pavilion: D(75, 2, { amenity: 2, upk: 1, cul: 1 }),
+  aquarium: D(880, 8, { power: 10, amenity: 4, upk: 2, edu: 10, sp: 0.5, cul: 3 }),
+  cellmast: D(120, 7, { power: 2, upk: 0.25 }),
   // ---- 水务（v6：供水覆盖指数）----
-  watertower: D(130, 2, { power: 2, amenity: 1, upk: 0.6, waterR: 9, waterCap: 260 }),
-  waterplant: D(860, 6, { power: 14, amenity: 2, upk: 3.2, waterR: 20, waterCap: 2200 }),
+  watertower: D(130, 2, { power: 2, amenity: 1, upk: 0.75, waterR: 9, waterCap: 260 }),
+  waterplant: D(860, 6, { power: 14, amenity: 2, upk: 4, waterR: 20, waterCap: 2200 }),
   // ---- 市政厅（经营模式核心，不可直接建造；自带水井供早期定居）----
   cityhall: D(0, 99, { power: -40, amenity: 2, edu: 10, sp: 0.3, waterR: 6, waterCap: 120 }),
 };
@@ -393,10 +395,17 @@ export const ACHIEVEMENTS: AchvDef[] = [
   { id: 'harbor', name: '港湾灯影', desc: '建造渡轮码头，船舶鸣笛出港', icon: 'land', goal: 1, val: s => s.ferries },
 ];
 
-/** 需特定科技才可建造的建筑 */
+/** 需特定科技才可建造的建筑
+ *  v8 扩充：科技真正决定城市发展上限 —— 港航设施需物流网络，
+ *  文旅地标需城市名片，大型结构需建筑工程学，学术设施需高等教育 */
 export const TECH_GATE: Record<string, string> = {
   refinery: 'metal',
   tower: 'struct', restower: 'struct', danchi: 'struct', hiapart: 'struct',
+  castle: 'struct', stadium: 'struct',
+  observatory: 'higher',
+  aquarium: 'brand',
+  dock: 'logistic',
+  brewery: 'metal',
 };
 
 export function costOf(id: string): number { return ECON[id]?.cost ?? 0; }
@@ -458,45 +467,45 @@ export const QUESTS: Quest[] = [
   { id: 'ind1', title: '工业时代', hint: '建造 1 座工业建筑', goal: 1,
     val: s => s.ind, rG: 165, rXp: 85 },
   { id: 'food1', title: '仓廪之始', hint: '建造 1 座温室大棚（粮食供养市民，缺粮会饥荒）', goal: 1,
-    val: s => s.hasGreen, rG: 200, rXp: 95 },
+    val: s => s.hasGreen, rG: 160, rXp: 95 },
   { id: 'b15', title: '初具规模', hint: '城市拥有 15 栋建筑', goal: 15,
     val: s => s.buildings, rG: 195, rXp: 100 },
   { id: 'land1', title: '开疆拓土', hint: '购买 1 块新领地（点击金色虚线框）', goal: 5,
-    val: s => s.chunks, rG: 220, rXp: 110 },
+    val: s => s.chunks, rG: 175, rXp: 110 },
   { id: 'pop250', title: '熙熙攘攘', hint: '人口达到 250 人', goal: 250,
-    val: s => s.pop, rG: 300, rXp: 130 },
+    val: s => s.pop, rG: 240, rXp: 130 },
   { id: 'school1', title: '书香之城', hint: '建造一所学校（提升智慧指数）', goal: 1,
-    val: s => s.hasSchool, rG: 280, rXp: 125 },
+    val: s => s.hasSchool, rG: 225, rXp: 125 },
   { id: 'lib1', title: '知识的殿堂', hint: '建造一座图书馆（教育容量 +35，科技点 +2/分）', goal: 1,
-    val: s => s.hasLib, rG: 320, rXp: 135 },
+    val: s => s.hasLib, rG: 255, rXp: 135 },
   { id: 'water1', title: '清泉入户', hint: '建造 1 座水塔（覆盖半径内的住宅才有自来水，缺水会拖累幸福与迁入）', goal: 1,
-    val: s => s.hasWaterTower, rG: 240, rXp: 115 },
+    val: s => s.hasWaterTower, rG: 190, rXp: 115 },
   { id: 'bus2', title: '公交开线', hint: '建逑2 座巴士站（需邻接道路）：两站即自动开通巴士环线，交通指数 +8 起', goal: 2,
-    val: s => s.busStops, rG: 260, rXp: 125 },
+    val: s => s.busStops, rG: 210, rXp: 125 },
   { id: 'tech1', title: '科技之光', hint: '在科技研究院研究第一项科技（顶部「科」指标进入）', goal: 1,
-    val: s => s.techsN, rG: 350, rXp: 150 },
+    val: s => s.techsN, rG: 280, rXp: 150 },
   { id: 'bridge1', title: '跨水长虹', hint: '在水面上修路会自动架桥（15G/格），累计架设 4 格跨水桥', goal: 4,
-    val: s => s.bridgeTiles, rG: 380, rXp: 160 },
+    val: s => s.bridgeTiles, rG: 305, rXp: 160 },
   { id: 'ferry1', title: '扬帆起航', hint: '在水畔建逑1 座渡轮码头（需邻接水面）：自有渡轮出港巡游，冬季冰封停航', goal: 1,
-    val: s => s.ferries, rG: 420, rXp: 170 },
+    val: s => s.ferries, rG: 335, rXp: 170 },
   { id: 'hap70', title: '安居乐业', hint: '幸福度达到 70（多建公园与公共设施）', goal: 70,
-    val: s => s.happiness, rG: 340, rXp: 140 },
+    val: s => s.happiness, rG: 270, rXp: 140 },
   { id: 'hosp1', title: '仁心仁术', hint: '建造一座医院（健康指数保障城市运转）', goal: 1,
-    val: s => s.hasHospital, rG: 370, rXp: 150 },
+    val: s => s.hasHospital, rG: 295, rXp: 150 },
   { id: 'water80', title: '甘霖普惠', hint: '供水覆盖率达到 80%（水塔半径有限，大城市需要净水厂）', goal: 80,
-    val: s => s.waterIdx, rG: 460, rXp: 185 },
+    val: s => s.waterIdx, rG: 370, rXp: 185 },
   { id: 'employ', title: '人尽其才', hint: '就业率达到 90%（岗位要多过劳动力：商业与工业都提供岗位）', goal: 90,
-    val: s => s.employIdx, rG: 420, rXp: 170 },
+    val: s => s.employIdx, rG: 335, rXp: 170 },
   { id: 'pop800', title: '城市脉搏', hint: '人口达到 800 人', goal: 800,
-    val: s => s.pop, rG: 520, rXp: 200 },
-  { id: 'tower1', title: '触摸天际', hint: '建造一座摩天大楼', goal: 1,
-    val: s => s.hasTower, rG: 600, rXp: 230 },
+    val: s => s.pop, rG: 415, rXp: 200 },
+  { id: 'tower1', title: '触摸天际', hint: '建造一座摩天大楼（需先在科技研究院研究「建筑工程学」）', goal: 1,
+    val: s => s.hasTower, rG: 480, rXp: 230 },
   { id: 'land9', title: '纵横捭阖', hint: '领地达到 9 块', goal: 9,
-    val: s => s.chunks, rG: 750, rXp: 260 },
+    val: s => s.chunks, rG: 600, rXp: 260 },
   { id: 'rating', title: '金字招牌', hint: '城市综合评级达到 A（80 分）—— 幸福/宜居/粮食/就业/环境/健康/安全/交通全维度均衡', goal: 80,
-    val: s => s.rating, rG: 900, rXp: 280 },
+    val: s => s.rating, rG: 720, rXp: 280 },
   { id: 'pop2500', title: '都市之父', hint: '人口达到 2500 人 —— 终极成就！', goal: 2500,
-    val: s => s.pop, rG: 1100, rXp: 330 },
+    val: s => s.pop, rG: 880, rXp: 330 },
 ];
 
 // ------------------------------------------------------------
@@ -542,6 +551,8 @@ export type EconView = {
   bridgeTiles: number;
   // ---- v7：公交 / 航运 ----
   busStops: number; ferries: number; busBonus: number;
+  // ---- v8：文化 / 科研指数 ----
+  cultureSup: number; cultureNeed: number; cultureIdx: number; sciIdx: number;
 };
 
 export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
@@ -570,6 +581,8 @@ type Snap = QS & {
   waterIdx: number; waterCapT: number;
   // ---- v7：公交 / 航运 ----
   busStops: number; ferries: number; busBonus: number;
+  // ---- v8：文化 / 科研指数 ----
+  cultureSup: number; cultureNeed: number; cultureIdx: number; sciIdx: number;
 };
 
 export class Tycoon {
@@ -757,7 +770,7 @@ export class Tycoon {
     while (this.level < MAX_LEVEL && this.xp >= xpNeed(this.level)) {
       this.xp -= xpNeed(this.level);
       this.level++;
-      const bonus = this.level * 40;
+      const bonus = this.level * 26;
       this.coins += bonus;
       const un = unlockNames(this.level);
       this.sfx?.('level');
@@ -773,7 +786,7 @@ export class Tycoon {
     let powerSup = 0, powerDem = 0, amenitySup = 0, pollute = 0;
     let res = 0, com = 0, ind = 0, civ = 0, park = 0, buildings = 0;
     let hasPower = 0, hasSchool = 0, hasHospital = 0, hasTower = 0;
-    let hasLib = 0, hasGreen = 0, foodProd = 0, foodCap = FOOD_BASE_CAP, eduCap = 0, spRaw = 0;
+    let hasLib = 0, hasGreen = 0, foodProd = 0, foodCap = FOOD_BASE_CAP, eduCap = 0, spRaw = 0, culSup = 0;
     let hospitals = 0, firestations = 0;
     let hasWaterTower = 0, waterCapT = 0;
     let busStops = 0, ferries = 0;
@@ -834,6 +847,8 @@ export class Tycoon {
       if (e?.foodCap) foodCap += e.foodCap;
       if (e?.edu) eduCap += e.edu * (o.id === 'school' && this.has('compul') ? 1.4 : 1);
       if (e?.sp) spRaw += e.sp;
+      // v8 文化点：城市名片科技让文旅建筑供给 +25%
+      if (e?.cul) culSup += e.cul * (this.has('brand') ? 1.25 : 1);
     }
     // 科技倍率
     if (this.has('irrig')) foodProd *= 1.3;
@@ -929,6 +944,19 @@ export class Tycoon {
     // 智慧：教育容量覆盖人口的比率（图书馆 / 学校 / 博物馆…）
     const wisdom = Math.max(0, Math.min(100, Math.round(60 * eduCap / Math.max(pop, 15))));
 
+    // ---- v8 文化指数：文旅供给 vs 人口需求（每 22 人 1 文化点为满配）----
+    const cultureNeed = Math.ceil(pop / 22);
+    const cultureSup = culSup;
+    const cultureIdx = pop < 2
+      ? 80
+      : Math.max(0, Math.min(100, Math.round(100 * Math.min(1, cultureSup / Math.max(1, cultureNeed)))));
+
+    // ---- v8 科研指数：智慧（教育覆盖）与科技产出率的综合 ----
+    //   spRate = spRaw × (0.5 + wisdom/100)：科研速率；0.55×智慧 + 0.45×产出
+    const spRateNow = spRaw * (0.5 + wisdom / 100);
+    const sciIdx = Math.max(0, Math.min(100, Math.round(
+      0.55 * wisdom + 0.45 * Math.min(100, spRateNow * 15))));
+
     // ---- v6 供水覆盖：半径内住宅人口占比 × 总容量/总人口 ----
     let waterIdx = 100;
     if (pop >= 2 && resList.length) {
@@ -953,19 +981,23 @@ export class Tycoon {
     const rl = map.road;
     for (let i = 0; i < rl.length; i++) if (rl[i] === 2) bridgeTiles++;
 
-    // 幸福 v6：八维加权（宜居 26 / 粮食 16 / 就业 13 / 供水 12 / 环境 10 / 健康 8 / 安全 7 / 交通 8）
+    // 幸福 v8：九维加权（宜居 24 / 粮食 15 / 就业 12 / 供水 11 / 文化 9 / 环境 9 /
+    //   健康 7 / 安全 6 / 交通 7；权重和 = 100）
     //   + 税率情绪 + 饥荒打击；v5 + 事件 / 天气情绪；v6 + 季节情绪
     const famineHit = famine ? (this.has('granary') ? 12 : 25) : 0;
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
-      0.26 * livability + 0.16 * foodIdx + 0.13 * jobIdx + 0.12 * waterIdx + 0.10 * envIdx +
-      0.08 * healthIdx + 0.07 * safetyIdx + 0.08 * trafficIdx + mood + weatherHap + eventHap + seasonHap - famineHit)));
+      0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
+      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap - famineHit)));
     const happyMult = 0.6 + happiness / 125;
 
-    // 城市评级 v6：十维综合（权重和 = 1；S≥90 / A≥80 / B≥70 / C≥55 / D≥40）
+    // 城市评级 v8：十二维综合（权重和 = 1；S≥90 / A≥80 / B≥70 / C≥55 / D≥40）
+    //   幸福 0.20 / 宜居 0.12 / 粮 0.10 / 就业 0.10 / 供水 0.075 / 智慧 0.07 /
+    //   文化 0.07 / 环境 0.08 / 健康 0.06 / 安全 0.05 / 交通 0.035 / 科研 0.04
     const rating = Math.max(0, Math.min(100, Math.round(
-      0.22 * happiness + 0.13 * livability + 0.11 * foodIdx + 0.11 * jobIdx + 0.08 * waterIdx +
-      0.09 * wisdom + 0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.04 * trafficIdx)));
+      0.20 * happiness + 0.12 * livability + 0.10 * foodIdx + 0.10 * jobIdx + 0.075 * waterIdx +
+      0.07 * wisdom + 0.07 * cultureIdx + 0.08 * envIdx + 0.06 * healthIdx + 0.05 * safetyIdx +
+      0.035 * trafficIdx + 0.04 * sciIdx)));
 
     let chunks = 0;
     for (let i = 0; i < this.own.length; i++) chunks += this.own[i];
@@ -986,6 +1018,7 @@ export class Tycoon {
       weather: { kind: wt.kind, t: wt.t },
       season: this.season, seasonHap,
       waterCapT,
+      cultureSup, cultureNeed, cultureIdx, sciIdx,
     };
   }
 
@@ -1203,6 +1236,11 @@ export class Tycoon {
       busStops: s?.busStops ?? 0,
       ferries: s?.ferries ?? 0,
       busBonus: s?.busBonus ?? 0,
+      // ---- v8 ----
+      cultureSup: s?.cultureSup ?? 0,
+      cultureNeed: s?.cultureNeed ?? 0,
+      cultureIdx: s?.cultureIdx ?? 80,
+      sciIdx: s?.sciIdx ?? 0,
     };
   }
 
@@ -1386,11 +1424,11 @@ export class Tycoon {
     const tax = this.pop * (this.taxRate / 100) * (this.has('taxref') ? 1.15 : 1) * s.happyMult * s.powerMult;
     const com = s.earnCom * (this.has('finhub') ? 1.15 : 1) * s.staffing * s.powerMult;
     const perMin = tax + com + s.earnInd * s.staffing * s.powerMult - s.upk;
-    const earned = Math.floor(Math.max(0, perMin) * mins * 0.35);
+    const earned = Math.floor(Math.max(0, perMin) * mins * 0.30);
     if (earned > 0) this.coins += earned;
-    // 离线粮仓同步（35% 速率结算，不出饥荒惩罚）
-    this.food = Math.max(0, Math.min(s.foodCap, this.food + s.foodNet * mins * 0.35));
-    this.sp += s.spRaw * (0.5 + s.wisdom / 100) * (this.has('higher') ? 1.35 : 1) * mins * 0.35;
+    // 离线粮仓同步（30% 速率结算，不出饥荒惩罚）
+    this.food = Math.max(0, Math.min(s.foodCap, this.food + s.foodNet * mins * 0.30));
+    this.sp += s.spRaw * (0.5 + s.wisdom / 100) * (this.has('higher') ? 1.35 : 1) * mins * 0.30;
     this.save(map);
     return earned;
   }

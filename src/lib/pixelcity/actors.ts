@@ -1151,9 +1151,10 @@ export class ActorSystem {
     const carK = 0.45 + 0.55 * this.dayness;         // 车辆夜间回落至 0.45
     if (this.pedAuto) {
       // 经营模式：行人密度随实际人口增长（1 人 ≈ 0.33 名路人，直观反馈城市脉动）
+      // v8 修复「荒地开局行人消失」：人口 0-8 时保底 3 名拓荒者（需先修路才会出现）
       // 沙盒模式：按建筑容量自适应
       const base = this.popNow !== null
-        ? Math.floor(this.popNow / 3)
+        ? Math.max(3, Math.floor(this.popNow / 3))
         : Math.max(10, Math.min(ActorSystem.PED_AUTO_MAX, 10 + Math.floor(st.pop / 60)));
       this.targetP = base <= 0 ? 0 : Math.max(4, Math.round(base * nightK));
     } else {

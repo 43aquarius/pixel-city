@@ -224,7 +224,7 @@ function toolHint(t: Tool): string {
     case 'road': return '按住拖出路网，转角自动拼接';
     case 'lift': return '上帝之手：抬升地形造山（海拔 0→1 为填海成陆；经营模式 5G/级）';
     case 'sink': return '上帝之手：降低地形挖谷（海拔 1→0 化为水域；经营模式 5G/级）';
-    case 'doze': return '拆除建筑 / 道路 / 树木：经营模式返还造价 50%，道路与树木近全额返还';
+    case 'doze': return '拆除建筑 / 道路 / 树木：左键点击或拖拽连拆 · 任意工具下右键点击也可快速拆除 · 经营模式返还造价 50%，道路与树木近全额返还';
     case 'build': {
       const d = defById(t.id);
       return `点击放置「${d.name}」占地 ${d.w}×${d.h}${d.pop ? ` · 容纳 ${d.pop} 人` : ''}`;
@@ -893,7 +893,7 @@ export default function PixelCity() {
         <div className="pxc-gbody">
           <div style={{ fontSize: 11, lineHeight: 1.7, color: '#3d434e' }}>
             <b style={{ color: '#8a6d1a' }}>经营模式</b>：上帝视角从一块荒地起步 —— 修路建房、人口迁入、电力供需、
-            十维民生指数（幸福/宜居/粮食/就业/供水/环境/健康/安全/交通/智慧）、可调税率与城市评级、16 项四分支科技树、购地扩张、任务引导与等级解锁（沙盒模式随时切换）；
+            十二维民生指数（幸福/宜居/粮食/就业/供水/文化/环境/健康/安全/交通/智慧/科研）、可调税率与城市评级、16 项四分支科技树（科研决定发展上限）、购地扩张、任务引导与等级解锁（沙盒模式随时切换）；
             <b style={{ color: '#8a6d1a' }}>四季轮转</b>（春樱/夏绿/秋红/冬雪：树冠换装、冬季封冻、春粮/秋收/冬暖用电的经济联动）与
             <b style={{ color: '#8a6d1a' }}>水务系统</b>（水塔/净水厂覆盖供水，缺水拖累幸福与迁入）、
             <b style={{ color: '#8a6d1a' }}>跨水大桥</b>（水面修路自动架桥，天堑变通途）；
@@ -1084,11 +1084,15 @@ export default function PixelCity() {
                 <img src={iu('drop')} alt="" /><b>{econ.waterIdx}%</b>
               </button>
               <button className="chip" onClick={() => openModal('data')}
+                title={`文化指数：文旅供给 ${rinc(econ.cultureSup)} / 需求 ${econ.cultureNeed}（神社/教堂/博物馆/影院/钟楼等提升）—— 点击打开城市志`}>
+                <img src={iu('star')} alt="" /><b>{econ.cultureIdx}%</b>
+              </button>
+              <button className="chip" onClick={() => openModal('data')}
                 title={`就业率：劳动力 ${econ.workers} 人 / 岗位 ${econ.jobs} 个（多建商业与工业提供岗位）—— 点击打开城市志`}>
                 <img src={iu('job')} alt="" /><b>{econ.employIdx}%</b>
               </button>
               <button className={`chip rgrade rgrade-${econ.ratingGrade}`} onClick={() => openModal('data')}
-                title={`城市评级：${econ.rating} 分（${econ.ratingGrade} 级）—— 幸福/宜居/粮食/就业/智慧/环境/健康/安全/交通九维加权（点击打开城市志）`}>
+                title={`城市评级：${econ.rating} 分（${econ.ratingGrade} 级）—— 幸福/宜居/粮食/就业/环境/供水/智慧/文化/健康/安全/科研/交通十二维加权（点击打开城市志）`}>
                 <img src={iu('medal')} alt="" /><b>{econ.ratingGrade}</b><i>{econ.rating}</i>
               </button>
               {(() => {
@@ -1397,6 +1401,14 @@ export default function PixelCity() {
                       <td>交通指数</td>
                       <td>{econ.trafficIdx} / 100（道路 {Math.round(econ.trafficIdx * (econ.buildings * 3) / 100)} / 需求 {econ.buildings * 3} 格{econ.busBonus > 0 ? ` · 公交 +${econ.busBonus}` : ''}）</td>
                     </tr>
+                    <tr className={econ.cultureIdx < 40 ? 'bad' : ''}>
+                      <td>文化指数</td>
+                      <td>{econ.cultureIdx} / 100（文旅供给 {rinc(econ.cultureSup)} / 需求 {econ.cultureNeed} —— 神社/教堂/博物馆/影院等提升）</td>
+                    </tr>
+                    <tr className={econ.sciIdx < 30 ? 'bad' : ''}>
+                      <td>科研指数</td>
+                      <td>{econ.sciIdx} / 100（智慧 ×55% + 科技产出 ×45%）</td>
+                    </tr>
                     <tr className={econ.busStops > 0 ? 'g' : ''}>
                       <td>公共交通</td>
                       <td>{econ.busStops >= 2 ? `巴士环线运转中（车站 ${econ.busStops} 座）` : econ.busStops === 1 ? '仅 1 座车站 —— 再建一座即开通环线' : '无 —— 两座邻路巴士站开通公交'}</td>
@@ -1424,6 +1436,7 @@ export default function PixelCity() {
                       <td>粮食净额</td><td>{rincS(econ.foodNet)} 粮/分</td>
                     </tr>
                     <tr><td>智慧指数</td><td>{econ.wisdom} / 100（教育容量 {econ.eduCap}）</td></tr>
+                    <tr><td>科研指数</td><td>{econ.sciIdx} / 100（决定城市发展潜力：影响评级与解锁节奏）</td></tr>
                     <tr><td>科技点</td><td>{fmtG(econ.sp)} SP（+{rinc(econ.spRate)}/分）</td></tr>
                     <tr><td>已研究科技</td><td>{econ.techs.length} / {TECHS.length} 项</td></tr>
                   </tbody></table>
@@ -1582,7 +1595,7 @@ export default function PixelCity() {
                 <div className="dmeta">
                   <div className="dl">城市综合评级（S≥90 · A≥80 · B≥70 · C≥55 · D≥40）</div>
                   <div className="dw">
-                    幸福 22% · 宜居 13% · 粮食 11% · 就业 11% · 供水 8% · 智慧 9% · 环境 9% · 健康 7% · 安全 6% · 交通 4%
+                    幸福 20% · 宜居 12% · 粮食 10% · 就业 10% · 环境 8% · 供水 7.5% · 智慧 7% · 文化 7% · 健康 6% · 安全 5% · 科研 4% · 交通 3.5%
                   </div>
                   <div className="dr">
                     城市年龄 {(() => {
@@ -1596,7 +1609,7 @@ export default function PixelCity() {
 
               <div className="pxc-dgrid">
                 <section>
-                  <h3>十维民生指数（0-100）</h3>
+                  <h3>十二维民生指数（0-100）</h3>
                   <div className="ibars">
                     {([
                       ['幸福度', econ.happiness, '#F2D24B'],
@@ -1604,11 +1617,13 @@ export default function PixelCity() {
                       ['粮食安全', Math.round(65 + 35 * Math.min(1, econ.food / Math.max(1, econ.foodCap)) * (econ.foodNet < 0 ? 0.5 : 1)), '#E8CC4C'],
                       ['就业率', econ.employIdx, '#4A86C8'],
                       ['供水', econ.waterIdx, '#6FA8DC'],
+                      ['文化', econ.cultureIdx, '#C97B93'],
                       ['环境', econ.envIdx, '#79B45C'],
                       ['健康', econ.healthIdx, '#E05548'],
                       ['安全', econ.safetyIdx, '#6FA8DC'],
                       ['交通', econ.trafficIdx, '#CFB379'],
                       ['智慧', econ.wisdom, '#C6D3DE'],
+                      ['科研', econ.sciIdx, '#9F86E8'],
                     ] as Array<[string, number, string]>).map(([name, v, c]) => (
                       <div className="ibar" key={name}>
                         <span>{name}</span>

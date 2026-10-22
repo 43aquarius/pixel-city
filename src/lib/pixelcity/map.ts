@@ -295,6 +295,9 @@ export class CityMap {
     this.occ.fill(-1);
     this.h.fill(0);
     this.objs.clear();
+    // v8 主山脊参数：脊线随机挑一侧 + 随机蜿蜒相位（同一种子生成完全一致）
+    const ridgeSide = hash2(1, 7, seed) < 0.5 ? -1 : 1;
+    const ridgePhase = hash2(3, 9, seed) * Math.PI * 2;
     for (let y = 0; y < n; y++) {
       for (let x = 0; x < n; x++) {
         const i = this.idx(x, y);
@@ -304,10 +307,28 @@ export class CityMap {
         const e = fbm(x / 13.5, y / 13.5, seed);                       // 基础起伏（水系）
         const lift = Math.max(0, 0.22 - dc * 0.5);                     // 中心抬升：出生点为陆地
         const v = e + lift;
+        // ---- v8 主山脊：一条沿对角线绵延的真实山脉 ----
+        // 对角坐标系：t 沿脊线方向 / p 垂直脊线（单位 = 地图半对角），
+        // 脊线中心线 p0(t) = side·(0.40 + 正弦蜿蜒 + fbm 蜿蜒)，随种子随机挑一侧。
+        // 高斯衰减 σ=0.085 → 山脊有清晰的麓-坡-脊过渡；脊线上叠加锐化脊噪声
+        // 雕出主峰与垭口，摆脱旧版散点"土包山"的塑料感。
+        const t = (x + y) / (2 * n);
+        const p = (x - y) / (2 * n);
+        const p0 = ridgeSide * (0.40
+          + 0.06 * Math.sin(t * Math.PI * 2.6 + ridgePhase)
+          + (fbm(t * 5.5, 3.3, seed ^ 0x8A31) - 0.5) * 0.14);
+        const dp = p - p0;
+        const ridgeGAUSS = Math.exp(-(dp * dp) / (2 * 0.085 * 0.085));
+        // 域扭曲脊噪声：输入坐标经低频 fbm 扰动 → 脊线自然蜿蜒、支脉斜出
+        const wxx = x / 23 + 500 + (fbm(x / 31, y / 31, seed ^ 0xD0D0) - 0.5) * 1.9;
+        const wyy = y / 23 + 500 + (fbm(x / 31 + 77, y / 31 + 77, seed ^ 0xD1D1) - 0.5) * 1.9;
+        const rg = 1 - Math.abs(2 * fbm(wxx, wyy, seed ^ 0x71D6) - 1);
+        const ridgeDetail = Math.pow(rg, 1.6);
+        const mainRidge = ridgeGAUSS * (5.5 + 5.0 * ridgeDetail);
         // 山脊噪声（锐化）：只在外围成山，越远越高；v4 幂 1.7→2.2 —— 山脊线更嶙峋、棱线更分明
-        const rg = 1 - Math.abs(2 * fbm(x / 23 + 500, y / 23 + 500, seed ^ 0x71D6) - 1);
         const mFac = Math.max(0, Math.min(1, (dc - 0.16) / 0.30));     // 环径 0.16 以内不出山
-        const mtn = Math.pow(rg, 2.2) * mFac * (10 + 3 * fbm(x / 40 + 900, y / 40 + 900, seed ^ 0x3D3D));
+        const mtn = Math.pow(rg, 2.2) * mFac * (10 + 3 * fbm(x / 40 + 900, y / 40 + 900, seed ^ 0x3D3D))
+          + mainRidge;                                                 // v8：散岭 + 主脊叠加
         // 缓丘：低海拔的柔和起伏（1..3 级）
         const hill = Math.max(0, (v - 0.36)) * 9 + fbm(x / 18 + 700, y / 18 + 700, seed ^ 0x9ACD) * 2.2;
 

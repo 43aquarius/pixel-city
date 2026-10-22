@@ -9,7 +9,7 @@ import {
 } from './patterns';
 import { RAMP } from './palette';
 import { mulberry32 } from './rng';
-import { roofDeck, chimney, waterTank, acUnit, type BuildResult } from './b_util';
+import { roofDeck, chimney, waterTank, acUnit, antenna, type BuildResult } from './b_util';
 
 const P = RAMP;
 
@@ -46,6 +46,9 @@ export function genHouse(seed: number): BuildResult {
     const cx = x0 + 2.2, cy = y0 + 2.2;
     chimney(faces, cx, cy, h - 1, h + rise - 1.5, 2.2);
     smokeAt = [cx + 1.1, cy + 1.1, h + rise - 1.5];
+  } else if (r() < 0.55) {
+    // v8：屋顶电视天线（无烟囱房 55% 架天线，屋顶轮廓更错落有致）
+    antenna(faces, x1 - 2.6, y0 + 2.6, h + rise - 0.8, h + rise + 3.6);
   }
   return { model: buildModel(faces, 16, 16), smokeAt };
 }

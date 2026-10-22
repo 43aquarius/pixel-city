@@ -1451,6 +1451,32 @@ export class Engine {
         // ---- v4 高度光照：海拔提亮（大气光）+ 崖脚投影（接触阴影）----
         {
           const lv = m.h[i];
+          // ---- v8 坡向光照：东南坡受光提亮 / 西北坡背光压暗 → 山体立体感 ----
+          // 参照 Caesar III 的坡面明暗：面向光源（东/南邻更高 = 本格在下坡）
+          // 整面提亮；背光（西/北邻更高）整面压暗，山脊棱线自然浮现
+          const hW2 = m.inB(tx - 1, ty) ? m.h[m.idx(tx - 1, ty)] : -1;
+          const hN2 = m.inB(tx, ty - 1) ? m.h[m.idx(tx, ty - 1)] : -1;
+          const hE2 = m.inB(tx + 1, ty) ? m.h[m.idx(tx + 1, ty)] : -1;
+          const hS2 = m.inB(tx, ty + 1) ? m.h[m.idx(tx, ty + 1)] : -1;
+          const litA = Math.min(0.17, Math.max(0, (Math.max(hE2, hS2) - lv) * 0.042));
+          const darkA = Math.min(0.15, Math.max(0, (Math.max(hW2, hN2) - lv) * 0.034));
+          if (litA - darkA > 0.012 || darkA - litA > 0.012) {
+            if (litA > darkA) {
+              ctx.globalAlpha = litA - darkA;
+              ctx.fillStyle = PALETTE[64];
+            } else {
+              ctx.globalAlpha = darkA - litA;
+              ctx.fillStyle = PALETTE[65];
+            }
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(sx + 16, sy + 8);
+            ctx.lineTo(sx, sy + 16);
+            ctx.lineTo(sx - 16, sy + 8);
+            ctx.closePath();
+            ctx.fill();
+            ctx.globalAlpha = 1;
+          }
           if (lv >= 4) {
             // 高原顶面提亮：越高越亮（2.5D 俯视参照 SimCity 2000 / Caesar III 的高地明暗分层）
             ctx.globalAlpha = Math.min(0.34, (lv - 3) * 0.052);
@@ -1465,8 +1491,6 @@ export class Engine {
             ctx.globalAlpha = 1;
           }
           // 崖脚投影：东/南邻格更高 → 本格顶面沿共享边压暗（接地接触阴影）
-          const hE2 = m.inB(tx + 1, ty) ? m.h[m.idx(tx + 1, ty)] : -1;
-          const hS2 = m.inB(tx, ty + 1) ? m.h[m.idx(tx, ty + 1)] : -1;
           if (hE2 > lv || hS2 > lv) {
             ctx.globalAlpha = 0.28;
             ctx.strokeStyle = PALETTE[65];
@@ -2208,6 +2232,11 @@ export class Engine {
         this.painting = false;
         this.panning = false;
         this.lastTile = null;
+        // v8 右键快速拆除：位移 < 6px 的右键点击 → 拆除悬停格（拖拽仍是平移）
+        if (pe.button === 2 && this.downCss) {
+          const dist = Math.hypot(pe.clientX - this.downCss.x, pe.clientY - this.downCss.y);
+          if (dist < 6) this.quickDoze(pe);
+        }
         this.tryClickSpecial(pe);
         this.downCss = null;
       }
@@ -2257,6 +2286,57 @@ export class Engine {
   private floatAt(tx: number, ty: number, text: string, color: string): void {
     if (this.floats.length > 24) this.floats.shift();
     this.floats.push({ x: tx + 0.5, y: ty + 0.5, t0: performance.now(), text, color });
+  }
+
+  /** v8：拆除一格（doze 工具与右键快速拆除共用入口）
+   *  经营模式：建筑返还 50% 造价 · 道路/桥/树近全额返还；市政厅不可拆 */
+  private dozeAt(tx: number, ty: number): void {
+    const eco = this.tycoon;
+    let refundId: string | null = null;
+    let isRoad = false, isTree = false, isBridge = false;
+    if (this.map.inB(tx, ty)) {
+      const i = this.map.idx(tx, ty);
+      const a = this.map.occ[i];
+      if (a >= 0) {
+        const o = this.map.objs.get(a)!;
+        if (eco && o.id === 'cityhall') {
+          if (!this.dragMode) { eco.msg?.('市政厅是城市的心脏，不可拆除'); this.beeper.play('error'); }
+          return;
+        }
+        refundId = o.id;
+      } else if (this.map.tree[i] >= 0) isTree = true;
+      else if (this.map.road[i]) { isRoad = true; isBridge = this.map.road[i] === 2; }
+    }
+    if (this.map.bulldoze(tx, ty)) {
+      this.beeper.play('delete');
+      this.puffAt(tx, ty, !!refundId);
+      if (eco) {
+        eco.dozed++;
+        if (refundId) {
+          const back = eco.refundBuild(refundId);
+          this.floatAt(tx, ty, `+${back}G`, '#F2D24B');
+          if (!this.dragMode) eco.msg?.(`拆除 ${defById(refundId).name}：返还 ${back}G（造价 ${Math.round(REFUND_RATE * 100)}%）`);
+        } else if (isRoad) {
+          this.floatAt(tx, ty, `+${eco.refundRoad(isBridge)}G`, '#F2D24B');
+        } else if (isTree) {
+          this.floatAt(tx, ty, `+${eco.refundTree()}G`, '#F2D24B');
+        }
+      }
+    }
+  }
+
+  /** v8：右键快速拆除 —— 任意工具下右键点击（非拖拽）目标格即拆
+   *  拖拽右键仍是平移画布；空格无地上物时不响应（防误触） */
+  private quickDoze(pe: PointerEvent): void {
+    const display = this.display;
+    if (!display) return;
+    const rect = display.getBoundingClientRect();
+    const { tx, ty } = this.tileAt(pe.clientX - rect.left, pe.clientY - rect.top);
+    if (!this.map.inB(tx, ty)) return;
+    const i = this.map.idx(tx, ty);
+    if (this.map.occ[i] < 0 && this.map.tree[i] < 0 && !this.map.road[i]) return;
+    this.pushUndo();
+    this.dozeAt(tx, ty);
   }
 
   private applyToolAt(tx: number, ty: number): void {
@@ -2346,37 +2426,7 @@ export class Engine {
         break;
       }
       case 'doze': {
-        let refundId: string | null = null;
-        let isRoad = false, isTree = false, isBridge = false;
-        if (this.map.inB(tx, ty)) {
-          const i = this.map.idx(tx, ty);
-          const a = this.map.occ[i];
-          if (a >= 0) {
-            const o = this.map.objs.get(a)!;
-            if (eco && o.id === 'cityhall') {
-              if (!this.dragMode) { eco.msg?.('市政厅是城市的心脏，不可拆除'); this.beeper.play('error'); }
-              return;
-            }
-            refundId = o.id;
-          } else if (this.map.tree[i] >= 0) isTree = true;
-          else if (this.map.road[i]) { isRoad = true; isBridge = this.map.road[i] === 2; }
-        }
-        if (this.map.bulldoze(tx, ty)) {
-          this.beeper.play('delete');
-          this.puffAt(tx, ty, !!refundId);
-          if (eco) {
-            eco.dozed++;
-            if (refundId) {
-              const back = eco.refundBuild(refundId);
-              this.floatAt(tx, ty, `+${back}G`, '#F2D24B');
-              if (!this.dragMode) eco.msg?.(`拆除 ${defById(refundId).name}：返还 ${back}G（造价 ${Math.round(REFUND_RATE * 100)}%）`);
-            } else if (isRoad) {
-              this.floatAt(tx, ty, `+${eco.refundRoad(isBridge)}G`, '#F2D24B');
-            } else if (isTree) {
-              this.floatAt(tx, ty, `+${eco.refundTree()}G`, '#F2D24B');
-            }
-          }
-        }
+        this.dozeAt(tx, ty);
         break;
       }
       case 'build': {
