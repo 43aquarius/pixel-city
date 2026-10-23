@@ -22,6 +22,7 @@ import {
   type EconView, type HistPoint,
 } from '@/lib/pixelcity/tycoon';
 import type { CitzCard } from '@/lib/pixelcity/citizens';
+import { ERAS } from '@/lib/pixelcity/chronicle';
 import { Tutorial, TUT_STEPS } from '@/lib/pixelcity/tutorial';
 
 const ICON_NAMES = [
@@ -35,7 +36,7 @@ const ICON_NAMES = [
   'wheat', 'book', 'flask', 'heart', 'up', 'down', 'job', 'medal',
   'sun', 'cloud', 'rain', 'snoww',
   'spr', 'sum', 'fall', 'win', 'drop', 'bridge',
-  'camera', 'box', 'fire', 'shield', 'mail', 'fest',
+  'camera', 'box', 'fire', 'shield', 'mail', 'fest', 'scroll',
 ];
 
 type Phase = 'loading' | 'ready';
@@ -70,6 +71,14 @@ const DENSITIES: Array<{ v: number; label: string; desc: string }> = [
   { v: 0.8, label: '适中', desc: '推荐密度：疏密有致' },
   { v: 1.05, label: '繁华', desc: '高密度：接近无空隙的都市' },
 ];
+
+/** v17 编年史筛选匹配（all / bad 灾祸 / good 喜讯含科技节庆 / 其余按分类） */
+function chronMatch(x: { cat: string; tone: string }, f: string): boolean {
+  if (f === 'all') return true;
+  if (f === 'bad') return x.cat === 'event' && x.tone === 'bad';
+  if (f === 'good') return (x.cat === 'event' && x.tone === 'good') || x.cat === 'tech' || x.cat === 'fest';
+  return x.cat === f;
+}
 
 /** 城市志历史曲线（复古像素风：色板取色 + 点阵网格 + 整数坐标） */
 function HistChart({ data, field, color, label, unit }: {
@@ -245,7 +254,9 @@ export default function PixelCity() {
   const [hover, setHover] = useState<{ tx: number; ty: number } | null>(null);
   const [fps, setFps] = useState(0);
   const [zoom, setZoom] = useState(2);
-  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'fest'>('none');
+  /** v17 城市编年史：筛选器（all / 分类） */
+  const [chronFilter, setChronFilter] = useState<string>('all');
+  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'fest' | 'chron'>('none');
   const [econ, setEcon] = useState<EconView | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
@@ -529,7 +540,7 @@ export default function PixelCity() {
     }
   }, [say]);
 
-  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'fest') => {
+  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'fest' | 'chron') => {
     if (m === 'save') {
       setSlotMeta([0, 1, 2].map(i => Engine.slotMeta(i)));
     }
@@ -1160,6 +1171,10 @@ export default function PixelCity() {
                       ? `城市节庆：需市政厅 LV${econ.festLv} 解锁 —— 按季节举办樱花祭/花火大会/丰收节/暖灯节`
                       : `城市节庆：随时可办「${FESTS[econ.season].name}」（${FESTS[econ.season].desc}）`}>
                 <img src={iu('fest')} alt="" /><b>{econ.fest ? `${econ.fest.left}s` : econ.festCount}</b><i>庆</i>
+              </button>
+              <button className="chip" onClick={() => openModal('chron')}
+                title={`城市编年史：在册 ${econ.chron.n} 笔纪事（累计 ${econ.chron.total} 笔）· 当前纪元「${econ.chron.eraName}」—— 开埠奠基、时代跃迁、灾祸喜讯、科技节庆与里程碑，都记在这本城市之书里`}>
+                <img src={iu('scroll')} alt="" /><b>{econ.chron.n}</b><i>史</i>
               </button>
               <div className={`chip${econ.powerDem > econ.powerSup ? ' warn' : ''}`}
                 title={`电力：供给 ${econ.powerSup}MW / 需求 ${econ.powerDem}MW${econ.powerDem > econ.powerSup ? ' —— 缺电！收入大幅打折' : ''}`}>
@@ -1921,6 +1936,73 @@ export default function PixelCity() {
               <div className="fest-note">
                 节日随季节轮转（每季 4 分钟）：春天樱吹雪、夏天夜花火、秋天金叶满街、冬天孔明灯升空 ——
                 办节提振幸福与市面，也是市民大事记里的高光时刻；连办四季解锁成就「四季轮庆」
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* v17 城市编年史模态（经营模式） */}
+      {modal === 'chron' && econ && (
+        <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
+          <div className="pxc-modal pxc-chron" role="dialog" aria-label="城市编年史">
+            <header>
+              城 市 编 年 史
+              <button className="pxc-x" onClick={() => setModal('none')} aria-label="关闭">×</button>
+            </header>
+            <div className="pxc-body">
+              {/* 纪元带：五纪元，当前高亮 */}
+              <div className="chron-era" role="list" aria-label="城市纪元">
+                {ERAS.map((e, k) => (
+                  <div key={k} role="listitem"
+                    className={`ce-cell${k === econ.chron.era ? ' now' : ''}${k < econ.chron.era ? ' past' : ''}`}>
+                    <b>{e.name}</b>
+                    <span>{k === 0 ? '开埠' : `${e.pop} 人`}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="chron-meta">
+                <span>开埠第 <b>{econ.chron.day}</b> 天</span>
+                <span>在册 <b>{econ.chron.n}</b> 笔</span>
+                <span>累计 <b>{econ.chron.total}</b> 笔</span>
+                <span>当前纪元「<b>{econ.chron.eraName}</b>」</span>
+              </div>
+              {/* 筛选器 */}
+              <div className="chron-filters" role="tablist" aria-label="纪事筛选">
+                {[
+                  ['all', '全部'], ['era', '纪元'], ['bad', '灾祸'], ['good', '喜讯'],
+                  ['tech', '科技'], ['fest', '节庆'], ['ord', '政令'], ['mile', '里程碑'],
+                ].map(([k, label]) => {
+                  const on = chronFilter === k;
+                  const n = econ.chron.entries.filter(x => chronMatch(x, k)).length;
+                  return (
+                    <button key={k} role="tab" aria-selected={on}
+                      className={`cf-chip${on ? ' on' : ''}`}
+                      onClick={() => setChronFilter(k)}>{label}·{n}</button>
+                  );
+                })}
+              </div>
+              {/* 时间线（新 → 旧） */}
+              <div className="chron-line">
+                {econ.chron.entries
+                  .filter(x => chronMatch(x, chronFilter))
+                  .slice().reverse().map(x => (
+                    <div key={x.id} className={`cl-e ${x.tone}`}>
+                      <span className="cl-day">第{String(x.day).padStart(2, '0')}天</span>
+                      <img src={iu(x.icon)} alt="" width={14} height={14} />
+                      <div className="cl-tx">
+                        <b>{x.title}</b>
+                        <p>{x.text}</p>
+                      </div>
+                    </div>
+                  ))}
+                {!econ.chron.entries.some(x => chronMatch(x, chronFilter)) && (
+                  <div className="cl-empty">此卷尚无纪事 —— 城市的故事还在前面。</div>
+                )}
+              </div>
+              <div className="chron-note">
+                编年史随城市生长自动落笔：开埠奠基、迈入新时代、灾祸与救险、科技与节庆、人口与府库的里程碑；
+                在册最多 140 笔，最久远的往事会沉入档库，但「累计笔数」永远记得
               </div>
             </div>
           </div>

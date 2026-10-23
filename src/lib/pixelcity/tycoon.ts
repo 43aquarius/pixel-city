@@ -7,6 +7,7 @@
 import { defById, CATALOG, ATTRACT } from './catalog';
 import { CityMap, TERR_GRASS } from './map';
 import { CitizenRegistry, type CitzView, type MailView } from './citizens';
+import { Chronicle, EV_ICON, eraOfPop, type ChronView } from './chronicle';
 
 export const CHUNK = 16;                 // 领地块边长（格）
 export const CHUNKS = 16;                // 256 / 16 = 16×16 块领地
@@ -474,6 +475,11 @@ export const ACHIEVEMENTS: AchvDef[] = [
   // ---- v15 家书馆 ----
   { id: 'penpal8', name: '见字如面', desc: '在市长信箱回信 8 封（顶栏「邮」——市民来信有求助有感谢，回信能影响他们的心情）', icon: 'mail',
     goal: 8, val: (_s, t) => t.citz.replyCount },
+  // ---- v17 城市编年史 ----
+  { id: 'chron60', name: '汗青永续', desc: '编年史累计记下 60 笔城市纪事（开埠/时代跃迁/事件/科技/节庆/法令/里程碑皆入册）', icon: 'book',
+    goal: 60, val: (_s, t) => t.chron.total },
+  { id: 'era3', name: '世代名城', desc: '城市迈入第四纪元「一方城市」（人口达 400）', icon: 'city',
+    goal: 3, val: (_s, t) => t.chron.maxEra },
 ];
 
 /** 需特定科技才可建造的建筑
@@ -595,6 +601,8 @@ export type QS = {
   citzN: number; citzTotal: number;
   // ---- v16 城市节庆 ----
   festN: number;
+  // ---- v17 城市编年史 ----
+  chronN: number;
 };
 
 export type Quest = {
@@ -684,6 +692,9 @@ export const QUESTS: Quest[] = [
   // ---- v16 城市节庆 ----
   { id: 'fest1', title: '万人空巷', hint: '举办一场城市节庆（市政厅 LV3 后，顶栏「庆」指标按当前季节筹备节日：樱花祭/花火大会/丰收节/暖灯节，各有 90 秒全城增益与专属街景）', goal: 1,
     val: s => s.festN, rG: 380, rXp: 170 },
+  // ---- v17 城市编年史 ----
+  { id: 'chron1', title: '以史为鉴', hint: '编年史累计记下 12 笔城市纪事（开埠/时代跃迁/灾祸喜讯/科技/节庆/法令/里程碑皆会入册 —— 顶栏「史」指标翻开城市之书）', goal: 12,
+    val: s => s.chronN, rG: 360, rXp: 160 },
 ];
 
 // ------------------------------------------------------------
@@ -756,6 +767,8 @@ export type EconView = {
   festCost: number;      // 当前筹备费
   festLock: boolean;     // 市政厅等级不足
   festLv: number;        // 门槛等级
+  // ---- v17：城市编年史 ----
+  chron: ChronView;
 };
 
 export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
@@ -884,6 +897,12 @@ export class Tycoon {
   /** 举办过的节日种类（成就「四季轮庆」） */
   festKinds = new Set<number>();
 
+  // ---- v17：城市编年史 ----
+  /** 编年史（纪事滑窗 + 纪元 + 里程碑去重） */
+  chron = new Chronicle();
+  /** 累计游戏小时（engine 每帧随昼夜时钟回写；编年史纪日用，随档保存） */
+  gHours = 0;
+
   // ---- v13：市民列传（名人册 / 生活大事记 / 市民之声）----
   citz = new CitizenRegistry();
 
@@ -909,6 +928,9 @@ export class Tycoon {
     this.sfx?.('festival');
     this.msg?.(`✦「${f.name}」开幕！${f.desc}（历时 ${f.dur} 秒，全城同庆）`);
     this.citz.onCityEvent('fest' + kind, this.playtime);   // 市民史册：开幕式
+    // v17：编年史 —— 节庆盛典入册
+    this.chron.write('fest', 'good', 'fest', `「${f.name}」开幕`,
+      `${f.desc} 全城张灯结彩，市民涌上街头共赴这场当季之约（累计第 ${this.festCount} 场）。`, this.gHours);
     return 'ok';
   }
 
@@ -923,6 +945,9 @@ export class Tycoon {
       this.ords.add(id);
       this.sfx?.('level');
       this.msg?.(`颁布「${o.name}」：${o.desc}${o.cost > 0 ? `（行政开支 ${o.cost}G/分）` : ''}`);
+      // v17：编年史 —— 新政颁布入册
+      this.chron.write('ord', 'info', 'flag', `新政「${o.name}」`,
+        `${o.desc}${o.cost > 0 ? `（行政开支 ${o.cost}G/分）` : ''}`, this.gHours);
       return 'on';
     }
     this.ords.delete(id);
@@ -969,6 +994,9 @@ export class Tycoon {
     this.addXp(30 + t.tier * 15);
     this.sfx?.('tech');   // v14：科技研究完成音
     this.msg?.(`研究完成「${t.name}」：${t.desc}`);
+    // v17：编年史 —— 科技入册
+    this.chron.write('tech', 'good', 'flask', '文明进阶',
+      `研究院传来捷报 ——「${t.name}」研究完成：${t.desc}`, this.gHours);
     return 'ok';
   }
 
@@ -1396,6 +1424,7 @@ export class Tycoon {
       kobans, rescueFire: this.rescueFire, rescueAid: this.rescueAid,
       citzN: this.citz.roster.length, citzTotal: this.citz.total,   // v13 市民列传
       festN: this.festCount,                                        // v16 城市节庆
+      chronN: this.chron.total,                                     // v17 城市编年史
       eventHap, eventAmenity, multCom, multInd, multFood, multPower, multTraffic, multSp,
       weather: { kind: wt.kind, t: wt.t },
       season: this.season, seasonHap,
@@ -1524,6 +1553,17 @@ export class Tycoon {
       } else break;
     }
 
+    // ---- v17：城市编年史 —— 纪元跃迁 + 里程碑巡检 ----
+    const eraUp = this.chron.survey({
+      pop: this.pop, rating: s.rating, buildings: s.buildings,
+      chunks: s.chunks, coins: this.coins,
+    }, this.gHours);
+    if (eraUp >= 1) {
+      const ERAS_NAME = ['炊烟村庄', '市井小镇', '一方城市', '摩登都会'];
+      this.sfx?.('achieve');
+      this.msg?.(`城市迈入新纪元 ——「${ERAS_NAME[eraUp - 1]}」（编年史已记下这一笔）`);
+    }
+
     // ---- v5：随机事件调度（人口 ≥ 30 后启动；最多同时 2 个）----
     this.eventTimer -= dt;
     if (this.eventTimer <= 0) {
@@ -1621,6 +1661,9 @@ export class Tycoon {
     this.eventLog.push({ t: stamp, name: pick.name, kind: pick.kind, result });
     if (this.eventLog.length > 12) this.eventLog.splice(0, this.eventLog.length - 12);
     this.citz.onCityEvent(pick.key, this.playtime);   // v13：市民反应写入个人史册
+    // v17：编年史 —— 灾祸喜讯入册
+    this.chron.write('event', pick.kind, EV_ICON[pick.key] ?? 'flag', pick.name,
+      `${pick.note}${result ? ' —— ' + result : ''}`, this.gHours);
 
     if (pick.dur > 0) {
       this.events.push({
@@ -1750,6 +1793,8 @@ export class Tycoon {
       festCost: this.festCost(),
       festLock: this.level < FEST_LV,
       festLv: FEST_LV,
+      // ---- v17：城市编年史 ----
+      chron: this.chron.view(),
     };
   }
 
@@ -1820,6 +1865,11 @@ export class Tycoon {
     this.festCd = 0;
     this.festCount = 0;
     this.festKinds.clear();
+    // v17：城市编年史重置 + 开埠纪事
+    this.gHours = 0;
+    this.chron.reset();
+    this.chron.write('era', 'big', 'city', '开埠建城',
+      '拓荒者抵达这片无名之地，在荒原正中竖起市政厅的第一根梁柱。城市的故事，从此落笔。', 0);
     // v11 出口市场重置
     this.mkt = 1;
     this.mktPrev = 1;
@@ -1873,6 +1923,9 @@ export class Tycoon {
       festCd: Math.round(this.festCd),
       festCount: this.festCount,
       festKinds: [...this.festKinds],
+      // v17：城市编年史
+      chron: this.chron.serialize(),
+      gHours: Math.round(this.gHours * 10) / 10,
       hall: [this.hall.x, this.hall.y],
       own, last: Date.now(),
       map: map.serialize(),
@@ -1980,6 +2033,16 @@ export class Tycoon {
     for (const k of (d.festKinds as number[]) ?? []) {
       if (k >= 0 && k <= 3) this.festKinds.add(k);
     }
+    // v17：累计游戏小时恢复（旧档给 0；离线期间不计日）+ 编年史恢复（旧档无记录 → 补「旧卷续写」开篇）
+    this.gHours = Math.max(0, Number(d.gHours) || 0);
+    if (!this.chron.restore(d.chron)) {
+      this.chron.reset();
+      this.chron.era = eraOfPop(this.pop);
+      this.chron.maxEra = this.chron.era;
+      this.chron.write('era', 'info', 'book', '旧卷续写',
+        '尘封的旧档重新翻开 —— 这座城市的过往散佚在风里，从今天起由编年史官一笔笔记下。',
+        this.gHours);
+    }
     const hall = d.hall as [number, number] | undefined;
     this.hall = { x: hall?.[0] ?? 127, y: hall?.[1] ?? 127 };
     this.own.fill(0);
@@ -2008,6 +2071,11 @@ export class Tycoon {
     const perMin = tax + com + s.earnInd * s.staffing * s.powerMult + tourInc + expInc - s.upk - s.ordCost;
     const earned = Math.floor(Math.max(0, perMin) * mins * 0.30);
     if (earned > 0) this.coins += earned;
+    // v17：市长归来纪事（离线进账可观时入册）
+    if (earned >= 90) {
+      this.chron.write('mile', 'good', 'coin', '市长归来',
+        `市长外出考察归来，市面井然运转 —— 离线期间进账 ${earned}G。`, this.gHours);
+    }
     // 离线粮仓同步（30% 速率结算，不出饥荒惩罚）
     this.food = Math.max(0, Math.min(s.foodCap, this.food + s.foodNet * mins * 0.30));
     this.sp += s.spRaw * (0.5 + s.wisdom / 100) * (this.has('higher') ? 1.35 : 1) * mins * 0.30;
@@ -2062,6 +2130,7 @@ export class Tycoon {
   resolveEvent(key: string): boolean {
     const ev = this.events.find(e => e.key === key);
     if (!ev) return false;
+    const saveG = ev.pendG ?? 0, saveP = ev.pendP ?? 0;   // v17：入册前留存
     if (ev.pendG && ev.pendG > 0) {
       this.msg?.(`应急响应及时，挽回 ${ev.pendG}G 损失！`);
       ev.pendG = 0;
@@ -2074,6 +2143,13 @@ export class Tycoon {
     if (key === 'fire') this.rescueFire++;
     if (key === 'plague') this.rescueAid++;
     this.citz.onRescue(key === 'fire' ? 'fire' : 'plague', this.playtime);   // v13：英雄入册
+    // v17：编年史 —— 救险入册
+    this.chron.write('event', 'good', key === 'fire' ? 'fire' : 'heart',
+      key === 'fire' ? '烈火英雄' : '妙手回春',
+      key === 'fire'
+        ? `消防车队鸣笛赶到，架梯引水扑灭烈焰${saveG > 0 ? `、挽回 ${saveG}G 损失` : ''} —— 围观市民夹道鼓掌。`
+        : `救护车及时赶到疫区，白衣天使接管了病床${saveP > 0 ? `，${saveP} 位市民免于病退` : ''}。`,
+      this.gHours);
     this.sfx?.('rescue');   // v14：应急到场扫弦
     return true;
   }

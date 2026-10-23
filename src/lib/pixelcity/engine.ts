@@ -1008,6 +1008,7 @@ export class Engine {
       this.timeOfDay = (this.timeOfDay + dh) % 24;
       this.recomputeDayNight();
       this.stepSeason(dh);              // v6：季节时钟随昼夜同步轮转
+      if (this.tycoon) this.tycoon.gHours += dh;   // v17：编年史纪日（游戏小时累计，随倍速缩放）
     }
     this.actors.dayness = 1 - this.dayNight.dark;
     this.actors.winterIce = this.season === 3;   // v7：冬季冰封 → 船舶归航
