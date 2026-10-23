@@ -94,6 +94,26 @@ export const SEC_R: Record<string, number> = {
 export const SEC_HAP_MAX = 6;
 /** 治安盲区商铺收入乘数（失窃风险摊薄：夜里留灯也不敢摆露天摊） */
 export const SEC_EARN_K = 0.92;
+// ---- v24 消防空间化：烈火雄心 · 消防之城 ----
+/** 各消防设施的水网半径（切比雪夫，自锤点起算）。
+ *  消防局 5 / 消防栓 2 / 市政厅 2（早期聚落市政厅附设手压泵井）。
+ *  半径外的建筑＝消防盲区：商铺火险保费摊薄收入 ×0.95、住宅住得不安心（幸福 −1.0/栋至多 −5）、
+ *  起火后火势增长快一倍且是火灾事件的偏爱现场 */
+export const FIRE_R: Record<string, number> = {
+  firestation: 5, hydrant: 2, cityhall: 2,
+};
+/** 消防盲区住宅幸福惩罚上限（−1.0/栋） */
+export const FIRE_HAP_MAX = 5;
+/** 消防盲区商铺收入乘数（火险保费摊薄） */
+export const FIRE_EARN_K = 0.95;
+/** 火灾起火热势（火头初燃） */
+export const FIRE_HEAT0 = 0.35;
+/** 火势增速/秒：水网覆盖区（消防栓水压压制）与盲区 */
+export const FIRE_HEAT_IN = 0.012;
+export const FIRE_HEAT_OUT = 0.026;
+/** 蔓延判定间隔（秒）与蔓延搜索半径（切比雪夫：火头跳邻栋） */
+export const FIRE_SPREAD_T = 5.5;
+export const FIRE_SPREAD_R = 2;
 
 /** v21 垃圾产量（件/分）：住宅按人口、商业按营收、工业按污染规模推导；
  *  环卫设施自产归零（自家的账自家清）；市政厅/公园等 pop=0 公共设施天然零产。 */
@@ -249,6 +269,7 @@ export const ECON: Record<string, EconDef> = {
   church: D(180, 4, { power: 1, amenity: 3, upk: 1.5, cul: 2 }),
   museum: D(550, 7, { power: 6, amenity: 4, upk: 2, edu: 25, sp: 1.5, cul: 4 }),
   firestation: D(240, 5, { power: 3, amenity: 3, upk: 1.5 }),
+  hydrant: D(45, 2, { upk: 0.2 }),   // v24 消防栓：半径 2 消防覆盖（廉价延伸）
   koban: D(140, 2, { power: 1, amenity: 1, upk: 0.8 }),   // v12 交番：安全护盾 + 巡逻车
   policehq: D(550, 5, { power: 4, amenity: 3, upk: 2.2 }),   // v23 警察局：巡防半径 6 + 常驻 2 辆巡逻车 + 失窃出警
   ecotower: D(720, 6, { power: 8, amenity: 2, upk: 2.4 }),  // v19 空气净化塔：半径 5 格强净化
@@ -350,6 +371,14 @@ export type ActiveEvent = {
   /** v12 两段结算：延迟到事件结束的余损（应急车到场则豁免） */
   pendG?: number; pendP?: number;
   fx?: { x: number; y: number };
+  /** v24 火灾实景：火势强度（0.35 起步，随时间增长；水网覆盖区增速减半） */
+  heat?: number;
+  /** v24 已蔓延栋数（火头跳楼：fx 移到新着火建筑） */
+  spreadN?: number;
+  /** v24 蔓延判定倒计时（秒） */
+  spreadT?: number;
+  /** v24 应急到场标记（火势冻结、蔓延停止） */
+  resolved?: boolean;
 };
 
 export type EventLogItem = { t: number; name: string; kind: 'good' | 'bad'; result: string };
@@ -380,6 +409,21 @@ const EVENT_TPLS: EventTpl[] = [
     mult: {}, fx: true, resp: 'fire',
     note: '一栋建筑失火！消防车赶到可免大部分损失',
     w: s => (t => t ? (s.firestations > 0 ? 6 : 15) : 0)(s.pop >= 40),
+    // v24：火灾偏爱消防盲区（水枪够不着的角落烧得最快）；全覆盖则退回已购随机建筑
+    fxPick: (map, t) => {
+      const cands = [...map.objs.values()].filter(o => o.id !== 'cityhall' &&
+        t.ownedAt(o.ax, o.ay) && t.fireMissField.has(map.idx(o.ax, o.ay)));
+      if (cands.length) {
+        const o = cands[(Math.random() * cands.length) | 0];
+        return { x: o.ax, y: o.ay };
+      }
+      const owned = [...map.objs.values()].filter(o => o.id !== 'cityhall' && t.ownedAt(o.ax, o.ay));
+      if (owned.length) {
+        const o = owned[(Math.random() * owned.length) | 0];
+        return { x: o.ax, y: o.ay };
+      }
+      return undefined;
+    },
     fire: (t, s, bill) => {
       // v12 两段结算：即时 40% + 余款挂账（消防车到场扑灭则豁免）
       const cut = s.firestations > 0 ? 0.35 : 1;
@@ -647,6 +691,11 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 95, val: (s, t) => (t.pop >= 100 ? s.secCover : 0) },
   { id: 'sleuth', name: '神探手记', desc: '巡逻车及时破案 5 起（店铺失窃时就近出警：设施务必邻路且路网连通现场 —— 人赃并获追回余款）', icon: 'shield',
     goal: 5, val: s => s.rescuePolice },
+  // ---- v24 消防空间化 ----
+  { id: 'firewall', name: '铜墙铁壁', desc: '人口 ≥100 且消防覆盖 ≥95% —— 水网铺到每条街巷（消防半径：消防局 5 格 · 消防栓 2 格；市政厅自带泵井）', icon: 'fire',
+    goal: 95, val: (s, t) => (t.pop >= 100 ? s.fireCover : 0) },
+  { id: 'blaze5', name: '烈火雄心', desc: '消防车及时扑灭 5 场火灾（起火偏爱消防盲区且会蔓延：设施务必邻路且路网连通现场 —— 到场即架枪，余损全免）', icon: 'fire',
+    goal: 5, val: s => s.rescueFire },
 ];
 
 /** 需特定科技才可建造的建筑
@@ -809,6 +858,12 @@ export type QS = {
   secMissRes: number;   // 盲区住宅栋数（幸福惩罚源：住得提心吊胆）
   policehqN: number;    // 警察局座数
   rescuePolice: number; // 巡逻车破案数（成就口径）
+  // ---- v24 消防空间化 ----
+  fireCover: number;    // 消防覆盖率 %（水网内商铺+住宅+工业 / 全部）
+  fireIn: number;       // 水网内建筑栋数（商铺+住宅+工业）
+  fireOut: number;      // 消防盲区栋数（商铺+住宅+工业）
+  fireMissRes: number;  // 盲区住宅栋数（幸福惩罚源：睡不安稳）
+  hydrants: number;     // 消防栓座数
 };
 
 export type Quest = {
@@ -921,6 +976,9 @@ export const QUESTS: Quest[] = [
   // ---- v23 治安空间化 ----
   { id: 'sec1', title: '守望相助', hint: '建造 1 座警察局（巡防半径 6 格，交班仅 3 格）：半径内商铺与住宅自动纳入巡防 —— 盲区商铺夜里会遭梁上君子光顾，巡逻车还会就近出警追回失窃货款', goal: 1,
     val: s => s.policehqN, rG: 300, rXp: 150 },
+  // ---- v24 消防空间化 ----
+  { id: 'fire1', title: '有备无患', hint: '建造 1 座消防栓（半径 2 格消防覆盖）：消防局的廉价延伸，把街区拐角补进水网 —— 盲区建筑一旦起火，火势蔓延更快、损失更重', goal: 1,
+    val: s => s.hydrants, rG: 180, rXp: 90 },
 ];
 
 // ------------------------------------------------------------
@@ -955,7 +1013,7 @@ export type EconView = {
   hist: HistPoint[];
   // ---- v5：天气 / 事件 / 成就 ----
   weather: WeatherState;
-  events: Array<{ key: string; name: string; note: string; kind: 'good' | 'bad'; left: number; dur: number }>;
+  events: Array<{ key: string; name: string; note: string; kind: 'good' | 'bad'; left: number; dur: number; spreadN?: number; heat?: number }>;
   eventLog: EventLogItem[];
   achv: Array<{ id: string; name: string; desc: string; icon: string; got: boolean; cur: number; goal: number }>;
   achvGot: number;
@@ -1033,6 +1091,12 @@ export type EconView = {
   gradTotal: number;                // 累计升学人次
   // ---- v23：治安空间化 ----
   secCover: number;                 // 巡防覆盖率 %
+  // ---- v24 消防空间化 ----
+  fireCover: number;                // 消防覆盖率 %
+  fireIn: number;                   // 水网内建筑栋数
+  fireOut: number;                  // 消防盲区栋数
+  fireMissRes: number;              // 盲区住宅栋数
+  hydrants: number;                 // 消防栓座数
   secIn: number;                    // 巡防内建筑栋数（商铺+住宅）
   secOut: number;                   // 盲区建筑栋数（商铺+住宅）
   crimeN: number;                   // 盲区商铺数（失窃目标池）
@@ -1239,6 +1303,13 @@ export class Tycoon {
   private secVer = -1;
   /** 盲区警告（一档一次，覆盖后复位） */
   private secWarned = false;
+  // ---- v24：消防空间化（烈火雄心 · 消防之城）----
+  /** 水网覆盖内建筑锤点集合（商铺+住宅+工业；引擎盲区渲染判定） */
+  fireField = new Set<number>();
+  /** 消防盲区建筑锤点集合（商铺+住宅+工业；起火偏爱现场 / 幸福与收入惩罚源） */
+  fireMissField = new Set<number>();
+  /** 消防场缓存版本（仅随 map.version 变化重算：摆盘即重算） */
+  private fireVer = -1;
   /** v23 巡逻车破案数（成就口径，随档保存） */
   rescuePolice = 0;
   /** v23 警察局数（engine 每帧读取折算巡逻编制） */
@@ -1459,6 +1530,8 @@ export class Tycoon {
     this.ensureEdu(map);
     // v23：巡防覆盖场先行（盲区商铺折扣 / 犯罪目标池 / 幸福惩罚；仅随摆盘重算）
     this.ensureSec(map);
+    // v24：消防覆盖场先行（盲区商铺折扣 / 起火偏爱现场 / 幸福惩罚；仅随摆盘重算）
+    this.ensureFire(map);
     let cap = 0, jobs = 0, earnCom = 0, earnInd = 0, upk = 0;
     let powerSup = 0, powerDem = 0, amenitySup = 0, pollute = 0;
     let res = 0, com = 0, ind = 0, civ = 0, park = 0, buildings = 0;
@@ -1478,6 +1551,8 @@ export class Tycoon {
     let primaries = 0, universities = 0, eduIn = 0, eduOut = 0;
     // v23：治安累计器
     let secIn = 0, secOut = 0, crimeN = 0, secMissRes = 0, policehqN = 0;
+    // v24：消防累计器
+    let fireIn = 0, fireOut = 0, fireMissRes = 0, hydrants = 0;
     // v10：货物 / 旅游累计器
     let goodsP = 0, goodsC = 0, goodsCapV = GOODS_BASE_CAP;
     let hotelBeds = 0, attract = 0, ports = 0;
@@ -1501,6 +1576,9 @@ export class Tycoon {
         // v23：巡防判定（盲区住宅 → 住得提心吊胆）
         if (this.secField.has(map.idx(o.ax, o.ay))) secIn++;
         else { secOut++; secMissRes++; }
+        // v24：消防判定（盲区住宅 → 睡不安稳）
+        if (this.fireField.has(map.idx(o.ax, o.ay))) fireIn++;
+        else { fireOut++; fireMissRes++; }
       } else if (d.cat === 'com') {
         com++; jobs += d.pop;
         // 城市名片：文旅商业收入 +20%；v19 空间污染：雾霾区生意冷清 ×0.82
@@ -1511,13 +1589,19 @@ export class Tycoon {
         const wasteK = this.wasteField.has(map.idx(o.ax, o.ay)) ? 0.88 : 1;
         // v23 治安：盲区商铺夜里遭贼（失窃风险摊薄收入 ×0.92）
         const secK = this.secField.has(map.idx(o.ax, o.ay)) ? 1 : SEC_EARN_K;
+        // v24 消防：盲区商铺火险保费摊薄（收入 ×0.95）
+        const fireK = this.fireField.has(map.idx(o.ax, o.ay)) ? 1 : FIRE_EARN_K;
         // v20 电网：断电商铺收入归零（黑暗的店谁也进不去）；未断电才计入
-        if (!offGrid) earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK * wasteK * secK;
+        if (!offGrid) earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK * wasteK * secK * fireK;
         // v23 巡防判定（覆盖 → 安心做买卖；盲区 → 失窃目标池）
         if (this.secField.has(map.idx(o.ax, o.ay))) secIn++; else { secOut++; crimeN++; }
+        // v24 消防判定（覆盖 → 水枪够得着；盲区 → 起火偏爱现场）
+        if (this.fireField.has(map.idx(o.ax, o.ay))) fireIn++; else fireOut++;
         if (o.id === 'ferris') park++;
       } else if (d.cat === 'ind') {
         ind++; jobs += d.pop;
+        // v24 消防判定（工厂仓库也在水网清单上）
+        if (this.fireField.has(map.idx(o.ax, o.ay))) fireIn++; else fireOut++;
         // v20 电网：断电工厂停机（收入与产货双停）
         if (!offGrid) earnInd += (e?.earn ?? 0) * (this.has('metal') ? 1.2 : 1);
         if (o.id === 'power' || o.id === 'windmill' || o.id === 'windfarm' || o.id === 'solarfarm') hasPower = 1;
@@ -1529,6 +1613,7 @@ export class Tycoon {
         if (o.id === 'library') hasLib = 1;
         if (o.id === 'hospital') { hasHospital = 1; hospitals++; }
         if (o.id === 'firestation') firestations++;
+        if (o.id === 'hydrant') hydrants++;                    // v24 消防栓
         if (o.id === 'koban') kobans++;                     // v12
         if (o.id === 'policehq') policehqN++;               // v23 警察局
         if (o.id === 'levee') levees++;                     // v18 防洪堤
@@ -1817,11 +1902,13 @@ export class Tycoon {
     const eduHap = Math.min(EDU_HAP_MAX, Math.round(eduOut * 1.6));
     // v23：提心吊胆 —— 每栋盲区住宅 −1.2，至多 −6（建交班/警察局可解）
     const secHap = Math.min(SEC_HAP_MAX, Math.round(secMissRes * 1.2));
+    // v24：夜不能寐 —— 每栋消防盲区住宅 −1.0，至多 −5（建消防局/消防栓可解）
+    const fireHap = Math.min(FIRE_HAP_MAX, Math.round(fireMissRes * 1.0));
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
       0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap
-      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区扣减
+      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区扣减
     const happyMult = 0.6 + happiness / 125;
 
     // ---- v10 旅游：景点吸引力 × 文化/幸福 × 季节/天气 → 游客（酒店床位为接待上限）----
@@ -1888,6 +1975,8 @@ export class Tycoon {
       secCover: (secIn + secOut) > 0 ? Math.round(100 * secIn / (secIn + secOut)) : 100,
       secIn, secOut, crimeN, secMissRes, policehqN,                                 // v23 治安空间化
       rescuePolice: this.rescuePolice,                                              // v23 巡逻车破案
+      fireCover: (fireIn + fireOut) > 0 ? Math.round(100 * fireIn / (fireIn + fireOut)) : 100,
+      fireIn, fireOut, fireMissRes, hydrants,                                       // v24 消防空间化
       ecotowers: this.smogTowerN,
       eventHap, eventAmenity, multCom, multInd, multFood, multPower, multTraffic, multSp,
       weather: { kind: wt.kind, t: wt.t },
@@ -2151,6 +2240,38 @@ export class Tycoon {
     this.crimeComField = missCom;
   }
 
+  // ---------------- v24：消防覆盖场（烈火雄心 · 消防之城） ----------------
+
+  /** 重算消防水网覆盖（版本缓存：仅 map.version 变化才重算，摆盘/拆迁即触发）。
+   *  Pass A：登记消防设施（FIRE_R 半径表：消防局 5 / 消防栓 2 / 市政厅 2 附设泵井）；
+   *  Pass B：商铺/住宅/工业锤点落在任一设施半径内（切比雪夫）→ fireField（水枪够得着），
+   *          否则 → fireMissField（消防盲区：起火偏爱现场 · 收入/幸福惩罚源）。
+   *  火不分贵贱 —— 工厂仓库同样怕烧，水网看住全部生产与生活建筑 */
+  private ensureFire(map: CityMap): void {
+    if (map.version === this.fireVer) return;
+    this.fireVer = map.version;
+    const facs: Array<{ x: number; y: number; r: number }> = [];
+    for (const o of map.objs.values()) {
+      const r = FIRE_R[o.id];
+      if (r !== undefined) facs.push({ x: o.ax, y: o.ay, r });
+    }
+    const inside = new Set<number>();
+    const miss = new Set<number>();
+    for (const o of map.objs.values()) {
+      const cat = defById(o.id).cat;
+      if (cat !== 'com' && cat !== 'res' && cat !== 'ind') continue;
+      const i = map.idx(o.ax, o.ay);
+      let hit = false;
+      for (const f of facs) {
+        if (Math.max(Math.abs(o.ax - f.x), Math.abs(o.ay - f.y)) <= f.r) { hit = true; break; }
+      }
+      if (hit) inside.add(i);
+      else miss.add(i);
+    }
+    this.fireField = inside;
+    this.fireMissField = miss;
+  }
+
   // ---------------- 每帧心跳 ----------------
 
   tick(dt: number, map: CityMap): void {
@@ -2269,6 +2390,7 @@ export class Tycoon {
       waste: s.wasteRes,                       // v21：垃圾堆积心声
       eduOut: s.eduOut,                        // v22：学区外住宅心声
       crime: s.crimeN,                         // v23：盲区商铺心声（街坊议论失窃）
+      fireOut: s.fireOut,                      // v24：消防盲区心声（火险保贵的街区）
       inEdu: (x, y) => this.eduField.has(map.idx(x, y)),   // v22：升学判定（学区内市民会随时间求学深造）
     }, this.playtime);
     if (this.citz.total > citzTotalBefore) this.sfx?.('movein');
@@ -2308,6 +2430,7 @@ export class Tycoon {
       wasteN: s.wasteN, recycles: s.recycles, sweepCover: s.sweepCover,   // v21 环卫里程碑
       eduOut: s.eduOut, eduCover: s.eduCover, universities: s.universities,   // v22 文教里程碑
       crimeN: s.crimeN, secCover: s.secCover, policehqN: s.policehqN,   // v23 治安里程碑
+      fireOut: s.fireOut, fireCover: s.fireCover, firestations: s.firestations,   // v24 消防里程碑
     }, this.gHours);
     if (eraUp >= 1) {
       const ERAS_NAME = ['炊烟村庄', '市井小镇', '一方城市', '摩登都会'];
@@ -2324,8 +2447,34 @@ export class Tycoon {
     // 事件到期结算
     for (let i = this.events.length - 1; i >= 0; i--) {
       const ev = this.events[i];
+      // v24 火灾实景：火势增长（水网覆盖区增速减半）+ 周期蔓延判定（应急到场即冻结）
+      if (ev.key === 'fire' && ev.fx && ev.heat !== undefined && !ev.resolved) {
+        const covered = this.fireField.has(map.idx(ev.fx.x, ev.fx.y));
+        ev.heat = Math.min(1.6, ev.heat + dt * (covered ? FIRE_HEAT_IN : FIRE_HEAT_OUT));
+        ev.spreadT = (ev.spreadT ?? FIRE_SPREAD_T) - dt;
+        if (ev.spreadT <= 0) {
+          ev.spreadT = FIRE_SPREAD_T;
+          const p = Math.max(0, ev.heat - 0.5) * 0.9;
+          if (Math.random() < p) this.spreadFire(map, ev);
+        }
+      }
       ev.left -= dt;
       if (ev.left <= 0) {
+        // v24：火灾收尾文案带过火栋数
+        if (ev.key === 'fire' && (ev.spreadN ?? 0) > 0) {
+          this.events.splice(i, 1);
+          if (ev.pendG && ev.pendG > 0) {
+            this.coins = Math.max(0, this.coins - ev.pendG);
+            this.msg?.(`「${ev.name}」余损 ${ev.pendG}G —— 应急车没能及时赶到`);
+            ev.pendG = 0;
+          }
+          if (ev.pendP && ev.pendP > 0) {
+            this.pop = Math.max(0, this.pop - ev.pendP);
+            ev.pendP = 0;
+          }
+          this.msg?.(`「${ev.name}」终被扑灭，累计过火 ${ev.spreadN! + 1} 栋 —— 城市恢复如常`);
+          continue;
+        }
         this.events.splice(i, 1);
         // v12 两段结算：无人驰援 → 余款结算
         if (ev.pendG && ev.pendG > 0) {
@@ -2451,7 +2600,12 @@ export class Tycoon {
         left: pick.dur, dur: pick.dur, hap: pick.hap, mult: pick.mult, fx,
         pendG: bill.g > 0 ? bill.g : undefined,
         pendP: bill.p > 0 ? bill.p : undefined,
+        // v24 火灾实景：火势起步 + 蔓延计时 + 亲历市民写入个人史册
+        heat: pick.key === 'fire' ? FIRE_HEAT0 : undefined,
+        spreadN: pick.key === 'fire' ? 0 : undefined,
+        spreadT: pick.key === 'fire' ? FIRE_SPREAD_T / 2 : undefined,
       });
+      if (pick.key === 'fire' && fx) this.citz.onFireAt(fx.x, fx.y, this.playtime, false);
       this.sfx?.(pick.kind === 'bad' ? 'alarm' : 'cheer');   // v14：灾害警报 / 喜讯琶音
       if (pick.key === 'quake') this.sfx?.('quake');         // v18：大地低鸣叠加警报
       this.msg?.(`${pick.kind === 'bad' ? '⚠' : '✦'} 事件「${pick.name}」：${pick.note}${result ? ' · ' + result : ''}${fell > 0 ? ` · ${fell} 棵行道树被震倒` : ''}`);
@@ -2466,6 +2620,29 @@ export class Tycoon {
       const fireTpl = EVENT_TPLS.find(t => t.key === 'fire');
       if (fireTpl) this.rollEvent(map, s, fireTpl);
     }
+  }
+
+  /** v24 火势蔓延：火头跳到邻栋（切比雪夫 ≤ FIRE_SPREAD_R 的已购建筑），
+ *  即时损失 + 火势回落（新柴初燃）+ 新受灾住户写入史册 + 编年史入册 */
+  private spreadFire(map: CityMap, ev: ActiveEvent): void {
+    if (!ev.fx) return;
+    const fx = ev.fx;
+    const cands = [...map.objs.values()].filter(o =>
+      o.id !== 'cityhall' && this.ownedAt(o.ax, o.ay) &&
+      Math.max(Math.abs(o.ax - fx.x), Math.abs(o.ay - fx.y)) <= FIRE_SPREAD_R &&
+      (o.ax !== fx.x || o.ay !== fx.y));
+    if (!cands.length) return;
+    const o = cands[(Math.random() * cands.length) | 0];
+    ev.fx = { x: o.ax, y: o.ay };
+    ev.spreadN = (ev.spreadN ?? 0) + 1;
+    ev.heat = Math.max(0.45, (ev.heat ?? FIRE_HEAT0) - 0.18);   // 火头转移：新柴初燃，火势回落
+    const loss = Math.round(55 + this.pop * 0.18);
+    this.coins = Math.max(0, this.coins - loss);
+    this.msg?.(`火势蔓延到隔壁街区！又损失 ${loss}G —— 快让消防车到场`);
+    this.sfx?.('alarm');
+    this.citz.onFireAt(o.ax, o.ay, this.playtime, true);   // v24：新受灾住户写入史册
+    this.chron.write('event', 'bad', 'fire', '火势蔓延',
+      `烈焰借着风势窜过街巷，又吞了${defById(o.id).name} —— 累计过火 ${ev.spreadN + 1} 栋。`, this.gHours);
   }
 
   /** UI 视图（未 tick 前用缓存） */
@@ -2524,6 +2701,7 @@ export class Tycoon {
       events: this.events.map(e => ({
         key: e.key, name: e.name, note: e.note, kind: e.kind,
         left: Math.ceil(e.left), dur: e.dur,
+        spreadN: e.spreadN, heat: e.heat !== undefined ? Math.round(e.heat * 100) / 100 : undefined,   // v24 火灾实景
       })),
       eventLog: this.eventLog.slice(-8),
       achv: ACHIEVEMENTS.map(a => ({
@@ -2620,6 +2798,10 @@ export class Tycoon {
       gradTotal: this.citz.gradTotal,
       // ---- v23：治安空间化 ----
       secCover: s?.secCover ?? 100,
+      // ---- v24 消防空间化 ----
+      fireCover: s?.fireCover ?? 100,
+      fireIn: s?.fireIn ?? 0, fireOut: s?.fireOut ?? 0,
+      fireMissRes: s?.fireMissRes ?? 0, hydrants: s?.hydrants ?? 0,
       secIn: s?.secIn ?? 0,
       secOut: s?.secOut ?? 0,
       crimeN: s?.crimeN ?? 0,
@@ -2747,6 +2929,10 @@ export class Tycoon {
         key: e.key, left: Math.round(e.left),
         fx: e.fx ? [e.fx.x, e.fx.y] : undefined,
         pendG: e.pendG || undefined, pendP: e.pendP || undefined,   // v12 挂账余损
+        heat: e.heat !== undefined ? Math.round(e.heat * 100) / 100 : undefined,   // v24 火势
+        spreadN: e.spreadN,                                          // v24 过火栋数
+        spreadT: e.key === 'fire' && e.spreadT !== undefined ? Math.round(e.spreadT * 10) / 10 : undefined,   // v24 蔓延计时（读档不误判）
+        resolved: e.resolved || undefined,                           // v24 到场标记
       })),
       eventLog: this.eventLog.slice(-12),
       achv: [...this.achv],
@@ -2826,7 +3012,7 @@ export class Tycoon {
     if (this.hist.length > HIST_MAX) this.hist.splice(0, this.hist.length - HIST_MAX);
     // v5 事件档：进行中事件（从模板找回参数）/ 日志 / 成就（旧档给空）
     this.events = [];
-    for (const e of (d.events as Array<{ key: string; left: number; fx?: [number, number]; pendG?: number; pendP?: number }>) ?? []) {
+    for (const e of (d.events as Array<{ key: string; left: number; fx?: [number, number]; pendG?: number; pendP?: number; heat?: number; spreadN?: number; spreadT?: number; resolved?: boolean }>) ?? []) {
       const tpl = EVENT_TPLS.find(t => t.key === e.key);
       if (!tpl || !tpl.dur) continue;
       this.events.push({
@@ -2835,6 +3021,10 @@ export class Tycoon {
         dur: tpl.dur, hap: tpl.hap, mult: tpl.mult,
         fx: Array.isArray(e.fx) ? { x: e.fx[0], y: e.fx[1] } : undefined,
         pendG: Number(e.pendG) || undefined, pendP: Number(e.pendP) || undefined,   // v12
+        heat: e.heat !== undefined ? Math.max(0.1, Math.min(1.6, Number(e.heat) || FIRE_HEAT0)) : undefined,   // v24 火势（旧档缺省）
+        spreadN: Math.max(0, Math.floor(Number(e.spreadN) || 0)) || undefined,      // v24 过火栋数
+        spreadT: e.key === 'fire' ? Math.max(0.1, Math.min(999, Number(e.spreadT) || FIRE_SPREAD_T / 2)) : undefined,   // v24 蔓延计时（存档值优先，旧档半周期）
+        resolved: e.resolved === true ? true : undefined,                           // v24 到场标记
       });
     }
     this.eventLog = [];
@@ -2959,6 +3149,7 @@ export class Tycoon {
       waste: s?.wasteRes ?? 0,                  // v21：垃圾堆积心声
       eduOut: s?.eduOut ?? 0,                   // v22：学区外住宅心声
       crime: s?.crimeN ?? 0,                    // v23：盲区商铺心声
+      fireOut: s?.fireOut ?? 0,                 // v24：消防盲区心声
     });
   }
 
@@ -2985,7 +3176,8 @@ export class Tycoon {
   }
 
   /** v12 应急车到场：豁免挂账余损 + 提前终结事件（返回是否生效）
-   *  v18 泛化：quake/flood 现场同样由消防车队驰援（抽水排涝 / 加固危房） */
+   *  v18 泛化：quake/flood 现场同样由消防车队驰援（抽水排涝 / 加固危房）
+   *  v24 火灾实景：到场即冻结火势与蔓延，起火宅住户写入感恩史册 */
   resolveEvent(key: string): boolean {
     const ev = this.events.find(e => e.key === key);
     if (!ev) return false;
@@ -2999,14 +3191,18 @@ export class Tycoon {
       ev.pendP = 0;
     }
     ev.left = Math.min(ev.left, 3.5);
-    if (key === 'fire') this.rescueFire++;
+    if (key === 'fire') {
+      this.rescueFire++;
+      ev.resolved = true;   // v24：火势冻结、蔓延停止
+      if (ev.fx) this.citz.onFireSaved(ev.fx.x, ev.fx.y, this.playtime);   // v24：起火宅住户感恩
+    }
     if (key === 'plague') this.rescueAid++;
     if (key === 'crime') this.rescuePolice++;   // v23：巡逻车破案计数
     // v18：天灾驰援的英雄仍是消防员（抽水排涝 / 搜救排险）；v23：擒贼的是警官
     this.citz.onRescue(key === 'plague' ? 'plague' : key === 'crime' ? 'police' : 'fire', this.playtime);   // v13：英雄入册
-    // v17：编年史 —— 救险入册（v18 扩充天灾条目；v23 擒贼条目）
+    // v17：编年史 —— 救险入册（v18 扩充天灾条目；v23 擒贼条目；v24 烈火英雄带过火栋数）
     const CHRON_RESCUE: Record<string, { icon: string; title: string; text: string }> = {
-      fire: { icon: 'fire', title: '烈火英雄', text: `消防车队鸣笛赶到，架梯引水扑灭烈焰${saveG > 0 ? `、挽回 ${saveG}G 损失` : ''} —— 围观市民夹道鼓掌。` },
+      fire: { icon: 'fire', title: '烈火英雄', text: `消防车队鸣笛赶到，架梯引水扑灭烈焰${(ev.spreadN ?? 0) > 0 ? `（过火 ${ev.spreadN! + 1} 栋）` : ''}${saveG > 0 ? `、挽回 ${saveG}G 损失` : ''} —— 围观市民夹道鼓掌。` },
       plague: { icon: 'heart', title: '妙手回春', text: `救护车及时赶到疫区，白衣天使接管了病床${saveP > 0 ? `，${saveP} 位市民免于病退` : ''}。` },
       quake: { icon: 'land', title: '力挽狂澜', text: `消防车队顶着余震赶到灾区，撑梁加固、搜救排险${saveG > 0 ? `、挽回 ${saveG}G 损失` : ''} —— 市政厅的灯彻夜未熄。` },
       flood: { icon: 'drop', title: '中流砥柱', text: `消防车在齐腰的洪水中架泵排涝、转移受困市民${saveG > 0 ? `、挽回 ${saveG}G 损失` : ''} —— 大堤上人头攒动。` },

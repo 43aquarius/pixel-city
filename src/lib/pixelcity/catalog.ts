@@ -21,7 +21,7 @@ import {
 import {
   genManor, genResTower, genConvenience, genHotel, genMall, genParking,
   genRefinery, genPower, genChurch, genMuseum, genFireStation, genKoban,
-  genLighthouse, genCastle, genPoliceHQ,
+  genLighthouse, genCastle, genPoliceHQ, genHydrant,
 } from './b_extra';
 import {
   genMachiya, genDanchi, genIzakaya, genCinema, genMarket,
@@ -175,6 +175,8 @@ export const CATALOG: Def[] = [
     gen: genMuseum, ground: 'plaza', desc: '石柱回廊与青绿穹顶' },
   { id: 'firestation', name: '消防局', cat: 'civ', w: 1, h: 1, variants: 2, pop: 25,
     gen: genFireStation, desc: '红色卷闸门与瞭望塔：火灾损失降至 35%，消防车可出动扑救（需道路连通）' },
+  { id: 'hydrant', name: '消防栓', cat: 'civ', w: 1, h: 1, variants: 2, pop: 1,
+    gen: genHydrant, desc: '红栓桩与黄警示圈：半径 2 格消防覆盖 —— 消防局的廉价延伸，把街区拐角补进水网（覆盖区起火火势减半）' },
   { id: 'koban', name: '交番', cat: 'civ', w: 1, h: 1, variants: 1, pop: 8,
     gen: genKoban, desc: '警务岗亭：巡防半径 3 格 + 安全护盾 +220 人 · 常驻一辆巡逻警车（治安巡逻令再 +1 辆）' },
   { id: 'policehq', name: '警察局', cat: 'civ', w: 2, h: 2, variants: 2, pop: 30,

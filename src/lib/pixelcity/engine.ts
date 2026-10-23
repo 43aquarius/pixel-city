@@ -838,20 +838,52 @@ export class Engine {
     const eco = this.tycoon;
     if (!eco) return;
     for (const ev of eco.events) {
-      // v12：烟柱火点仅火灾（疫病 fx 只作救护车出动目的地）
+      // v12：烟柱火点仅火灾（疫病 fx 只作救护车出动目的地）；v24：火势随 heat 三档增燃，标签带过火栋数
       if (!ev.fx || ev.key !== 'fire') continue;
       const sx = this.w2sx(ev.fx.x, ev.fx.y);
       const sy = this.w2sy(ev.fx.x, ev.fx.y) + this.hOfs(ev.fx.x, ev.fx.y);
-      // 火点：建筑顶部两簇橙红交替闪
-      const fl = Math.floor(now / 110) % 2 === 0;
-      ctx.fillStyle = fl ? '#E05548' : '#F4F2E8';
-      ctx.fillRect(Math.round(sx - 4), Math.round(sy - 38), 3, 3);
-      ctx.fillStyle = fl ? '#F4F2E8' : '#E05548';
-      ctx.fillRect(Math.round(sx + 2), Math.round(sy - 34), 2, 2);
-      // 烟柱：两股错相上升循环（复用烟囱烟精灵 3 帧）
+      // v24 三档火势：小火（<0.55）/ 燃烧（<0.85）/ 烈火（≥0.85）：火苗簇更大更白热、烟柱更粗
+      const heat = ev.heat ?? 0.5;
+      const stage = heat < 0.55 ? 0 : heat < 0.85 ? 1 : 2;
+      const FLICK = 110 - stage * 25;
+      const fl = Math.floor(now / FLICK) % 2 === 0;
+      const ORANGE = stage === 2 ? '#F4F2E8' : '#E05548';   // 烈火白热化
+      const CORE = stage === 0 ? '#F4F2E8' : stage === 1 ? '#F4F2E8' : '#F7C848';
+      if (stage === 0) {
+        // 小火：两簇小火苗交替闪
+        ctx.fillStyle = fl ? ORANGE : '#F4F2E8';
+        ctx.fillRect(Math.round(sx - 4), Math.round(sy - 38), 3, 3);
+        ctx.fillStyle = fl ? '#F4F2E8' : ORANGE;
+        ctx.fillRect(Math.round(sx + 2), Math.round(sy - 34), 2, 2);
+      } else if (stage === 1) {
+        // 燃烧：三簇中焰 + 火舌拉高
+        ctx.fillStyle = fl ? ORANGE : '#C93A2E';
+        ctx.fillRect(Math.round(sx - 6), Math.round(sy - 42), 4, 5);
+        ctx.fillRect(Math.round(sx + 1), Math.round(sy - 44), 3, 6);
+        ctx.fillStyle = fl ? '#F7C848' : ORANGE;
+        ctx.fillRect(Math.round(sx - 2), Math.round(sy - 47), 3, 5);
+        ctx.fillStyle = CORE;
+        ctx.fillRect(Math.round(sx - 3), Math.round(sy - 40), 2, 3);
+      } else {
+        // 烈火：四簇高焰白热核心 + 火星迸溅
+        ctx.fillStyle = fl ? ORANGE : '#C93A2E';
+        ctx.fillRect(Math.round(sx - 8), Math.round(sy - 46), 5, 7);
+        ctx.fillRect(Math.round(sx + 3), Math.round(sy - 48), 4, 8);
+        ctx.fillRect(Math.round(sx - 1), Math.round(sy - 52), 3, 9);
+        ctx.fillStyle = fl ? '#F7C848' : '#E05548';
+        ctx.fillRect(Math.round(sx - 4), Math.round(sy - 50), 3, 7);
+        ctx.fillStyle = CORE;
+        ctx.fillRect(Math.round(sx - 2), Math.round(sy - 46), 2, 4);
+        // 火星：双相迸溅
+        ctx.fillStyle = fl ? '#F7C848' : '#E05548';
+        ctx.fillRect(Math.round(sx - 10), Math.round(sy - 54 - (fl ? 0 : 2)), 2, 2);
+        ctx.fillRect(Math.round(sx + 7), Math.round(sy - 50 - (fl ? 2 : 0)), 2, 2);
+      }
+      // 烟柱：两股错相上升循环（复用烟囱烟精灵 3 帧；烈火三股加粗）
       const smoke = this.book.smoke;
       if (smoke.length) {
-        for (let c = 0; c < 2; c++) {
+        const cols = stage === 2 ? 3 : 2;
+        for (let c = 0; c < cols; c++) {
           const fr = Math.floor(now / 300 + c) % smoke.length;
           const s = smoke[fr];
           const rise = (now / 46 + c * 11) % 26;
@@ -860,14 +892,15 @@ export class Engine {
           ctx.globalAlpha = 1;
         }
       }
-      // 事件标签
+      // 事件标签（v24：过火多栋时显示 ×N）
       ctx.font = 'bold 8px monospace';
       ctx.textAlign = 'center';
-      const label = `${ev.name}!`;
+      const nBurn = (ev.spreadN ?? 0) + 1;
+      const label = nBurn > 1 ? `烈火×${nBurn}!` : `${ev.name}!`;
       const w = ctx.measureText(label).width + 6;
       ctx.fillStyle = 'rgba(11,15,36,0.92)';
       ctx.fillRect(Math.round(sx - w / 2), Math.round(sy - 56), Math.round(w), 11);
-      ctx.fillStyle = '#F4F2E8';
+      ctx.fillStyle = stage === 2 ? '#F7C848' : '#F4F2E8';
       ctx.fillText(label, Math.round(sx), Math.round(sy - 48));
       ctx.textAlign = 'left';
     }
@@ -1085,6 +1118,39 @@ export class Engine {
           ctx.fillStyle = `rgba(224,85,72,${(a * 0.4).toFixed(3)})`;
           ctx.fillRect(Math.round(sx - 2), Math.round(sy - 47), 5, 5);
         }
+      }
+    }
+  }
+
+  /** v24：消防盲区层 —— 水网半径外的建筑铺暖橙焦枯阴影菱形（晒得发脆的屋瓦意象）+
+ *  盲区建筑屋顶橙色小火苗警示双帧闪（火星一闪一闪的地方，离烧起来只差一阵风）。
+ *  画法与治安冷蓝层同层位：盲区是环境底色；暖橙与冷蓝色相错开互不干扰 */
+  private drawFireOverlay(ctx: CanvasRenderingContext2D, t: number): void {
+    const eco = this.tycoon;
+    if (!eco || eco.fireMissField.size === 0) return;
+    const n = this.map.n;
+    for (const i of eco.fireMissField) {
+      const tx = i % n, ty = (i / n) | 0;
+      const sx = this.w2sx(tx, ty);
+      const sy = this.w2sy(tx, ty) + this.hOfs(tx, ty);
+      if (sx < -40 || sx > this.lw + 40 || sy < -56 || sy > this.lh + 40) continue;
+      // 暖橙焦枯阴影（贴地菱形 —— 与治安冷蓝错开：只画消防盲区，且更淡）
+      ctx.fillStyle = 'rgba(122,58,22,0.18)';
+      ctx.beginPath();
+      ctx.moveTo(sx - 18, sy + 2);
+      ctx.lineTo(sx, sy + 11);
+      ctx.lineTo(sx + 18, sy + 2);
+      ctx.lineTo(sx, sy - 7);
+      ctx.closePath();
+      ctx.fill();
+      // 屋顶橙色火苗警示：双帧闪（小火苗形状：焰体 + 焰心）
+      const on = Math.floor(t / 650 + (tx * 5 + ty * 3) * 0.9) % 2 === 0;
+      if (on) {
+        ctx.fillStyle = 'rgba(240,140,50,0.92)';
+        ctx.fillRect(Math.round(sx - 1), Math.round(sy - 42), 3, 4);   // 焰体
+        ctx.fillRect(Math.round(sx - 2), Math.round(sy - 40), 5, 2);   // 焰底
+        ctx.fillStyle = 'rgba(247,200,72,0.95)';
+        ctx.fillRect(Math.round(sx - 1), Math.round(sy - 41), 2, 2);   // 焰心
       }
     }
   }
@@ -1834,6 +1900,8 @@ export class Engine {
     this.drawEventFx(ctx, t);
     // ---- v23：治安盲区层（盲区冷影 + 商铺红点警示；最底氛围层）----
     this.drawSecOverlay(ctx, t);
+    // ---- v24：消防盲区层（盲区焦枯暖影 + 屋顶火苗警示；与治安同层位）----
+    this.drawFireOverlay(ctx, t);
     // ---- v22：学区层（学区内住宅金光罩 + 书页飘飞；垃圾之下）----
     this.drawEduOverlay(ctx, t);
     // ---- v21：垃圾堆积层（清运不到的巷口垃圾成堆；雾霾之下）----

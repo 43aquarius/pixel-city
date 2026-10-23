@@ -513,6 +513,43 @@ export function genFireStation(seed: number): BuildResult {
   return { model: buildModel(faces, 16, 16) };
 }
 
+/** v24 消防栓（1×1）：混凝土方台上的红色栓桩 —— 颈圈 + 侧向出水口 + 穹顶帽 + 顶螺母。
+ *  变体 2：漆色（正红 / 消防红瓦）与出水口朝向 */
+export function genHydrant(seed: number): BuildResult {
+  const r = mulberry32(seed);
+  const paint = pick([P.RED, P.RFRED], r());
+  const faces: Face[] = [];
+  // 混凝土方台（六角小平台意象）
+  box(faces, 4.4, 4.4, 11.6, 11.6, 0, 1.1, {
+    top: pStone(), right: pStone(), left: pStone(),
+  });
+  // 底座黄黑警示圈（台缘一圈亮黄 —— 夜里也醒目）
+  box(faces, 4.4, 4.4, 5.0, 5.4, 1.1, 1.5, { top: () => cell(P.YELLOW, 0), right: pWall(P.YELLOW), left: pWall(P.YELLOW) });
+  box(faces, 10.6, 4.4, 11.6, 5.4, 1.1, 1.5, { top: () => cell(P.YELLOW, 0), right: pWall(P.YELLOW), left: pWall(P.YELLOW) });
+  box(faces, 4.4, 10.6, 5.0, 11.6, 1.1, 1.5, { top: () => cell(P.YELLOW, 0), right: pWall(P.YELLOW), left: pWall(P.YELLOW) });
+  box(faces, 10.6, 10.6, 11.6, 11.6, 1.1, 1.5, { top: () => cell(P.YELLOW, 0), right: pWall(P.YELLOW), left: pWall(P.YELLOW) });
+  // 栓身柱（下粗上细的锥台）
+  frustum(faces, 8, 8, 2.3, 1.85, 1.1, 6.2, {
+    side: (u, v, px, py) => pWall(paint)(u, v, px, py),
+  }, 6);
+  // 颈圈（六瓣环箍）
+  box(faces, 5.9, 5.9, 10.1, 10.1, 4.4, 5.4, {
+    right: pWall(paint), left: pWall(paint), top: pWall(paint),
+  });
+  // 侧向出水口（+X 侧凸出的短管）
+  box(faces, 9.9, 6.9, 11.3, 9.1, 3.8, 5.0, {
+    right: pWall(paint), left: () => cell(P.SIDE, 0), top: pWall(paint),
+  });
+  // 穹顶帽 + 顶螺母
+  frustum(faces, 8, 8, 1.85, 0.9, 6.2, 7.3, {
+    side: (u, v, px, py) => pWall(paint)(u, v, px, py),
+  }, 6);
+  box(faces, 7.2, 7.2, 8.8, 8.8, 7.3, 8.1, {
+    right: pWall(paint), left: pWall(paint), top: () => cell(P.YELLOW, 0),
+  });
+  return { model: buildModel(faces, 16, 16) };
+}
+
 /** 灯塔（1×1）：红白环纹塔身 + 玻璃灯室 + 顶端闪光 */
 export function genLighthouse(_seed: number): BuildResult {
   const faces: Face[] = [];

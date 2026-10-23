@@ -210,6 +210,8 @@ export type CitzCtx = {
   eduOut: number;
   /** v23 盲区商铺数（治安心声：街坊议论失窃） */
   crime: number;
+  /** v24 消防盲区栋数（消防心声：火险保贵的街区） */
+  fireOut: number;
   /** v22 学区判定回调（tycoon 闭包捕获 eduField：升学事件只举学区内市民） */
   inEdu?: (x: number, y: number) => boolean;
 };
@@ -239,7 +241,7 @@ export class CitizenRegistry {
   private nextFam = 1;
   /** v22 累计升学人次（成就口径） */
   gradTotal = 0;
-  private lastCtx: CitzCtx = { pop: 0, happiness: 60, taxRate: 8, season: 0, famine: 0, events: [], fest: -1, smog: 0, dark: 0, waste: 0, eduOut: 0, crime: 0 };
+  private lastCtx: CitzCtx = { pop: 0, happiness: 60, taxRate: 8, season: 0, famine: 0, events: [], fest: -1, smog: 0, dark: 0, waste: 0, eduOut: 0, crime: 0, fireOut: 0 };
   private lastT = 0;
   /** 消息回调（tycoon.msg 接线） */
   onMsg: ((s: string) => void) | null = null;
@@ -670,6 +672,45 @@ export class CitizenRegistry {
     for (const c of this.roster) c.mood = clamp(c.mood + 4, 5, 100);
   }
 
+  /** v24 火灾亲历者写入个人史册（传记空间化：事件不再只是全城广播，而是落在具体人家的记忆里）。
+   *  起火建筑锤点同格/相邻（homeAt 距 ≤1）＝受灾住户：「家中失火」心情 −12；
+   *  三格内街坊（≤3）＝目击者：「隔壁街区失火」心情 −6。
+   *  spread = true 为蔓延新灾点（火头蹿到自家门口的措辞） */
+  onFireAt(x: number, y: number, t: number, spread: boolean): void {
+    let hitHome = 0, hitNear = 0;
+    for (const c of this.roster) {
+      if (!c.homeAt) continue;
+      const d = Math.max(Math.abs(c.homeAt[0] - x), Math.abs(c.homeAt[1] - y));
+      if (d <= 1) {
+        this.pushLog(c, t, spread
+          ? '火头蹿到了自家门口，抢出来的行李还烫手'
+          : '家中失火，半条街的邻居都提着水桶来帮忙');
+        c.mood = clamp(c.mood - 12, 5, 100);
+        hitHome++;
+      } else if (d <= 3) {
+        this.pushLog(c, t, spread
+          ? '看见火光又亮起一条街，心里直发紧'
+          : '隔壁街区失火，整条巷子的窗都映得通红');
+        c.mood = clamp(c.mood - 6, 5, 100);
+        hitNear++;
+      }
+    }
+    if (hitHome + hitNear > 0 && this.onMsg) {
+      this.onMsg(`火灾亲历者：${hitHome} 位住户受灾、${hitNear} 位街坊目击 —— 都写进了他们的史册`);
+    }
+  }
+
+  /** v24 火场获救感恩：当前火点建筑的住户写「消防员把家保住了」（心情 +10） */
+  onFireSaved(x: number, y: number, t: number): void {
+    for (const c of this.roster) {
+      if (!c.homeAt) continue;
+      if (Math.max(Math.abs(c.homeAt[0] - x), Math.abs(c.homeAt[1] - y)) <= 1) {
+        this.pushLog(c, t, '消防员从火里把家保住了，这份恩情记一辈子');
+        c.mood = clamp(c.mood + 10, 5, 100);
+      }
+    }
+  }
+
   // ---------------- 市民之声（街头偶遇） ----------------
 
   /** 按城市状态挑一句市民心声（面板滚动条/行人偶遇共用） */
@@ -720,6 +761,13 @@ export class CitizenRegistry {
       '夜里巷子黑得渗人，打着手电都不敢走快',
       '派出所说咱这片不在巡防线上，让大伙儿自求多福',
       '隔壁街装了交番之后太平多了，咱这儿啥时候轮上',
+    ]);
+    // v24 消防心声：水网之外的街区（优先级在治安之后：贼惦记心疼，火烧起来要命）
+    else if (ctx.fireOut >= 3) text = rnd([
+      '咱这片连个消防栓都没有，冬天烤火都提着心',
+      '保险行说巷口没水网，火险保费翻着倍地收',
+      '上回邻街着火，消防车绕了半座城才接上水 —— 盼着咱这也铺上栓',
+      '孩子们放学路过消防局总要驻脚看，回家问我：咱们街为啥没有红桩子',
     ]);
     else if (ctx.taxRate > 12) text = rnd(['税越收越狠，肉摊都少割两斤了', '这税率，攒钱的速度赶不上市政厅收的']);
     else if (ctx.taxRate <= 5) text = rnd(['低税的日子里，钱包都胖了一圈', '市政厅这个月大方，下馆子加了个鸡腿']);

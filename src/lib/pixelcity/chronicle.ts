@@ -141,6 +141,7 @@ export class Chronicle {
     gs: new Set<number>(),                                                   // v21 环卫（1 垃圾围城 / 2 循环之城）
     edu: new Set<number>(),                                                  // v22 文教（1 望学兴叹 / 2 有教无类）
     sec: new Set<number>(),                                                  // v23 治安（1 盗贼横行 / 2 夜不闭户）
+    fire: new Set<number>(),                                                 // v24 消防（1 祝融之灾 / 2 固若金汤）
   };
 
   /** 游戏小时 → 开埠第 N 天 */
@@ -166,7 +167,8 @@ export class Chronicle {
       gridCover?: number; darkN?: number; powerRes?: number;
       wasteN?: number; recycles?: number; sweepCover?: number;
       eduOut?: number; eduCover?: number; universities?: number;
-      crimeN?: number; secCover?: number; policehqN?: number }, gHours: number): number {
+      crimeN?: number; secCover?: number; policehqN?: number;
+      fireOut?: number; fireCover?: number; firestations?: number }, gHours: number): number {
     let eraUp = -1;
     // 纪元跃迁（只升不重记；人口回落后再升回不重复入册）
     const e = eraOfPop(ctx.pop);
@@ -279,6 +281,18 @@ export class Chronicle {
       this.write('mile', 'good', 'shield', '夜不闭户',
         `警察局的巡逻灯彻夜扫过街角，巡防覆盖率回到 ${secCover}%。商铺敢把货摆到深夜，巷子里遛狗的人也多了起来。`, gHours);
     }
+    // ---- v24 消防里程碑：祝融之灾 → 固若金汤（一对救赎叙事；先失火后铺网才成对入册）----
+    const fireOut = ctx.fireOut ?? 0, fireCover = ctx.fireCover ?? 100, fsN = ctx.firestations ?? 0;
+    if (fireOut >= 4 && !this.miles.fire.has(1)) {
+      this.miles.fire.add(1);
+      this.write('mile', 'bad', 'fire', '祝融之灾',
+        `${fireOut} 栋建筑开在消防水网之外，一场火烧穿了半条街。市民指着焦黑的墙根问：消防栓，什么时候能装到咱们巷口？`, gHours);
+    }
+    if (this.miles.fire.has(1) && !this.miles.fire.has(2) && fireCover >= 95 && fsN >= 1) {
+      this.miles.fire.add(2);
+      this.write('mile', 'good', 'fire', '固若金汤',
+        `消防栓的红桩子立满了街角，消防覆盖率回到 ${fireCover}%。夜里再见火星，水枪三分钟就能压住 —— 街坊们终于能睡个安稳觉。`, gHours);
+    }
     return eraUp;
   }
 
@@ -299,7 +313,7 @@ export class Chronicle {
     this.nextId = 1;
     this.miles = {
       pop: new Set(), rate: new Set(), bld: new Set(), land: new Set(), coin: new Set(), eco: new Set(),
-      pw: new Set(), gs: new Set(), edu: new Set(), sec: new Set(),
+      pw: new Set(), gs: new Set(), edu: new Set(), sec: new Set(), fire: new Set(),
     };
   }
 
@@ -310,6 +324,7 @@ export class Chronicle {
         pop: [...this.miles.pop], rate: [...this.miles.rate], bld: [...this.miles.bld],
         land: [...this.miles.land], coin: [...this.miles.coin], eco: [...this.miles.eco],
         pw: [...this.miles.pw], gs: [...this.miles.gs], edu: [...this.miles.edu], sec: [...this.miles.sec],
+        fire: [...this.miles.fire],
       },
     });
   }
@@ -323,6 +338,7 @@ export class Chronicle {
         e?: unknown; tot?: unknown; era?: unknown; maxEra?: unknown; nid?: unknown; m?: {
           pop?: unknown; rate?: unknown; bld?: unknown; land?: unknown; coin?: unknown;
           eco?: unknown; pw?: unknown; gs?: unknown; edu?: unknown; sec?: unknown;
+          fire?: unknown;
         };
       };
       if (!Array.isArray(d.e)) return false;
@@ -354,6 +370,7 @@ export class Chronicle {
         pop: new Set(L(d.m?.pop)), rate: new Set(L(d.m?.rate)), bld: new Set(L(d.m?.bld)),
         land: new Set(L(d.m?.land)), coin: new Set(L(d.m?.coin)), eco: new Set(L(d.m?.eco)),
         pw: new Set(L(d.m?.pw)), gs: new Set(L(d.m?.gs)), edu: new Set(L(d.m?.edu)), sec: new Set(L(d.m?.sec)),
+        fire: new Set(L(d.m?.fire)),
       };
       return true;
     } catch {
