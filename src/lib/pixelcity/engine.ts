@@ -905,21 +905,46 @@ export class Engine {
       ctx.textAlign = 'left';
     }
     // v23：犯罪现场 —— 红色惊叹号闪烁 + 事件标签（与火灾同款标签框，警示色换红）
+    // v25：窃贼实景 —— 作案中蒙面剪影从建筑窗边探身翻撬（闪动）；警车到场人赃并获后
+    //      变抱头蹲地（静态、黯淡），事件收尾一并消失
     for (const ev of eco.events) {
       if (!ev.fx || ev.key !== 'crime') continue;
       const sx = this.w2sx(ev.fx.x, ev.fx.y);
       const sy = this.w2sy(ev.fx.x, ev.fx.y) + this.hOfs(ev.fx.x, ev.fx.y);
       const fl = Math.floor(now / 160) % 2 === 0;
+      // ---- v25 窃贼剪影（覆盖在建筑之上）----
+      const caught = ev.resolved === true || ev.left <= 3.6;
+      if (!caught) {
+        // 作案中：半身探出「窗」外，蒙面 + 白眼罩，手脚交替蹬翻
+        ctx.fillStyle = '#23252E';                                   // 蒙面人形
+        ctx.fillRect(Math.round(sx + 6), Math.round(sy - 30), 4, 4); // 头
+        ctx.fillRect(Math.round(sx + 7), Math.round(sy - 26), 3, 9); // 半探身（下半藏进窗内）
+        ctx.fillStyle = '#F4F2E8';                                   // 白眼罩
+        ctx.fillRect(Math.round(sx + 6), Math.round(sy - 29), 4, 1);
+        ctx.fillStyle = '#23252E';                                   // 攀爬的手：交替左右扒窗沿
+        ctx.fillRect(Math.round(sx + (fl ? 4 : 11)), Math.round(sy - 25), 2, 2);
+        ctx.fillRect(Math.round(sx + (fl ? 9 : 7)), Math.round(sy - 17), 2, 4); // 蹬腿翻墙
+      } else {
+        // 人赃并获：抱头蹲地（静态，建筑脚边），头压低
+        ctx.fillStyle = '#1C2A44';                                   // 黯淡藏青 = 被制服
+        ctx.fillRect(Math.round(sx + 9), Math.round(sy - 14), 3, 3);  // 头
+        ctx.fillRect(Math.round(sx + 8), Math.round(sy - 11), 5, 8);  // 蹲身
+        ctx.fillStyle = '#1C2A44';                                   // 双手抱头
+        ctx.fillRect(Math.round(sx + 7), Math.round(sy - 13), 2, 2);
+        ctx.fillRect(Math.round(sx + 12), Math.round(sy - 13), 2, 2);
+        ctx.fillStyle = '#F4F2E8';                                   // 眼罩仍在（蒙面到案）
+        ctx.fillRect(Math.round(sx + 9), Math.round(sy - 13), 3, 1);
+      }
       ctx.fillStyle = fl ? '#E05548' : '#8B2A20';
       ctx.fillRect(Math.round(sx - 1), Math.round(sy - 40), 3, 5);      // 惊叹号竖笔
       ctx.fillRect(Math.round(sx - 1), Math.round(sy - 33), 3, 2);      // 点
       ctx.font = 'bold 8px monospace';
       ctx.textAlign = 'center';
-      const label = `${ev.name}!`;
+      const label = caught ? '人赃并获!' : `${ev.name}!`;
       const w = ctx.measureText(label).width + 6;
       ctx.fillStyle = 'rgba(11,15,36,0.92)';
       ctx.fillRect(Math.round(sx - w / 2), Math.round(sy - 56), Math.round(w), 11);
-      ctx.fillStyle = fl ? '#F4F2E8' : '#F2B8B0';
+      ctx.fillStyle = caught ? '#F7C848' : (fl ? '#F4F2E8' : '#F2B8B0');
       ctx.fillText(label, Math.round(sx), Math.round(sy - 48));
       ctx.textAlign = 'left';
     }

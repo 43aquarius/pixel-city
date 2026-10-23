@@ -2606,6 +2606,8 @@ export class Tycoon {
         spreadT: pick.key === 'fire' ? FIRE_SPREAD_T / 2 : undefined,
       });
       if (pick.key === 'fire' && fx) this.citz.onFireAt(fx.x, fx.y, this.playtime, false);
+      // v25：窃案亲历者空间化（失窃店主与街坊写入史册；与火灾对称）
+      if (pick.key === 'crime' && fx) this.citz.onCrimeAt(fx.x, fx.y, this.playtime);
       this.sfx?.(pick.kind === 'bad' ? 'alarm' : 'cheer');   // v14：灾害警报 / 喜讯琶音
       if (pick.key === 'quake') this.sfx?.('quake');         // v18：大地低鸣叠加警报
       this.msg?.(`${pick.kind === 'bad' ? '⚠' : '✦'} 事件「${pick.name}」：${pick.note}${result ? ' · ' + result : ''}${fell > 0 ? ` · ${fell} 棵行道树被震倒` : ''}`);
@@ -3197,7 +3199,11 @@ export class Tycoon {
       if (ev.fx) this.citz.onFireSaved(ev.fx.x, ev.fx.y, this.playtime);   // v24：起火宅住户感恩
     }
     if (key === 'plague') this.rescueAid++;
-    if (key === 'crime') this.rescuePolice++;   // v23：巡逻车破案计数
+    if (key === 'crime') {
+      this.rescuePolice++;   // v23：巡逻车破案计数
+      // v25：失窃追回感恩（店主「货款如数追回」写入史册；与火灾对称）
+      if (ev.fx) this.citz.onCrimeSaved(ev.fx.x, ev.fx.y, this.playtime);
+    }
     // v18：天灾驰援的英雄仍是消防员（抽水排涝 / 搜救排险）；v23：擒贼的是警官
     this.citz.onRescue(key === 'plague' ? 'plague' : key === 'crime' ? 'police' : 'fire', this.playtime);   // v13：英雄入册
     // v17：编年史 —— 救险入册（v18 扩充天灾条目；v23 擒贼条目；v24 烈火英雄带过火栋数）

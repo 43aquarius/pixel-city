@@ -176,6 +176,8 @@ export type CitzCard = {
   job: string; trait: string; hobby: string; origin: string;
   bio: string; mood: number; since: number;
   edu: string;                        // v22 学历（名片/详情页展示）
+  /** v25 人物志：根/家/迹三段成文（cardOf 实时合成；guest 路人无） */
+  story?: string;
   homeName: string; homeAt: { x: number; y: number } | null;
   workName: string; workAt: { x: number; y: number } | null;
   log: Array<{ t: number; text: string }>;
@@ -711,6 +713,40 @@ export class CitizenRegistry {
     }
   }
 
+  /** v25 窃案亲历者写入个人史册（与 onFireAt 对称：事件落在具体人身上）。
+   *  职场锤点同格（workAt 距 ≤1）＝ 失窃店主：「后窗被撬」心情 −12；
+   *  三格内街坊（≤3）＝ 目击街坊：「听说遭了贼」心情 −6。 */
+  onCrimeAt(x: number, y: number, t: number): void {
+    let hitShop = 0, hitNear = 0;
+    for (const c of this.roster) {
+      if (!c.workAt) continue;
+      const d = Math.max(Math.abs(c.workAt[0] - x), Math.abs(c.workAt[1] - y));
+      if (d <= 1) {
+        this.pushLog(c, t, '铺子后窗被撬了个大洞，一季的货款没了着落');
+        c.mood = clamp(c.mood - 12, 5, 100);
+        hitShop++;
+      } else if (d <= 3) {
+        this.pushLog(c, t, '听说隔壁街的铺子遭了贼，夜里把门窗栓了又栓');
+        c.mood = clamp(c.mood - 6, 5, 100);
+        hitNear++;
+      }
+    }
+    if (hitShop + hitNear > 0 && this.onMsg) {
+      this.onMsg(`窃案亲历者：${hitShop} 位店主报了警、${hitNear} 位街坊议论纷纷 —— 都写进了他们的史册`);
+    }
+  }
+
+  /** v25 失窃追回感恩：失窃商铺的店主写「货款如数追回」（心情 +10） */
+  onCrimeSaved(x: number, y: number, t: number): void {
+    for (const c of this.roster) {
+      if (!c.workAt) continue;
+      if (Math.max(Math.abs(c.workAt[0] - x), Math.abs(c.workAt[1] - y)) <= 1) {
+        this.pushLog(c, t, '警笛未落人赃并获，货款如数追回 —— 这座城有安全感');
+        c.mood = clamp(c.mood + 10, 5, 100);
+      }
+    }
+  }
+
   // ---------------- 市民之声（街头偶遇） ----------------
 
   /** 按城市状态挑一句市民心声（面板滚动条/行人偶遇共用） */
@@ -826,6 +862,36 @@ export class CitizenRegistry {
 
   // ---------------- 视图 / 存档 ----------------
 
+  /** v25 人物志：把散落档案合成为连贯小传（详情页「人物志」段落）。
+   *  三段成文 —— 根（出身与落脚）/ 家（家世与生计）/ 迹（人生大事时间线转述）。 */
+  private biography(c: Citizen): string {
+    // 根：出身与落脚
+    const homeShort = c.homeName.split(' · ')[0] || '城中寓所';
+    const root = `${c.name}，${c.origin}出身的${c.trait}之人，${c.hobby}是心头好。`;
+    // 家：家世与生计
+    const famBits: string[] = [];
+    if (c.spouse) {
+      const s = this.roster.find(x => x.id === c.spouse);
+      if (s) famBits.push(`与${s.name}结为连理`);
+    }
+    const kids = this.roster.filter(x => x.pa === c.id || x.ma === c.id);
+    if (kids.length) famBits.push(`膝下育有${kids.length >= 3 ? '数名' : (['一名', '两名', '三名', '四名'][kids.length - 1] ?? `${kids.length} 名`)}孩子`);
+    if (c.pa || c.ma) famBits.push('父母早年在册');
+    const famStr = famBits.length ? famBits.join('，') : '如今孑然一身，街坊就是家人';
+    const fam = `迁来后住在${homeShort}${c.workAt ? `，在${c.workName}谋得一份生计` : ''}；${famStr}；学历${EDU_NAMES[c.edu] ?? '蒙童'}。`;
+    // 迹：人生大事时间线（相对时序转述；滑窗内旧→新）
+    const SEQS = ['落户未久', '其后', '再后来', '又过了些日子', '后来', '再往后', '近年', '最近'];
+    const logs = c.log.slice(-LOG_MAX);
+    let trail = '';
+    if (logs.length) {
+      const bits = logs.map((l, i) => `${i < SEQS.length ? SEQS[Math.min(i, SEQS.length - 1)] : '此后'}，${l.text}`);
+      trail = `生平记事：${bits.join('；')}。`;
+    } else {
+      trail = '生平记事：迁来不久，日子还在慢慢铺开。';
+    }
+    return root + fam + trail;
+  }
+
   private cardOf(c: Citizen): CitzCard {
     return {
       id: c.id, name: c.name, gender: c.gender, age: c.age,
@@ -833,6 +899,7 @@ export class CitizenRegistry {
       job: c.job, trait: c.trait, hobby: c.hobby, origin: c.origin,
       bio: c.bio, mood: Math.round(c.mood), since: c.since,
       edu: EDU_NAMES[c.edu] ?? '蒙童',
+      story: this.biography(c),
       homeName: c.homeName,
       homeAt: c.homeAt ? { x: c.homeAt[0], y: c.homeAt[1] } : null,
       workName: c.workAt ? c.workName : (c.job === '襁褓婴儿' ? '襁褓中' : c.body === 1 ? '就读于本城学堂' : c.body === 2 ? '含饴弄孙中' : c.workName || '自由职业'),
@@ -928,6 +995,15 @@ export class CitizenRegistry {
         { label: '表彰应急', dm: 8, reply: '已为参与扑救的消防员请功，城市卫士不会缺位' },
         { label: '承诺增设设施', dm: 6, reply: '新的消防设施已在规划图上，护住每一扇窗' },
         { label: '叮嘱防火', dm: 2, reply: '天干物燥，请街坊们多留意灶台与烛火' },
+      ];
+    } else if (ctx.events.includes('crime') || ctx.crime >= 3) {
+      // v25 窃案主题：进行中窃案或盲区成患（≥3 家）时，失窃店主来信
+      subject = '铺子遭了贼';
+      text = `市长，跟您说件糟心事：昨夜铺子后窗被撬了个大洞，柜台里的货款不翼而飞。派出所说咱这条街不在巡防线上，做小本生意的，实在赔不起第三回。`;
+      opts = [
+        { label: '承诺增设巡防', dm: 8, reply: '已把新交番列入建设计划，巡逻灯会照到每家卷帘门' },
+        { label: '先行垫补损失', dm: 10, reply: '已从市政应急金里先行垫补您的损失，请安心休整铺面' },
+        { label: '叮嘱加固门窗', dm: 2, reply: '请先加装门栓、寄存贵重货款，巡防到位前多加小心' },
       ];
     } else if (ctx.events.includes('plague')) {
       subject = '疫病过去之后';

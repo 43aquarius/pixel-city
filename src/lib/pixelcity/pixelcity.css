@@ -1593,6 +1593,14 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
   font-size: 11.5px; line-height: 1.7; color: #4a4433;
   background: #F7F3E2; border-left: 3px solid #5BC8B8; border-radius: 0 3px 3px 0;
 }
+/* v25 人物志：根/家/迹三段成文 */
+.citz-detail .cd-storywrap { margin: 4px 0 8px; }
+.citz-detail .cd-storywrap h4 { margin: 6px 0 4px; }
+.citz-detail .cd-story {
+  margin: 0; padding: 7px 10px;
+  font-size: 11.5px; line-height: 1.75; color: #3d434e;
+  background: #FBF9EF; border: 1px dashed #C9C2A8; border-radius: 3px;
+}
 .citz-detail .cd-tbl { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
 .citz-detail .cd-tbl td {
   padding: 4px 6px; font-size: 11.5px; color: #3d434e;

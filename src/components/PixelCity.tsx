@@ -2299,6 +2299,12 @@ export default function PixelCity() {
                         </div>
                       </div>
                       <p className="cd-bio">{c.bio}</p>
+                      {c.story && (
+                        <div className="cd-storywrap">
+                          <h4>人物志 · 根与迹</h4>
+                          <p className="cd-story">{c.story}</p>
+                        </div>
+                      )}
                       <table className="cd-tbl"><tbody>
                         <tr>
                           <td>住所</td>
