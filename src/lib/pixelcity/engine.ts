@@ -70,6 +70,8 @@ export class Engine {
   /** 当前明暗曲线（0=白昼 1=深夜；晨暮暖色强度） */
   private dayNight = { dark: 0, warm: 0 };
   private lastInvalT = 0;
+  /** v15 市民外观偏置池上次同步时刻（ms） */
+  private lastCitzLookT = 0;
   private lampSp: Sprite | null = null;
   private lampNight: Sprite | null = null;
   private lampPool: HTMLCanvasElement | null = null;
@@ -881,6 +883,11 @@ export class Engine {
     // 经营模式：行人密度跟随实际人口（荒地开局无人，市民迁入后街巷渐热闹）
     this.actors.popNow = this.tycoon ? this.tycoon.pop : null;
     this.actors.touristsNow = this.tycoon ? this.tycoon.tourists : 0;   // v10 游客漫步
+    // v15 市民外观偏置池：每 5 秒同步一次（行人出生时抽用 → 街上是市民本人）
+    if (now - this.lastCitzLookT > 5000) {
+      this.lastCitzLookT = now;
+      this.actors.citizenLooks = this.tycoon ? this.tycoon.citz.looks() : [];
+    }
     if (now - this.lastInvalT > 2500) {
       this.lastInvalT = now;
       this.actors.invalidate();
@@ -1942,10 +1949,13 @@ export class Engine {
     return best;
   }
 
-  /** 观察工具点击行人 → 随机在册市民名片（命中行人但名人册为空返回 null） */
+  /** 观察工具点击行人 → v15 外观认人：
+   *  在册市民命中（衣装+体型+制服全等）→ 那位市民本人；
+   *  未命中 → 即弃路人卡（guest）；名人册为空返回 null */
   spotPedestrian(cssX: number, cssY: number): CitzCard | null {
-    if (!this.hitPedestrian(cssX, cssY)) return null;
-    return this.tycoon?.citz.spotCard() ?? null;
+    const a = this.hitPedestrian(cssX, cssY);
+    if (!a) return null;
+    return this.tycoon?.citz.spotCard(a.look, a.body, a.role) ?? null;
   }
 
   /** 测试钩子：第 i 个行人的 CSS 屏幕坐标（v13 行人点击验证用） */

@@ -5,6 +5,10 @@
 //   城市事件 → 市民反应写入个人史册（火灾/疫病/牛市/艺术节…）
 //   市民之声 → 随城市状态的市民吐槽（税率/幸福/季节/事件）
 //   名人册   → 在册 28 位代表市民（头像 = 行人精灵同款像素画）
+//   v15 深化：
+//     家族谱系 —— 成婚双档互指、添丁新生儿真实入册（随父姓·记父母）
+//     市长信箱 —— 市民随城市状态来信（求助/吐槽/感谢/见闻），可回信影响心情
+//     外观匹配 —— 按行人三元组（衣装/体型/制服）认人：在册市民=本人，否则路人卡
 //   本模块不依赖 tycoon（上下文由外部传入，避免循环引用）
 // ============================================================
 
@@ -70,6 +74,12 @@ const JOB_ROLE: Record<string, Role> = {
   hospital: 6, school: 3, library: 3, koban: 1, firestation: 7,
 };
 
+/** v15：制服 role → 路人职业名（街头偶遇路人卡用） */
+const ROLE_GUEST: Record<number, string> = {
+  0: '本城市民', 1: '巡街警官', 2: '邮差', 3: '学堂学生', 4: '掌勺主厨',
+  5: '慢跑爱好者', 6: '出诊医生', 7: '消防员', 8: '环卫工', 9: '观光客',
+};
+
 /** 工作建筑 → 职业名 */
 const JOBS: Record<string, string> = {
   shop: '杂货店主', bakery: '面包师', market: '集市摊主', izakaya: '居酒屋老板',
@@ -117,8 +127,42 @@ export type Citizen = {
   workAt: [number, number] | null;   // 职场坐标（缓存）
   mood: number;         // 0-100
   since: number;        // 迁入时间（游戏秒）
+  fam: number;          // v15 家族号（0 = 无家族）
+  spouse: number;       // v15 配偶市民 id（0 = 未婚）
+  pa: number;           // v15 父亲 id（0 = 未知；本城出生者必知）
+  ma: number;           // v15 母亲 id
   bio: string;
   log: Array<{ t: number; text: string }>;
+};
+
+/** v15 家人卡片（详情页「一家人」区块用） */
+export type FamCard = {
+  id: number; name: string; rel: string; mood: number; here: boolean;
+};
+
+/** v15 市长信箱：市民来信 */
+export type Letter = {
+  id: number;
+  from: number;                     // 发件市民 id（0 = 路人）
+  fromName: string;
+  look: number; body: 0 | 1 | 2; role: Role;   // 发件人外观（头像渲染）
+  subject: string;
+  text: string;
+  opts: Array<{ label: string; dm: number; reply: string }>;
+  read: boolean;
+  replied: number;                  // 已选回复下标（-1 = 未回）
+  t: number;
+};
+
+/** v15 信箱视图 */
+export type MailView = {
+  unread: number;
+  letters: Letter[];
+};
+
+/** v15 回信结果 */
+export type ReplyResult = {
+  ok: boolean; reply?: string; dm?: number; from?: string;
 };
 
 /** React 面板用的市民卡片（含建筑名称与坐标） */
@@ -130,6 +174,8 @@ export type CitzCard = {
   homeName: string; homeAt: { x: number; y: number } | null;
   workName: string; workAt: { x: number; y: number } | null;
   log: Array<{ t: number; text: string }>;
+  guest?: boolean;                   // v15 路人（不在名人册）
+  fam?: FamCard[];                  // v15 家人
 };
 
 export type CitzView = {
@@ -160,20 +206,34 @@ const keyOf = (o: Obj, n: number): number => o.ay * n + o.ax;
 
 export class CitizenRegistry {
   roster: Citizen[] = [];
-  /** 累计落户人次（成就口径） */
+  /** 累计落户人次（成就口径；含本城出生） */
   total = 0;
+  /** v15 信箱（新信在前由 mailView 负责；这里按时间序追加） */
+  letters: Letter[] = [];
+  /** v15 累计回信数（成就口径） */
+  replyCount = 0;
   private nextId = 1;
   private lastPop = 0;
   private evTimer = 12;
+  private mailTimer = 26;          // 首封信来得早些，让玩家尽快见到新玩法
+  private nextLetterId = 1;
+  private nextFam = 1;
+  private lastCtx: CitzCtx = { pop: 0, happiness: 60, taxRate: 8, season: 0, famine: 0, events: [] };
+  private lastT = 0;
   /** 消息回调（tycoon.msg 接线） */
   onMsg: ((s: string) => void) | null = null;
 
   reset(): void {
     this.roster = [];
     this.total = 0;
+    this.letters = [];
+    this.replyCount = 0;
     this.nextId = 1;
     this.lastPop = 0;
     this.evTimer = 12;
+    this.mailTimer = 26;
+    this.nextLetterId = 1;
+    this.nextFam = 1;
   }
 
   /** 存档恢复后对齐人口基线（避免读档误触发「迁入」） */
@@ -222,6 +282,7 @@ export class CitizenRegistry {
       workAt: work ? [work.ax, work.ay] : null,
       mood: clamp(ctx.happiness + trait.mood, 5, 100),
       since: t,
+      fam: 0, spouse: 0, pa: 0, ma: 0,   // v15 家族谱系：落户时子然一身
       bio: '',
       log: [],
     };
@@ -279,6 +340,15 @@ export class CitizenRegistry {
       this.evTimer = 14 + Math.random() * 12;
       if (this.roster.length) this.lifeEvent(map, t);
     }
+
+    // v15 市长信箱：每 40-70 秒一封新信（先挤掉最旧的已读；全未读则暂不送信）
+    this.lastCtx = ctx;
+    this.lastT = t;
+    this.mailTimer -= dt;
+    if (this.mailTimer <= 0) {
+      this.mailTimer = 40 + Math.random() * 30;
+      this.maybeLetter();
+    }
   }
 
   /** 随机一位市民的随机人生事件（写入大事记） */
@@ -289,11 +359,11 @@ export class CitizenRegistry {
       this.pushLog(c, t, `升任领班加了薪，请全屋人吃了顿烧鸟`);
       c.mood = clamp(c.mood + 8, 5, 100);
     } else if (roll < 0.30 && c.body === 0) {
-      const names = rnd(GIVEN_F.concat(GIVEN_M));
-      this.pushLog(c, t, `与青梅竹马${rnd(SURNAMES)}${names}成婚，街坊送来一篮子鸡蛋`);
-      c.mood = clamp(c.mood + 12, 5, 100);
+      // v15 真实成婚：与在册另一位单身成人结为夫妇（异性优先），双方档案互指
+      this.marry(c, t);
     } else if (roll < 0.40 && c.body === 0) {
-      this.pushLog(c, t, `家里添了丁，取了个乳名叫「小满」`);
+      // v15 真实添丁：已婚（配偶在册）→ 新生儿入册随父姓
+      this.born(c, t);
     } else if (roll < 0.50) {
       // 乔迁：换一处住所
       const homes = [...map.objs.values()].filter(o => o.id in HOMES);
@@ -348,6 +418,112 @@ export class CitizenRegistry {
   private pushLog(c: Citizen, t: number, text: string): void {
     c.log.push({ t: Math.round(t), text });
     if (c.log.length > LOG_MAX) c.log.splice(0, c.log.length - LOG_MAX);
+  }
+
+  // ---------------- v15 家族谱系 ----------------
+
+  /** 成婚：在册找单身成人（异性优先）结为夫妇；找不到则按旧文案外市成婚 */
+  private marry(c: Citizen, t: number): boolean {
+    if (c.body !== 0 || c.spouse) return false;
+    const mate = this.roster.find(x => x.id !== c.id && x.body === 0 && !x.spouse && x.gender !== c.gender)
+      ?? this.roster.find(x => x.id !== c.id && x.body === 0 && !x.spouse);
+    if (mate) {
+      c.spouse = mate.id;
+      mate.spouse = c.id;
+      const fam = c.fam || mate.fam || this.nextFam++;
+      c.fam = fam;
+      mate.fam = fam;
+      this.pushLog(c, t, `与${mate.name}喜结连理，整条街坊都来喝了喜酒`);
+      this.pushLog(mate, t, `与${c.name}在市政厅前拍了结婚照，巷口的狸花猫都来凑热闹`);
+      c.mood = clamp(c.mood + 14, 5, 100);
+      mate.mood = clamp(mate.mood + 14, 5, 100);
+      this.onMsg?.(`喜结连理：${c.name} 与 ${mate.name} 成婚，街坊同贺`);
+      return true;
+    }
+    const names = rnd(GIVEN_F.concat(GIVEN_M));
+    this.pushLog(c, t, `与青梅竹马${rnd(SURNAMES)}${names}成婚，街坊送来一篮子鸡蛋`);
+    c.mood = clamp(c.mood + 12, 5, 100);
+    return false;
+  }
+
+  /** 添丁：配偶在册 → 新生儿真实入册（随父姓·记父母·继承家族号） */
+  private born(c: Citizen, t: number): boolean {
+    if (c.body !== 0) return false;
+    const mate = c.spouse ? this.roster.find(x => x.id === c.spouse) : undefined;
+    if (!mate) {
+      this.pushLog(c, t, `家里添了丁，取了个乳名叫「小满」`);
+      return false;
+    }
+    const baby = this.addNewborn(c, mate, t);
+    this.pushLog(c, t, `家里添了新丁：${baby.name}，全家喜上眉梢`);
+    this.pushLog(mate, t, `迎来了${baby.name}的降生，产房外笑得合不拢嘴`);
+    c.mood = clamp(c.mood + 10, 5, 100);
+    mate.mood = clamp(mate.mood + 10, 5, 100);
+    this.onMsg?.(`添丁之喜：${c.name} 家添了新成员 ${baby.name}，本城出生`);
+    return true;
+  }
+
+  /** 新生儿入册：随父姓、记父母、住所同家、继承家族号 */
+  private addNewborn(a: Citizen, b: Citizen, t: number): Citizen {
+    const pa = a.gender === 0 ? a : b;
+    const ma = a.gender === 0 ? b : a;
+    const gender: 0 | 1 = Math.random() < 0.5 ? 0 : 1;
+    const c: Citizen = {
+      id: this.nextId++,
+      name: pa.name[0] + rnd(gender === 0 ? GIVEN_M : GIVEN_F),
+      gender,
+      age: 0,
+      look: (Math.random() * 14) | 0,
+      body: 1, role: 3, job: '襁褓婴儿',
+      trait: '天真烂漫', traitMood: 8,
+      hobby: '被抱着看电车驶过',
+      origin: '本城出生',
+      homeKey: a.homeKey,
+      homeName: a.homeName,
+      homeAt: a.homeAt ? [a.homeAt[0], a.homeAt[1]] : null,
+      workKey: -1, workName: '', workAt: null,
+      mood: clamp((a.mood + b.mood) / 2 + 12, 5, 100),
+      since: t,
+      fam: a.fam || b.fam || this.nextFam++,
+      spouse: 0, pa: pa.id, ma: ma.id,
+      bio: `在这座城市出生的第一代孩子，第一声啼哭混在电车铃声里。街坊都说这娃有福气。`,
+      log: [],
+    };
+    c.log.push({ t: Math.round(t), text: `在${c.homeName.split(' · ')[0]}呱呱坠地，是本城土生土长的小市民` });
+    this.roster.push(c);
+    this.total++;
+    if (this.roster.length > ROSTER_MAX) this.roster.shift();
+    return c;
+  }
+
+  /** 家人卡片：配偶 / 子女 / 父母（不在册 → here:false 已迁居） */
+  private famOf(c: Citizen): FamCard[] {
+    const out: FamCard[] = [];
+    const byId = (id: number): Citizen | undefined => this.roster.find(x => x.id === id);
+    if (c.spouse) {
+      const s = byId(c.spouse);
+      out.push(s
+        ? { id: s.id, name: s.name, rel: '配偶', mood: Math.round(s.mood), here: true }
+        : { id: c.spouse, name: '故人', rel: '配偶', mood: 0, here: false });
+    }
+    for (const x of this.roster) {
+      if (x.pa === c.id || x.ma === c.id) {
+        out.push({ id: x.id, name: x.name, rel: '子女', mood: Math.round(x.mood), here: true });
+      }
+    }
+    if (c.pa) {
+      const p = byId(c.pa);
+      out.push(p
+        ? { id: p.id, name: p.name, rel: '父亲', mood: Math.round(p.mood), here: true }
+        : { id: c.pa, name: '', rel: '父亲', mood: 0, here: false });
+    }
+    if (c.ma) {
+      const m = byId(c.ma);
+      out.push(m
+        ? { id: m.id, name: m.name, rel: '母亲', mood: Math.round(m.mood), here: true }
+        : { id: c.ma, name: '', rel: '母亲', mood: 0, here: false });
+    }
+    return out;
   }
 
   // ---------------- 城市事件反应 ----------------
@@ -441,14 +617,46 @@ export class CitizenRegistry {
     return { name: c.name, text, mood: Math.round(c.mood) };
   }
 
-  /** 观察工具点击行人 → 随机一位在册市民的卡片（名人册为空返回 null） */
-  spot(): Citizen | null {
-    return this.roster.length ? rnd(this.roster) : null;
+  /** 观察工具点击行人 → 按外观三元组认人（v15）：
+   *  在册命中（衣装+体型+制服全等）→ 那位市民本人；
+   *  未命中 → 即弃路人卡（guest，不入册）。
+   *  无参调用 → 旧行为：随机在册市民。空册返回 null。 */
+  spotCard(look?: number, body?: 0 | 1 | 2, role?: Role): CitzCard | null {
+    if (!this.roster.length) return null;
+    if (look !== undefined && body !== undefined && role !== undefined) {
+      const hit = this.roster.filter(c => c.look === look && c.body === body && c.role === role);
+      if (hit.length) return this.cardOf(rnd(hit));
+      return this.guestCard(look, body, role);
+    }
+    return this.cardOf(rnd(this.roster));
   }
 
-  /** 观察工具点击行人 → 随机在册市民的完整卡片（空册返回 null；engine 钩子用） */
-  spotCard(): CitzCard | null {
-    return this.roster.length ? this.cardOf(rnd(this.roster)) : null;
+  /** v15 路人卡：与被点行人同款外观，即弃不入册 */
+  private guestCard(look: number, body: 0 | 1 | 2, role: Role): CitzCard {
+    const gender: 0 | 1 = Math.random() < 0.5 ? 0 : 1;
+    const age = body === 1 ? 6 + (Math.random() * 10 | 0)
+      : body === 2 ? 62 + (Math.random() * 22 | 0)
+      : 19 + (Math.random() * 40 | 0);
+    const job = ROLE_GUEST[role] ?? '路人';
+    return {
+      id: 0,
+      name: rnd(SURNAMES) + rnd(gender === 0 ? GIVEN_M : GIVEN_F),
+      gender, age, look, body, role, job,
+      trait: '面生', hobby: '逛街看热闹', origin: '远方来客',
+      bio: role === 9
+        ? `从远方来的旅人，为这座城市的风景停下了脚步。说不定哪天会把家安在这里。`
+        : `与这座城市擦肩而过的路人 —— 街坊们说，多来几次就脸熟了。`,
+      mood: clamp(this.lastCtx.happiness + (Math.random() * 20 - 10), 5, 100),
+      since: 0, guest: true,
+      homeName: '客栈 / 亲戚家', homeAt: null,
+      workName: job, workAt: null,
+      log: [],
+    };
+  }
+
+  /** v15 外观偏置池：行人出生时按此池抽三元组（「街上走的就是本人」） */
+  looks(): Array<{ look: number; body: 0 | 1 | 2; role: Role }> {
+    return this.roster.map(c => ({ look: c.look, body: c.body, role: c.role }));
   }
 
   // ---------------- 视图 / 存档 ----------------
@@ -461,10 +669,189 @@ export class CitizenRegistry {
       bio: c.bio, mood: Math.round(c.mood), since: c.since,
       homeName: c.homeName,
       homeAt: c.homeAt ? { x: c.homeAt[0], y: c.homeAt[1] } : null,
-      workName: c.workAt ? c.workName : (c.body === 1 ? '就读于本城学堂' : c.body === 2 ? '含饴弄孙中' : c.workName || '自由职业'),
+      workName: c.workAt ? c.workName : (c.job === '襁褓婴儿' ? '襁褓中' : c.body === 1 ? '就读于本城学堂' : c.body === 2 ? '含饴弄孙中' : c.workName || '自由职业'),
       workAt: c.workAt ? { x: c.workAt[0], y: c.workAt[1] } : null,
       log: c.log.slice(-6).map(l => ({ ...l })),
+      fam: this.famOf(c),
     };
+  }
+
+  // ---------------- v15 市长信箱 ----------------
+
+  /** 未读信数 */
+  get unread(): number {
+    let n = 0;
+    for (const l of this.letters) if (!l.read) n++;
+    return n;
+  }
+
+  /** 信箱视图（新信在前；浅拷贝供 React 渲染） */
+  mailView(): MailView {
+    return {
+      unread: this.unread,
+      letters: this.letters.slice().reverse().map(l => ({ ...l, opts: l.opts })),
+    };
+  }
+
+  /** HUD 徽标用的轻量概要 */
+  mailBrief(): { unread: number; n: number } {
+    return { unread: this.unread, n: this.letters.length };
+  }
+
+  /** 标记已读（打开信时由 UI 调用） */
+  markRead(id: number): void {
+    const L = this.letters.find(l => l.id === id);
+    if (L && !L.read) L.read = true;
+  }
+
+  /** 回信：选中一个选项 → 发件人心情变化 + 大事记写入；返回回信文案供 UI 展示 */
+  replyLetter(id: number, optIdx: number): ReplyResult {
+    const L = this.letters.find(l => l.id === id);
+    if (!L || L.replied >= 0 || optIdx < 0 || optIdx >= L.opts.length) return { ok: false };
+    const o = L.opts[optIdx];
+    L.replied = optIdx;
+    this.replyCount++;
+    const c = this.roster.find(x => x.id === L.from);
+    if (c) {
+      c.mood = clamp(c.mood + o.dm, 5, 100);
+      this.pushLog(c, this.lastT, `收到市长的回信：「${o.reply}」`);
+    }
+    return { ok: true, reply: o.reply, dm: o.dm, from: L.fromName };
+  }
+
+  /** 送信（tick 计时到达；信箱满 8 封先挤最旧已读，全未读则缓一缓） */
+  private maybeLetter(): void {
+    if (!this.roster.length) return;
+    if (this.letters.length >= 8) {
+      const i = this.letters.findIndex(l => l.read);
+      if (i < 0) return;
+      this.letters.splice(i, 1);
+    }
+    const c = rnd(this.roster);
+    const L = this.buildLetter(c);
+    this.letters.push(L);
+    this.onMsg?.(`新来信：${c.name} 写给市长 —— 「${L.subject}」`);
+  }
+
+  /** 按城市状态挑一种信（每种 2-3 个回信选项） */
+  private buildLetter(c: Citizen): Letter {
+    const ctx = this.lastCtx;
+    let subject = '', text = '';
+    let opts: Array<{ label: string; dm: number; reply: string }> = [];
+    const seasonWord = ['春', '夏', '秋', '冬'][clamp(ctx.season, 0, 3)];
+    if (ctx.famine) {
+      subject = '市长，米缸见底了';
+      text = `冒昧来信。家里米缸见底好几天了，粮价一天一个样，孩子夜里饿得直哭。街坊们都在咬牙撑着，盼市政厅想想办法。`;
+      opts = [
+        { label: '安抚 + 优先调粮', dm: 10, reply: '已在协调各粮仓优先保民生供应，再撑两天，一定会好起来' },
+        { label: '建议各家互助', dm: -3, reply: '远亲不如近邻，先请街坊们互相匀一匀，市政厅随后补上' },
+        { label: '承诺速建粮仓', dm: 6, reply: '已把新粮仓列入建设计划，往后青黄不接不再断粮' },
+      ];
+    } else if (ctx.taxRate > 12) {
+      subject = '关于这个月的税单';
+      text = `市长您好。这个月的税单又厚了一沓，肉摊都少割了两斤肉。大伙儿理解城市建设要花钱，但也盼着能喘口气。`;
+      opts = [
+        { label: '承诺斟酌减税', dm: 8, reply: '税负的事记在心上了，下个财政周期一定斟酌调整' },
+        { label: '细算市政账本', dm: 2, reply: '修路架桥办教育，每一分税钱都花在了明处，账本随时可查' },
+        { label: '暂缓处理', dm: -8, reply: '来信收到，眼下财政吃紧，还请再多担待担待' },
+      ];
+    } else if (ctx.events.includes('fire')) {
+      subject = '大火那晚，吓坏了';
+      text = `市长，前晚那场大火您知道吗？半条街的天空都是红的。万亏消防车来得快。想给市政厅提个醒，水池和消防队还得再添些。`;
+      opts = [
+        { label: '表彰应急', dm: 8, reply: '已为参与扑救的消防员请功，城市卫士不会缺位' },
+        { label: '承诺增设设施', dm: 6, reply: '新的消防设施已在规划图上，护住每一扇窗' },
+        { label: '叮嘱防火', dm: 2, reply: '天干物燥，请街坊们多留意灶台与烛火' },
+      ];
+    } else if (ctx.events.includes('plague')) {
+      subject = '疫病过去之后';
+      text = `疫病总算缓下来了。这些日子医护们连轴转，居委会的大喇叭天天喊人喝药汤。想请市长代我们谢谢他们。`;
+      opts = [
+        { label: '代为致谢', dm: 8, reply: '已转达谢意，医护们的锦旗正在赶制' },
+        { label: '承诺扩建医院', dm: 6, reply: '新的病床与诊室已在计划里，下回不再打地铺' },
+        { label: '提醒保重', dm: 3, reply: '换季时节，还请多添衣裳、勤晒被褥' },
+      ];
+    } else if (ctx.happiness > 75) {
+      subject = '谢谢这座好城';
+      text = `市长您好！今天${seasonWord}高气爽，全家去河边野餐，电车叮叮当当驶过，孩子追着鸽子跑。住在这儿三年了，日子越过越有奔头。谢谢您把城市建设得这么好。`;
+      opts = [
+        { label: '亲笔回信', dm: 10, reply: '字字读罢，比发了奖金还高兴。这座城因你们而温暖' },
+        { label: '随信赠小礼', dm: 12, reply: '随信附上市政厅纪念明信片一套，请笑纳' },
+        { label: '例行致谢', dm: 4, reply: '来信收到，感谢您对市政工作的支持' },
+      ];
+    } else if (ctx.events.includes('festival') || ctx.events.includes('tourseason')) {
+      subject = '这阵子街上真热闹';
+      text = `市长，艺术节（游客潮）以来，我家门口的小摊生意翻了番！外地口音的游客一拨接一拨，连巷子里的猫都胖了一圈。就是垃圾也多了些，环卫工够忙的。`;
+      opts = [
+        { label: '感谢 + 加班费', dm: 8, reply: '已叮嘱给环卫弟兄们补发加班补贴，热闹也要干净' },
+        { label: '请多提意见', dm: 5, reply: '生意经里出城市经，欢迎常来信说说街面动静' },
+        { label: '叮嘱规范经营', dm: 0, reply: '摊位请按划定区域摆放，留出消防通道' },
+      ];
+    } else if (ctx.happiness < 40) {
+      subject = '日子有点紧，想跟您聊聊';
+      text = `市长，冒昧说说心里话。这阵子街坊们脸色都不太好：铺子冷清、水电紧巴巴、公交也不好等。大伙儿嘴上不说，心里都盼着能有转机。`;
+      opts = [
+        { label: '记下 + 逐项排查', dm: 9, reply: '已把您提的问题记进市政备忘录，一件一件来' },
+        { label: '恳请再等等', dm: 2, reply: '城市的难关是暂时的，请再给一点时间' },
+        { label: '建议迁往他处', dm: -10, reply: '若此处谋生不易，也不强留，祝一路顺遂' },
+      ];
+    } else {
+      const r = Math.random();
+      if (r < 0.34) {
+        subject = '一条小建议';
+        text = `市长，遛弯时想到的：${seasonWord}天风大，河堤那排树要是能再补种一排，夏天乘凉冬天挡风就好了。还有路灯，有几盏总眨眼。小事，但住着舒心。`;
+        opts = [
+          { label: '采纳 + 记入计划', dm: 8, reply: '补树与修灯都已记入市政清单，开春就办' },
+          { label: '感谢提意见', dm: 4, reply: '城市的好建议都来自这样的来信，谢谢' },
+          { label: '暂排不上', dm: -3, reply: '眼下大事繁多，小事容后再议' },
+        ];
+      } else if (r < 0.67) {
+        subject = '巷口见闻';
+        text = `市长，跟您说件趣事：巷口老王的摊子前天来了只鹦鹉，学电车铃学得一模一样，逗得半条巷子的人都出来看。这城啊，越住越有滋味。`;
+        opts = [
+          { label: '笑着回信', dm: 6, reply: '读信时笑出了声，替我向那只鹦鹉问好' },
+          { label: '相约街坊节', dm: 7, reply: '下回街坊节，市政厅请大伙儿喝茶听戏' },
+          { label: '简短回复', dm: 2, reply: '见闻收到，愿巷口的笑声常在' },
+        ];
+      } else {
+        subject = '新邻居来打听';
+        text = `市长您好！有位老乡看我住得好，想搬来咱们城，托我问问：这城里孩子上学方便吗？水电稳当吗？我该怎么跟他夸夸咱们这儿？`;
+        opts = [
+          { label: '欢迎迁入', dm: 8, reply: '请转告：学堂、水电、电车都齐备，本城欢迎每一位新市民' },
+          { label: '实话实说', dm: 4, reply: '城市还在成长，好处与不足都请如实相告' },
+          { label: '让市场决定', dm: 0, reply: '来去自由，缘分到了自然安家' },
+        ];
+      }
+    }
+    return {
+      id: this.nextLetterId++, from: c.id, fromName: c.name,
+      look: c.look, body: c.body, role: c.role,
+      subject, text, opts,
+      read: false, replied: -1, t: this.lastT,
+    };
+  }
+
+  /** 测试钩子：强制送出一封信（忽略计时器与满箱限制） */
+  forceLetter(): Letter | null {
+    if (!this.roster.length) return null;
+    const c = rnd(this.roster);
+    const L = this.buildLetter(c);
+    this.letters.push(L);
+    return L;
+  }
+
+  /** 测试钩子：强制触发指定生活事件（wed=成婚 born=添丁；id=-1 随机成人） */
+  forceEvent(kind: 'wed' | 'born', id = -1): { ok: boolean; msg: string } {
+    const pool = this.roster.filter(c => c.body === 0);
+    if (!pool.length) return { ok: false, msg: 'no-adult' };
+    const c = id >= 0 ? pool.find(x => x.id === id) : rnd(pool);
+    if (!c) return { ok: false, msg: 'not-found' };
+    const t = this.lastT;
+    if (kind === 'wed') {
+      if (c.spouse) return { ok: false, msg: 'already-married' };
+      return this.marry(c, t) ? { ok: true, msg: 'married' } : { ok: false, msg: 'no-mate' };
+    }
+    return this.born(c, t) ? { ok: true, msg: 'born' } : { ok: false, msg: 'no-spouse' };
   }
 
   view(): CitzView {
@@ -482,6 +869,16 @@ export class CitizenRegistry {
     return {
       total: this.total,
       nextId: this.nextId,
+      nextFam: this.nextFam,
+      replyCount: this.replyCount,
+      nextLid: this.nextLetterId,
+      letters: this.letters.map(l => ({
+        id: l.id, from: l.from, fn: l.fromName,
+        look: l.look, body: l.body, role: l.role,
+        subject: l.subject, text: l.text,
+        opts: l.opts.map(o => [o.label, o.dm, o.reply]),
+        read: l.read, replied: l.replied, t: Math.round(l.t),
+      })),
       roster: this.roster.map(c => ({
         id: c.id, name: c.name, gender: c.gender, age: c.age,
         look: c.look, body: c.body, role: c.role,
@@ -491,6 +888,7 @@ export class CitizenRegistry {
         wk: c.workKey, wn: c.workName,
         wax: c.workAt ? c.workAt[0] : -1, way: c.workAt ? c.workAt[1] : -1,
         mood: Math.round(c.mood), since: Math.round(c.since), bio: c.bio,
+        fam: c.fam, sp: c.spouse, pa: c.pa, ma: c.ma,
         log: c.log.map(l => [Math.round(l.t), l.text]),
       })),
     };
@@ -498,10 +896,43 @@ export class CitizenRegistry {
 
   restore(d: unknown): void {
     this.reset();
-    const o = d as { total?: number; nextId?: number; roster?: Array<Record<string, unknown>> } | null;
+    const o = d as {
+      total?: number; nextId?: number; nextFam?: number;
+      replyCount?: number; nextLid?: number;
+      letters?: Array<Record<string, unknown>>;
+      roster?: Array<Record<string, unknown>>;
+    } | null;
     if (!o || !Array.isArray(o.roster)) return;
     this.total = Math.max(0, Math.floor(Number(o.total) || 0));
     this.nextId = Math.max(1, Math.floor(Number(o.nextId) || 1));
+    this.nextFam = Math.max(1, Math.floor(Number(o.nextFam) || 1));
+    this.replyCount = Math.max(0, Math.floor(Number(o.replyCount) || 0));
+    this.nextLetterId = Math.max(1, Math.floor(Number(o.nextLid) || 1));
+    // v15 信箱恢复（旧档无 letters 字段 → 空箱）
+    if (Array.isArray(o.letters)) {
+      for (const r of o.letters.slice(0, 8)) {
+        const opts: Array<{ label: string; dm: number; reply: string }> = [];
+        for (const t of (r.opts as Array<[string, number, string]>) ?? []) {
+          if (Array.isArray(t) && typeof t[0] === 'string' && typeof t[2] === 'string') {
+            opts.push({ label: t[0], dm: Math.floor(Number(t[1]) || 0), reply: t[2] });
+          }
+        }
+        if (typeof r.subject !== 'string' || typeof r.text !== 'string' || !opts.length) continue;
+        const rep = Math.floor(Number(r.replied ?? -1));
+        this.letters.push({
+          id: Math.floor(Number(r.id) || this.nextLetterId++),
+          from: Math.floor(Number(r.from) || 0),
+          fromName: String(r.fn ?? '市民'),
+          look: ((Math.floor(Number(r.look) || 0) % 14) + 14) % 14,
+          body: ([0, 1, 2].includes(Number(r.body)) ? Number(r.body) : 0) as 0 | 1 | 2,
+          role: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].includes(Number(r.role)) ? Number(r.role) as Role : 0,
+          subject: r.subject, text: r.text, opts,
+          read: r.read === true,
+          replied: rep >= 0 && rep < opts.length ? rep : -1,
+          t: Math.max(0, Math.floor(Number(r.t) || 0)),
+        });
+      }
+    }
     for (const r of o.roster.slice(0, ROSTER_MAX)) {
       const log: Array<{ t: number; text: string }> = [];
       for (const l of (r.log as Array<[number, string]>) ?? []) {
@@ -533,6 +964,10 @@ export class CitizenRegistry {
         workAt: wax >= 0 && way >= 0 ? [wax, way] : null,
         mood: Math.max(5, Math.min(100, Math.floor(Number(r.mood) || 60))),
         since: Math.max(0, Math.floor(Number(r.since) || 0)),
+        fam: Math.max(0, Math.floor(Number(r.fam) || 0)),
+        spouse: Math.max(0, Math.floor(Number(r.sp) || 0)),
+        pa: Math.max(0, Math.floor(Number(r.pa) || 0)),
+        ma: Math.max(0, Math.floor(Number(r.ma) || 0)),
         bio: String(r.bio ?? ''),
         log: log.slice(-LOG_MAX),
       });

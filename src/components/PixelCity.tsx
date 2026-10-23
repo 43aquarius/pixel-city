@@ -35,7 +35,7 @@ const ICON_NAMES = [
   'wheat', 'book', 'flask', 'heart', 'up', 'down', 'job', 'medal',
   'sun', 'cloud', 'rain', 'snoww',
   'spr', 'sum', 'fall', 'win', 'drop', 'bridge',
-  'camera', 'box', 'fire', 'shield',
+  'camera', 'box', 'fire', 'shield', 'mail',
 ];
 
 type Phase = 'loading' | 'ready';
@@ -245,13 +245,17 @@ export default function PixelCity() {
   const [hover, setHover] = useState<{ tx: number; ty: number } | null>(null);
   const [fps, setFps] = useState(0);
   const [zoom, setZoom] = useState(2);
-  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz'>('none');
+  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail'>('none');
   const [econ, setEcon] = useState<EconView | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
   /** v13 市民列传：选中市民（null=名人册网格）；街头偶遇的市民卡片 */
   const [citzSel, setCitzSel] = useState<number | null>(null);
   const [citzSpot, setCitzSpot] = useState<CitzCard | null>(null);
+  /** v15 市长信箱：选中信件 id（null = 列表视图） */
+  const [mailSel, setMailSel] = useState<number | null>(null);
+  /** v15 信箱视图版本号（回信后强制刷新） */
+  const [mailVer, setMailVer] = useState(0);
   const [citzVoice, setCitzVoice] = useState<{ name: string; text: string; mood: number } | null>(null);
   /** v14 新手引导：状态机实例（ref）+ 渲染快照（state） */
   const tutRef = useRef<Tutorial | null>(null);
@@ -525,12 +529,13 @@ export default function PixelCity() {
     }
   }, [say]);
 
-  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz') => {
+  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail') => {
     if (m === 'save') {
       setSlotMeta([0, 1, 2].map(i => Engine.slotMeta(i)));
     }
-    if (m === 'citz') setCitzEng(engineRef.current);   // 捕获引擎句柄到 state（头像/定位用）
+    if (m === 'citz' || m === 'mail') setCitzEng(engineRef.current);   // 捕获引擎句柄到 state（头像/信箱视图用）
     if (m !== 'citz') { setCitzSel(null); setCitzSpot(null); }
+    if (m !== 'mail') setMailSel(null);
     setModal(m);
     beeperRef.current?.play('click');
   }, []);
@@ -1140,6 +1145,11 @@ export default function PixelCity() {
               <button className="chip" onClick={() => openModal('citz')}
                 title={`市民列传：在册名人 ${econ.citz.n} 位 · 累计落户 ${econ.citz.total} 人 · 平均心情 ${econ.citz.avgMood}（观察工具点击街上的行人也能认识他们）`}>
                 <img src={iu('person')} alt="" /><b>{econ.citz.n}</b><i>民</i>
+              </button>
+              <button className={`chip mail${econ.mail.unread > 0 ? ' has' : ''}`} onClick={() => openModal('mail')}
+                title={`市长信箱：${econ.mail.unread > 0 ? `${econ.mail.unread} 封未读 —— 市民在等您回信` : `${econ.mail.n} 封来信，暂无未读`}`}>
+                <img src={iu('mail')} alt="" /><b>{econ.mail.n}</b><i>邮</i>
+                {econ.mail.unread > 0 && <em className="chip-dot">{econ.mail.unread}</em>}
               </button>
               <div className={`chip${econ.powerDem > econ.powerSup ? ' warn' : ''}`}
                 title={`电力：供给 ${econ.powerSup}MW / 需求 ${econ.powerDem}MW${econ.powerDem > econ.powerSup ? ' —— 缺电！收入大幅打折' : ''}`}>
@@ -2062,12 +2072,12 @@ export default function PixelCity() {
                         <button className="pxc-btn" onClick={() => { setCitzSel(null); setCitzSpot(null); }}>
                           ← 返回名人册
                         </button>
-                        {spot && <em className="cd-spot">街头偶遇 · 交了个朋友</em>}
+                        {spot && <em className="cd-spot">{c.guest ? '街头偶遇 · 过路人' : '街头偶遇 · 就是这位本人'}</em>}
                       </div>
                       <div className="cd-head">
                         <img className="cd-ava" src={av(c, 96)} alt={`${c.name}的像素头像`} />
                         <div className="cd-meta">
-                          <b>{c.name}</b>
+                          <b>{c.name}{c.guest && <i className="cd-guest">路人</i>}</b>
                           <span>{c.age} 岁 · {c.gender === 1 ? '女' : '男'} · {c.job}</span>
                           <span>{c.trait} · 爱好{c.hobby}</span>
                           <div className="moodbar" title={`心情 ${c.mood}/100（随城市幸福度与个人性格波动）`}>
@@ -2102,11 +2112,30 @@ export default function PixelCity() {
                             )}
                           </td>
                         </tr>
-                        <tr><td>出身</td><td>{c.origin}（迁来 {fmtT(c.since)} 时）</td></tr>
+                        <tr><td>出身</td><td>{c.origin}{c.guest ? '（萍水相逢）' : `（迁来 ${fmtT(c.since)} 时）`}</td></tr>
                       </tbody></table>
+                      {!c.guest && c.fam && c.fam.length > 0 && (
+                        <div className="cd-famwrap">
+                          <h4>一家人</h4>
+                          <div className="cd-fam">
+                            {c.fam.map(f => f.here ? (
+                              <button key={`${f.rel}-${f.id}`} className="fam-card" onClick={() => { setCitzSel(f.id); setCitzSpot(null); }}
+                                title={`看 ${f.name} 的列传`}>
+                                <b>{f.name}</b>
+                                <span>{f.rel} · 心情 {f.mood}</span>
+                              </button>
+                            ) : (
+                              <span key={`${f.rel}-${f.id}`} className="fam-card off">
+                                <b>{f.rel}</b>
+                                <span>已迁居别城</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       <h4>生活大事记</h4>
                       <ul className="cd-log">
-                        {c.log.length === 0 && <li className="empty">还没有记录 —— 城市时间会带来故事</li>}
+                        {c.log.length === 0 && <li className="empty">{c.guest ? '萍水相逢，还没有故事 —— 常来串门就熟了' : '还没有记录 —— 城市时间会带来故事'}</li>}
                         {c.log.map((l, i) => (
                           <li key={i}><time>{fmtT(l.t)}</time>{l.text}</li>
                         ))}
@@ -2148,6 +2177,99 @@ export default function PixelCity() {
         );
       })()}
 
+      {/* v15 市长信箱模态 */}
+      {modal === 'mail' && econ && (() => {
+        const eng = citzEng;   // 打开模态时捕获的引擎句柄（state，不读 ref）
+        const av = (l: { look: number; body: 0 | 1 | 2; role: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 }, sz = 48): string =>
+          eng?.citizenAvatar(l.look, l.body, l.role, sz) ?? BLANK;
+        const mv = eng?.tycoon?.mailView() ?? { unread: 0, letters: [] };
+        void mailVer;   // 回信后 setMailVer 触发重渲染
+        const fmtT = (s: number): string => {
+          const m = Math.floor(s / 60), ss = Math.floor(s % 60);
+          return m > 0 ? `${m}分${String(ss).padStart(2, '0')}秒` : `${ss}秒`;
+        };
+        const sel = mv.letters.find(l => l.id === mailSel) ?? null;
+        return (
+          <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
+            <div className="pxc-modal pxc-mail" role="dialog" aria-label="市长信箱">
+              <header>
+                市 长 信 箱
+                <button className="pxc-x" onClick={() => setModal('none')} aria-label="关闭">×</button>
+              </header>
+              <div className="pxc-body">
+                {sel ? (() => {
+                  const l = sel;
+                  return (
+                    <div className="mail-read">
+                      <div className="cd-top">
+                        <button className="pxc-btn" onClick={() => setMailSel(null)}>← 返回信箱</button>
+                        {l.replied >= 0 && <em className="cd-spot">已回信</em>}
+                      </div>
+                      <div className="mr-head">
+                        <img className="mr-ava" src={av(l)} alt={`${l.fromName}的头像`} />
+                        <div className="mr-meta">
+                          <b>{l.subject}</b>
+                          <span>{l.fromName} · {fmtT(l.t)} 前写来</span>
+                        </div>
+                        {!l.read && <em className="mr-new">新</em>}
+                      </div>
+                      <p className="mr-text">{l.text}</p>
+                      {l.replied < 0 ? (
+                        <div className="mr-opts">
+                          <p className="mr-tip">怎么回这封信？（回信会影响 TA 的心情）</p>
+                          {l.opts.map((o, i) => (
+                            <button key={i} className="pxc-btn" onClick={() => {
+                              eng?.tycoon?.replyLetter(l.id, i);
+                              setMailVer(v => v + 1);
+                            }}>
+                              {o.label}{o.dm > 0 ? `（心情+${o.dm}）` : o.dm < 0 ? `（心情${o.dm}）` : ''}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mr-replied">
+                          <p className="mr-tip">您已回信（选了「{l.opts[l.replied]?.label}」）：</p>
+                          <p className="mr-reply">「{l.opts[l.replied]?.reply}」</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })() : (
+                  <div className="mail-list">
+                    {mv.letters.length === 0 && (
+                      <p className="citz-empty">
+                        信箱还空着 —— 城市有了人气，市民就会常来信：报喜、求助、提建议。
+                        顶栏「邮」亮红点时，就是有人盼着市长的回信。
+                      </p>
+                    )}
+                    {mv.letters.map(l => (
+                      <button key={l.id} className={`mail-item${l.read ? '' : ' unread'}`}
+                        onClick={() => { eng?.tycoon?.markLetterRead(l.id); setMailSel(l.id); setMailVer(v => v + 1); }}>
+                        <img src={av(l, 40)} alt="" />
+                        <div className="mi-mid">
+                          <b>{l.subject}{l.replied >= 0 && <i className="mi-re">已回</i>}</b>
+                          <span>{l.fromName} · {l.text.slice(0, 26)}…</span>
+                        </div>
+                        {!l.read && <em className="mi-dot" aria-label="未读" />}
+                        <time>{fmtT(l.t)}前</time>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="pxc-row" style={{ marginTop: 10 }}>
+                  <button className="pxc-btn" onClick={() => openModal('citz')}>
+                    <img src={iu('person')} alt="" />市民列传
+                  </button>
+                  <button className="pxc-btn" onClick={() => openModal('data')}>
+                    <img src={iu('chart')} alt="" />城市志
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* 帮助模态 */}
       {modal === 'help' && (
         <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
@@ -2169,7 +2291,8 @@ export default function PixelCity() {
                     <tr><td>昼夜</td><td>市政操作：自动循环（×1/×2/×4）或跳转 晨/午/暮/夜；<b>四季</b>随时钟轮转（每季 4 分钟×1），冬季封冻 / 春樱秋红；沙盒可手动切季</td></tr>
                     <tr><td>桥梁</td><td>道路工具拖过水面自动架桥（15G/格），桥面与岸上齐平，行人车辆畅通无阻</td></tr>
                     <tr><td>经营</td><td>顶部 HUD 看金币/人口/电力/幸福；点迷雾金框购地；点市政厅开财政报告；工业产货供商业、缺货打折，景点招游客消费；两座电车站开通电车干线，铁路货运站让内陆城市出口；出口市价随行就市波动，可惜售囤货低吸高抛；财政报告里可进市政法令厅颁布政策</td></tr>
-                    <tr><td>市民</td><td>顶栏「民」指标开<b>市民列传</b>：人口迁入迎来有名有姓的市民（传记/性格/住所/大事记），还能「去家里看看」；观察工具点击街上的行人也能遇到他们</td></tr>
+                    <tr><td>市民</td><td>顶栏「民」指标开<b>市民列传</b>：人口迁入迎来有名有姓的市民（传记/性格/住所/大事记），还能「去家里看看」；观察工具点击街上的行人也能遇到他们（在册市民就是本人，脸生的则是过路人）；成婚添丁会组成<b>家族谱系</b></td></tr>
+                    <tr><td>信箱</td><td>顶栏「邮」指标开<b>市长信箱</b>：市民随城市状态来信（求助/吐槽/感谢/见闻），挑一种口吻回信会影响 TA 的心情；红点亮起就是有人盼着回信，回满 8 封解锁成就「见字如面」</td></tr>
                     <tr><td>引导</td><td>首次进入经营模式自动展开新手引导横幅（修路→建房→迎市民→开业→看面板→认市民）；随时可跳过，也可在这里点「重新查看新手引导」重看</td></tr>
                     <tr><td>音效</td><td>顶栏喇叭图标：音效开关 + 主音量滑杆（本地记忆）；建造/金币/灾害警报/警笛/电车铃/成就凯旋各有专属 8-bit 音色</td></tr>
                   </tbody>
@@ -2187,7 +2310,7 @@ export default function PixelCity() {
                     <tr><td>地形</td><td>真实海拔起伏：抬升造山、降低挖谷（挖到 0 化为水域）；山坡建房自动整地（另付小额费用）；行人车辆会爬坡</td></tr>
                     <tr><td>桥梁</td><td>道路工具拖过水面自动架桥（15G/格，物流网络科技打折），桥面与岸上路面齐平，行人车辆畅通无阻</td></tr>
                     <tr><td>四季</td><td>春樱/夏绿/秋红/冬雪随时钟轮转（每季 4 分钟×1）：春季樱花瓣飘落、冬季水面封冻大地积雪；粮产/商业/用电随季节联动</td></tr>
-                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>城市卫士应急联动</b>（交番驻巡逻警车·治安+220 护盾；火灾/疫病来袭消防车救护车沿路驰援——到场喷水/接载并免余损，设施邻路是关键）· <b>市民列传</b>（人口迁入迎来有名有姓的市民：顶栏「民」指标开名人册看传记与大事记，观察工具点击街上行人打招呼，市民之声随城市状态轮播）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
+                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>城市卫士应急联动</b>（交番驻巡逻警车·治安+220 护盾；火灾/疫病来袭消防车救护车沿路驰援——到场喷水/接载并免余损，设施邻路是关键）· <b>市民列传</b>（人口迁入迎来有名有姓的市民：顶栏「民」指标开名人册看传记与大事记，观察工具点击街上行人打招呼——在册市民就是本人、脸生的则是过路人，成婚添丁组成家族谱系，市民之声随城市状态轮播）· <b>市长信箱</b>（顶栏「邮」指标：市民随城市状态来信——求助/吐槽/感谢/见闻，回信影响他们的心情，回满 8 封解锁成就「见字如面」）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
                     <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
                     <tr><td>引导</td><td>首次进入经营模式自动展开新手引导横幅（修路→建房→迎市民→开业→看面板→认市民）；随时可跳过，也可在这里点「重新查看新手引导」重看</td></tr>
                     <tr><td>音效</td><td>顶栏喇叭图标：音效开关 + 主音量滑杆（本地记忆偏好）；建造/金币/灾害警报/应急警笛/电车铃/季节钟声/成就凯旋等 21 种专属 8-bit 音色</td></tr>

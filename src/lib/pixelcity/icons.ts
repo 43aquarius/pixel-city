@@ -739,6 +739,20 @@ const ICONS: Record<string, string[]> = {
     '......KKKK......',
   ],
   // ---- v10：游客相机 / 货物箱 ----
+  mail: [
+    'KKKKKKKKKKKKKKKK',
+    'KwKwwwwwwwwwwKwK',
+    'KwwKwwwwwwwwKwwK',
+    'KwwwKwwwwwwKwwwK',
+    'KwwwwKwwwwKwwwwK',
+    'KwwwwwKwwKwwwwwK',
+    'KwwwwwwKKwwwwwwK',
+    'KwwwwwwwwwwwwwwK',
+    'KwwwwwrrwwwwwwwK',
+    'KwwwwrrrrwwwwwwK',
+    'KwwwwwwwwwwwwwwK',
+    'KKKKKKKKKKKKKKKK',
+  ],
   camera: [
     '................',
     '.....KKKKK......',

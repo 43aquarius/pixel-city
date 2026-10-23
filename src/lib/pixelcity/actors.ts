@@ -1368,6 +1368,9 @@ export class ActorSystem {
   onRescueArrive: ((kind: 9 | 10, tx: number, ty: number) => void) | null = null;
   /** v14 音效矩阵：actor 侧事件回调（engine 接线到 Beeper；电车发车铃等） */
   onSfx: ((n: 'bell') => void) | null = null;
+  /** v15 市民外观偏置池：在册市民的（衣装/体型/制服）三元组，
+   *  行人出生时 35% 从中抽取 —— 街上走的就是名人册里的那个人（engine 定期刷新） */
+  citizenLooks: Array<{ look: number; body: 0 | 1 | 2; role: Role }> = [];
   private targetPatrol = 0;
   private targetP = 0;
   private targetC = 0;
@@ -1587,7 +1590,7 @@ export class ActorSystem {
       map.inB(x + dx, y + dy) && map.road[map.idx(x + dx, y + dy)]);
     if (opts.length) d = opts[Math.floor(Math.random() * opts.length)];
     else return;
-    const look = Math.floor(Math.random() * LOOK_N);
+    let look = Math.floor(Math.random() * LOOK_N);
     let role: Role = 0;
     let body: Body = 0;
     let speed: number;
@@ -1611,6 +1614,18 @@ export class ActorSystem {
         body = bb < 0.70 ? 0 : bb < 0.88 ? 1 : 2;
         speed = body === 2 ? 0.35 + Math.random() * 0.18
           : body === 1 ? 0.78 + Math.random() * 0.32
+          : 0.55 + Math.random() * 0.4;
+      }
+      // v15 市民本尊：35% 概率直接采用在册市民的外观三元组（衣装/体型/制服）
+      //   —— 街上走的就是名人册里的那个人，观察工具点他能认出本人
+      if (this.citizenLooks.length && Math.random() < 0.35) {
+        const p = this.citizenLooks[(Math.random() * this.citizenLooks.length) | 0];
+        look = p.look;
+        body = p.body;
+        role = p.role;
+        speed = body === 2 ? 0.35 + Math.random() * 0.18
+          : body === 1 ? 0.78 + Math.random() * 0.32
+          : role === 5 ? 1.3 + Math.random() * 0.35
           : 0.55 + Math.random() * 0.4;
       }
     }

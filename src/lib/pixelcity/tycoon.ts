@@ -6,7 +6,7 @@
 
 import { defById, CATALOG, ATTRACT } from './catalog';
 import { CityMap, TERR_GRASS } from './map';
-import { CitizenRegistry, type CitzView } from './citizens';
+import { CitizenRegistry, type CitzView, type MailView } from './citizens';
 
 export const CHUNK = 16;                 // 领地块边长（格）
 export const CHUNKS = 16;                // 256 / 16 = 16×16 块领地
@@ -466,6 +466,9 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 100, val: s => s.citzTotal },
   { id: 'famous', name: '家喻户晓', desc: '市民列传名人册满 28 位在册市民', icon: 'person',
     goal: 28, val: s => s.citzN },
+  // ---- v15 家书馆 ----
+  { id: 'penpal8', name: '见字如面', desc: '在市长信箱回信 8 封（顶栏「邮」——市民来信有求助有感谢，回信能影响他们的心情）', icon: 'mail',
+    goal: 8, val: (_s, t) => t.citz.replyCount },
 ];
 
 /** 需特定科技才可建造的建筑
@@ -704,6 +707,8 @@ export type EconView = {
   kobans: number; rescueFire: number; rescueAid: number;
   // ---- v13：市民列传 ----
   citz: CitzView;
+  // ---- v15：市长信箱 ----
+  mail: { unread: number; n: number };
 };
 
 export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
@@ -773,7 +778,8 @@ export class Tycoon {
   msg: ((s: string) => void) | null = null;
   sfx: ((n: 'coin' | 'quest' | 'level' | 'buy' | 'error'
     // v14 音效矩阵：事件警报 / 喜讯 / 成就 / 科技 / 救援 / 迁入
-    | 'alarm' | 'cheer' | 'achieve' | 'tech' | 'rescue' | 'movein') => void) | null = null;
+    // v15：新来信铃（bell）
+    | 'alarm' | 'cheer' | 'achieve' | 'tech' | 'rescue' | 'movein' | 'bell') => void) | null = null;
 
   // ---- v5：天气 / 随机事件 / 成就 ----
   /** 当前天气（engine 每帧回写；纯数据不参与存档，重开随机） */
@@ -1390,12 +1396,14 @@ export class Tycoon {
     // v13 市民列传：人口联动迁入/搬离 + 心情漂移 + 生活大事记
     this.citz.onMsg = this.msg;
     const citzTotalBefore = this.citz.total;   // v14：新市民落户音
+    const mailUnreadBefore = this.citz.unread; // v15：新来信音
     this.citz.tick(dt, map, {
       pop: this.pop, happiness: s.happiness, taxRate: this.taxRate,
       season: this.season, famine: s.famine,
       events: this.events.map(e => e.key),
     }, this.playtime);
     if (this.citz.total > citzTotalBefore) this.sfx?.('movein');
+    if (this.citz.unread > mailUnreadBefore) this.sfx?.('bell');   // v15：叮——新来信
 
     // 任务链
     while (this.questIdx < QUESTS.length) {
@@ -1569,6 +1577,8 @@ export class Tycoon {
       kobans: s?.kobans ?? 0, rescueFire: this.rescueFire, rescueAid: this.rescueAid,
       // ---- v13 ----
       citz: this.citz.view(),
+      // ---- v15 ----
+      mail: this.citz.mailBrief(),
       playtime: Math.floor(this.playtime),
       hist: this.hist,
       // ---- v5 ----
@@ -1706,7 +1716,7 @@ export class Tycoon {
     const own: number[] = [];
     for (let i = 0; i < this.own.length; i++) if (this.own[i]) own.push(i);
     return JSON.stringify({
-      v: 10,
+      v: 11,
       coins: Math.round(this.coins), xp: this.xp, level: this.level,
       pop: this.pop, questIdx: this.questIdx,
       roads: this.roadsBuilt, trees: this.treesPlanted, dozed: this.dozed,
@@ -1885,6 +1895,28 @@ export class Tycoon {
       pop: this.pop, happiness: s?.happiness ?? 60, taxRate: this.taxRate,
       season: this.season, famine: s?.famine ?? 0, events: this.events.map(e => e.key),
     });
+  }
+
+  // ---------------- v15 市长信箱 ----------------
+
+  /** 信箱视图（新信在前） */
+  mailView(): MailView {
+    return this.citz.mailView();
+  }
+
+  /** 回信（选项下标）→ 发件市民心情变化；返回回信文案供 UI 展示 */
+  replyLetter(id: number, optIdx: number): { ok: boolean; reply?: string; dm?: number; from?: string } {
+    const r = this.citz.replyLetter(id, optIdx);
+    if (r.ok) {
+      this.msg?.(`已给 ${r.from} 回信 —— 「${r.reply}」`);
+      this.sfx?.('coin');
+    }
+    return r;
+  }
+
+  /** 标记信件已读（打开信时由 UI 调用） */
+  markLetterRead(id: number): void {
+    this.citz.markRead(id);
   }
 
   /** v12 应急车到场：豁免挂账余损 + 提前终结事件（返回是否生效） */
