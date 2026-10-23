@@ -15,7 +15,8 @@ import { PALETTE } from './palette';
 import type { Beeper } from './audio';
 import { hash2, fbm } from './rng';
 import { generateCity, type GenReport } from './citygen';
-import { ActorSystem, lampModel, glowPool, type Facing, type CarDir } from './actors';
+import { ActorSystem, lampModel, glowPool, type Facing, type CarDir, type Actor, type Role } from './actors';
+import type { CitzCard } from './citizens';
 import {
   Tycoon, ECON, CHUNK, CHUNKS, TREE_COST, ROAD_REFUND, TREE_REFUND,
   REFUND_RATE, LIFT_COST, WATER_COST, FLAT_FEE, BRIDGE_REFUND, SEASONS,
@@ -45,6 +46,8 @@ export type EngineHooks = {
   onEcon?: (e: EconView | null) => void;
   onTycoonMsg?: (msg: string) => void;
   onHallClick?: () => void;
+  /** v13 观察工具点击行人 → 打开该市民名片 */
+  onPedestrianClick?: (c: CitzCard) => void;
 };
 
 type RenderItem = { key: number; draw: () => void };
@@ -309,6 +312,12 @@ export class Engine {
     const c = this.map.n / 2;
     this.cam.x = (c - c) * 16;
     this.cam.y = (c + c) * 8;
+  }
+
+  /** v13 视野定位到指定格（市民面板「去家里/单位看看」） */
+  centerAt(tx: number, ty: number): void {
+    this.cam.x = (tx - ty) * 16;
+    this.cam.y = (tx + ty) * 8;
   }
 
   // ---------------- 工具 ----------------
@@ -1871,6 +1880,15 @@ export class Engine {
     const d = this.display;
     if (!d) return;
     const rect = d.getBoundingClientRect();
+    // v13 观察工具点击行人 → 打开市民名片（优先于市政厅/购地）
+    if (pe.button === 0 && this.tool.t === 'view') {
+      const card = this.spotPedestrian(pe.clientX - rect.left, pe.clientY - rect.top);
+      if (card) {
+        this.beeper.play('coin');
+        this.hooks.onPedestrianClick?.(card);
+        return;
+      }
+    }
     const { tx, ty } = this.tileAt(pe.clientX - rect.left, pe.clientY - rect.top);
     if (!this.map.inB(tx, ty)) return;
     const a = this.map.occ[this.map.idx(tx, ty)];
@@ -1896,6 +1914,83 @@ export class Engine {
       this.fogVer++;   // 迷雾揭示 → 地形缓存失效
       this.floatAt(cx * CHUNK + 8, cy * CHUNK + 8, `−${price}G`, '#F2D24B');
     }
+  }
+
+  // ---------------- v13 市民列传：行人给中与头像 ----------------
+
+  /** 屏幕坐标命中行人（精灵脚底锚点 ±9px · 身高 22px；含高度补偿；返回最近者） */
+  private hitPedestrian(cssX: number, cssY: number): Actor | null {
+    if (!this.crowds) return null;
+    const lx = cssX / this.zoom, ly = cssY / this.zoom;   // CSS → 低分辨率逻辑坐标
+    let best: Actor | null = null;
+    let bd = 1e9;
+    for (const a of this.actors.actors) {
+      if (a.kind !== 0 || a.tour) continue;   // 只接市民行人（不含游客）
+      const px = a.fx + a.dx * a.t, py = a.fy + a.dy * a.t;
+      const wx = (px + 0.5) * 16 + a.offX, wy = (py + 0.5) * 16 + a.offY;
+      const sx = (wx - wy) - this.cam.x + this.lw / 2;
+      const sy = (wx + wy) / 2 - this.cam.y + this.lh / 2 + this.groundHpx(px, py);
+      if (Math.abs(lx - sx) > 9 || ly < sy - 22 || ly > sy + 4) continue;
+      const dd = (lx - sx) ** 2 + (ly - sy + 9) ** 2;
+      if (dd < bd) { bd = dd; best = a; }
+    }
+    return best;
+  }
+
+  /** 观察工具点击行人 → 随机在册市民名片（命中行人但名人册为空返回 null） */
+  spotPedestrian(cssX: number, cssY: number): CitzCard | null {
+    if (!this.hitPedestrian(cssX, cssY)) return null;
+    return this.tycoon?.citz.spotCard() ?? null;
+  }
+
+  /** 测试钩子：第 i 个行人的 CSS 屏幕坐标（v13 行人点击验证用） */
+  actorCssAt(i: number): { x: number; y: number } | null {
+    const a = this.actors.actors[i];
+    if (!a || a.kind !== 0) return null;
+    const px = a.fx + a.dx * a.t, py = a.fy + a.dy * a.t;
+    const wx = (px + 0.5) * 16 + a.offX, wy = (py + 0.5) * 16 + a.offY;
+    return {
+      x: ((wx - wy) - this.cam.x + this.lw / 2) * this.zoom,
+      y: ((wx + wy) / 2 - this.cam.y + this.lh / 2 + this.groundHpx(px, py)) * this.zoom,
+    };
+  }
+
+  /** 市民头像（dataURL 缓存）：夜空底 + 点阵 + 等距地台 + 行人同款像素立绘（正面） */
+  private avatars = new Map<string, string>();
+  citizenAvatar(look: number, body: 0 | 1 | 2, role: Role, size = 64): string {
+    const key = `${look}#${body}#${role}#${size}`;
+    const hit = this.avatars.get(key);
+    if (hit) return hit;
+    this.actors.ensureSprites();
+    const ps = this.actors.personSp('dr', 0, look, body, role);
+    const cv = document.createElement('canvas');
+    cv.width = size; cv.height = size;
+    const ctx = cv.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#0B0F24';
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = 'rgba(122,140,158,0.3)';
+    for (let y = 6; y < size - 6; y += 6) {
+      for (let x = 6; x < size - 6; x += 6) ctx.fillRect(x, y, 1, 1);
+    }
+    // 等距地台（与城市地面同构的菱形）
+    const cx = size / 2, cy = size - 9;
+    ctx.fillStyle = '#4A5A6E';
+    for (let yy = -4; yy <= 4; yy++) {
+      const half = (4 - Math.abs(yy)) * 2;
+      for (let xx = -half; xx <= half; xx++) {
+        if (((xx + yy) & 1) !== 0) continue;
+        ctx.fillRect(Math.round(cx + xx), Math.round(cy + yy), 1, 1);
+      }
+    }
+    if (ps) {
+      const scale = Math.max(2, Math.floor((size - 14) / 20));
+      const w = ps.cv.width * scale, h = ps.cv.height * scale;
+      ctx.drawImage(ps.cv, Math.round(cx - w / 2), Math.round(cy + 2 - h), w, h);
+    }
+    const url = cv.toDataURL('image/png');
+    this.avatars.set(key, url);
+    return url;
   }
 
   /** 经营模式下「领地外」施工失败的提示（可购块静默——交给点击购地） */

@@ -6,6 +6,7 @@
 
 import { defById, CATALOG, ATTRACT } from './catalog';
 import { CityMap, TERR_GRASS } from './map';
+import { CitizenRegistry, type CitzView } from './citizens';
 
 export const CHUNK = 16;                 // 领地块边长（格）
 export const CHUNKS = 16;                // 256 / 16 = 16×16 块领地
@@ -460,6 +461,11 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 5, val: s => s.rescueFire },
   { id: 'medic1', name: '妙手回春', desc: '救护车及时处置 5 次疫病', icon: 'heart',
     goal: 5, val: s => s.rescueAid },
+  // ---- v13 市民列传 ----
+  { id: 'citz100', name: '百家灯火', desc: '累计 100 位市民在此安家落户（人口迁入会迎来新市民）', icon: 'people',
+    goal: 100, val: s => s.citzTotal },
+  { id: 'famous', name: '家喻户晓', desc: '市民列传名人册满 28 位在册市民', icon: 'person',
+    goal: 28, val: s => s.citzN },
 ];
 
 /** 需特定科技才可建造的建筑
@@ -548,6 +554,8 @@ export type QS = {
   // ---- v12 城市卫士 ----
   kobans: number; rescueFire: number; rescueAid: number;
   firestations: number; hospitals: number;
+  // ---- v13 市民列传 ----
+  citzN: number; citzTotal: number;
 };
 
 export type Quest = {
@@ -631,6 +639,9 @@ export const QUESTS: Quest[] = [
   // ---- v12 城市卫士 ----
   { id: 'guard0', title: '城市卫士', hint: '交番 · 消防局 · 医院各建一座 —— 火灾疫病来袭时应急车队沿路驰援，到场即免大部分损失（设施务必邻路）', goal: 3,
     val: s => (s.kobans > 0 ? 1 : 0) + (s.firestations > 0 ? 1 : 0) + (s.hospitals > 0 ? 1 : 0), rG: 420, rXp: 190 },
+  // ---- v13 市民列传 ----
+  { id: 'citz8', title: '城市家人', hint: '名人册在册市民达到 8 位（人口迁入会迎来新市民落户；点顶部「民」指标或用观察工具点街上的行人，认识你的市民）', goal: 8,
+    val: s => s.citzN, rG: 300, rXp: 150 },
 ];
 
 // ------------------------------------------------------------
@@ -691,6 +702,8 @@ export type EconView = {
   mkt: number; mktTrend: number; expPrice: number; exportHold: boolean;
   // ---- v12：城市卫士（应急联动）----
   kobans: number; rescueFire: number; rescueAid: number;
+  // ---- v13：市民列传 ----
+  citz: CitzView;
 };
 
 export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
@@ -804,6 +817,9 @@ export class Tycoon {
   dispatch: Array<{ kind: 9 | 10; hx: number; hy: number; tx: number; ty: number; key: string }> = [];
   /** v12 交班数（engine 每帧读取折算巡逻编制） */
   kobansNow = 0;
+
+  // ---- v13：市民列传（名人册 / 生活大事记 / 市民之声）----
+  citz = new CitizenRegistry();
 
   hasOrd(id: string): boolean { return this.ords.has(id); }
 
@@ -1278,6 +1294,7 @@ export class Tycoon {
       foodIdx, jobIdx,
       hospitals, firestations, roadsTotal, taxMoodV: mood,
       kobans, rescueFire: this.rescueFire, rescueAid: this.rescueAid,
+      citzN: this.citz.roster.length, citzTotal: this.citz.total,   // v13 市民列传
       eventHap, eventAmenity, multCom, multInd, multFood, multPower, multTraffic, multSp,
       weather: { kind: wt.kind, t: wt.t },
       season: this.season, seasonHap,
@@ -1367,6 +1384,14 @@ export class Tycoon {
     } else if (this.pop > s.cap) {
       this.pop = Math.max(s.cap, this.pop - Math.max(0.5, (this.pop - s.cap) * 0.08) * dt);
     }
+
+    // v13 市民列传：人口联动迁入/搬离 + 心情漂移 + 生活大事记
+    this.citz.onMsg = this.msg;
+    this.citz.tick(dt, map, {
+      pop: this.pop, happiness: s.happiness, taxRate: this.taxRate,
+      season: this.season, famine: s.famine,
+      events: this.events.map(e => e.key),
+    }, this.playtime);
 
     // 任务链
     while (this.questIdx < QUESTS.length) {
@@ -1476,6 +1501,7 @@ export class Tycoon {
     const stamp = Math.floor(this.playtime);
     this.eventLog.push({ t: stamp, name: pick.name, kind: pick.kind, result });
     if (this.eventLog.length > 12) this.eventLog.splice(0, this.eventLog.length - 12);
+    this.citz.onCityEvent(pick.key, this.playtime);   // v13：市民反应写入个人史册
 
     if (pick.dur > 0) {
       this.events.push({
@@ -1537,6 +1563,8 @@ export class Tycoon {
       rating: s?.rating ?? 0, ratingGrade: ratingGrade(s?.rating ?? 0),
       hospitals: s?.hospitals ?? 0, firestations: s?.firestations ?? 0,
       kobans: s?.kobans ?? 0, rescueFire: this.rescueFire, rescueAid: this.rescueAid,
+      // ---- v13 ----
+      citz: this.citz.view(),
       playtime: Math.floor(this.playtime),
       hist: this.hist,
       // ---- v5 ----
@@ -1654,6 +1682,8 @@ export class Tycoon {
     this.rescueFire = 0;
     this.rescueAid = 0;
     this.dispatch.length = 0;
+    // v13：市民列传重置
+    this.citz.reset();
     // v11 出口市场重置
     this.mkt = 1;
     this.mktPrev = 1;
@@ -1672,7 +1702,7 @@ export class Tycoon {
     const own: number[] = [];
     for (let i = 0; i < this.own.length; i++) if (this.own[i]) own.push(i);
     return JSON.stringify({
-      v: 9,
+      v: 10,
       coins: Math.round(this.coins), xp: this.xp, level: this.level,
       pop: this.pop, questIdx: this.questIdx,
       roads: this.roadsBuilt, trees: this.treesPlanted, dozed: this.dozed,
@@ -1699,6 +1729,8 @@ export class Tycoon {
       exportHold: this.exportHold,
       // v12：应急出动计数
       rescueFire: this.rescueFire, rescueAid: this.rescueAid,
+      // v13：市民列传
+      citz: this.citz.serialize(),
       hall: [this.hall.x, this.hall.y],
       own, last: Date.now(),
       map: map.serialize(),
@@ -1793,6 +1825,9 @@ export class Tycoon {
     this.rescueFire = Math.max(0, Math.floor(Number(d.rescueFire) || 0));
     this.rescueAid = Math.max(0, Math.floor(Number(d.rescueAid) || 0));
     this.dispatch.length = 0;
+    // v13：市民列传恢复（旧档给空册）+ 人口基线对齐（防误迁入）
+    this.citz.restore(d.citz);
+    this.citz.baseline(this.pop);
     const hall = d.hall as [number, number] | undefined;
     this.hall = { x: hall?.[0] ?? 127, y: hall?.[1] ?? 127 };
     this.own.fill(0);
@@ -1839,6 +1874,15 @@ export class Tycoon {
     return true;
   }
 
+  /** v13 市民之声（UI 轮播：按当前城市状态挑一句市民心声） */
+  citzVoice(): { name: string; text: string; mood: number } | null {
+    const s = this.snap;
+    return this.citz.voice({
+      pop: this.pop, happiness: s?.happiness ?? 60, taxRate: this.taxRate,
+      season: this.season, famine: s?.famine ?? 0, events: this.events.map(e => e.key),
+    });
+  }
+
   /** v12 应急车到场：豁免挂账余损 + 提前终结事件（返回是否生效） */
   resolveEvent(key: string): boolean {
     const ev = this.events.find(e => e.key === key);
@@ -1854,6 +1898,7 @@ export class Tycoon {
     ev.left = Math.min(ev.left, 3.5);
     if (key === 'fire') this.rescueFire++;
     if (key === 'plague') this.rescueAid++;
+    this.citz.onRescue(key === 'fire' ? 'fire' : 'plague', this.playtime);   // v13：英雄入册
     return true;
   }
 
