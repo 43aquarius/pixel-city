@@ -191,6 +191,7 @@ export const ECON: Record<string, EconDef> = {
   // ---- 水务（v6：供水覆盖指数）----
   watertower: D(130, 2, { power: 2, amenity: 1, upk: 0.75, waterR: 9, waterCap: 260 }),
   waterplant: D(860, 6, { power: 14, amenity: 2, upk: 4, waterR: 20, waterCap: 2200 }),
+  levee: D(160, 4, { power: 0, amenity: 1, upk: 0.7 }),   // v18 防洪堤：洪水损失 −15%/座（至多 3 座）
   // ---- 市政厅（经营模式核心，不可直接建造；自带水井供早期定居）----
   cityhall: D(0, 99, { power: -40, amenity: 2, edu: 10, sp: 0.3, waterR: 6, waterCap: 120 }),
 };
@@ -414,6 +415,40 @@ const EVENT_TPLS: EventTpl[] = [
     note: '关税壁垒高筑：出口单价 −40%（惜售囤货或可止损）',
     w: s => (s.ports > 0 && s.exportEarn > 250 ? 6 : 0),
   },
+  // ---- v18 灾害链：地震 / 洪水（后期大灾；延续 v12 两段结算 + 应急驰援）----
+  {
+    key: 'quake', name: '大地震', kind: 'bad', dur: 25, hap: -12,
+    mult: { ind: 0.65, com: 0.7, power: 0.85 },
+    note: '大地在震颤！建筑受损、行道树倾倒，还可能燃起连片火情',
+    w: s => (s.pop >= 150 ? (s.firestations > 0 ? 5 : 9) : 0),
+    fx: true, resp: 'fire',
+    fire: (t, s, bill) => {
+      // 两段结算：即时 40% + 余款挂账（消防车队到场驰援则豁免）
+      const cut = t.has('struct') ? 0.5 : 1;            // 建筑工程学：抗震设计减半
+      const total = Math.round((300 + t.pop * 1.4) * cut);
+      const now = Math.round(total * 0.4);
+      if (bill) bill.g = total - now;
+      t.coins = Math.max(0, t.coins - now);
+      return `墙体开裂、瓦砾满地，先期损失 ${now}G${t.has('struct') ? '（抗震设计顶住了大半）' : ' —— 研究建筑工程学可减半损失'}`;
+    },
+  },
+  {
+    key: 'flood', name: '洪水泛滥', kind: 'bad', dur: 50, hap: -10,
+    mult: { traffic: 0.55, com: 0.78, ind: 0.7 },
+    note: '连日暴雨引发洪水：临水街区受淹，交通商业受阻',
+    w: s => (s.pop >= 80 && s.waterNear > 4 ? (s.waterIdx >= 80 || s.levees >= 2 ? 4 : 9) : 0),
+    fx: true, resp: 'fire',
+    fire: (t, s, bill) => {
+      // 防洪堤 −15%/座（至多 3 座）；供水管网完善（≥80）再减半
+      const leveeCut = Math.max(0.55, 1 - Math.min(3, s.levees) * 0.15);
+      const pipeCut = s.waterIdx >= 80 ? 0.5 : 1;
+      const total = Math.round((260 + t.pop * 1.1) * leveeCut * pipeCut);
+      const now = Math.round(total * 0.4);
+      if (bill) bill.g = total - now;
+      t.coins = Math.max(0, t.coins - now);
+      return `临水街区一片泽国，先期损失 ${now}G${s.levees > 0 ? `（${Math.min(3, s.levees)} 座防洪堤挡住了部分洪峰）` : ' —— 防洪堤能挡住洪峰'}`;
+    },
+  },
 ];
 
 // ------------------------------------------------------------
@@ -480,6 +515,11 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 60, val: (_s, t) => t.chron.total },
   { id: 'era3', name: '世代名城', desc: '城市迈入第四纪元「一方城市」（人口达 400）', icon: 'city',
     goal: 3, val: (_s, t) => t.chron.maxEra },
+  // ---- v18 灾害链 ----
+  { id: 'unshaken', name: '岿然不动', desc: '累计挺过 3 场大地震（建筑工程学减半损失，消防车队驰援可免余损）', icon: 'land',
+    goal: 3, val: (_s, t) => t.quakes },
+  { id: 'floodsafe', name: '高墙铁壁', desc: '建成 3 座防洪堤，洪峰再汹涌也漫不过堤岸', icon: 'bridge',
+    goal: 3, val: s => s.levees },
 ];
 
 /** 需特定科技才可建造的建筑
@@ -603,6 +643,8 @@ export type QS = {
   festN: number;
   // ---- v17 城市编年史 ----
   chronN: number;
+  // ---- v18 灾害链 ----
+  waterNear: number; levees: number;
 };
 
 export type Quest = {
@@ -695,6 +737,9 @@ export const QUESTS: Quest[] = [
   // ---- v17 城市编年史 ----
   { id: 'chron1', title: '以史为鉴', hint: '编年史累计记下 12 笔城市纪事（开埠/时代跃迁/灾祸喜讯/科技/节庆/法令/里程碑皆会入册 —— 顶栏「史」指标翻开城市之书）', goal: 12,
     val: s => s.chronN, rG: 360, rXp: 160 },
+  // ---- v18 灾害链：防洪堤 ----
+  { id: 'levee1', title: '防患未然', hint: '建造 1 座防洪堤（临水而建的混凝土堤岸）：洪水损失 −15%/座，至多叠 3 座 —— 临水城市的安全底牌', goal: 1,
+    val: s => s.levees, rG: 240, rXp: 120 },
 ];
 
 // ------------------------------------------------------------
@@ -769,6 +814,10 @@ export type EconView = {
   festLv: number;        // 门槛等级
   // ---- v17：城市编年史 ----
   chron: ChronView;
+  // ---- v18：灾害链 ----
+  quakes: number; floods: number;   // 累计地震 / 洪水场次
+  levees: number;                   // 防洪堤数
+  waterNear: number;                // 临水领地格数（洪水触发条件）
 };
 
 export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
@@ -840,7 +889,8 @@ export class Tycoon {
     // v14 音效矩阵：事件警报 / 喜讯 / 成就 / 科技 / 救援 / 迁入
     // v15：新来信铃（bell）
     // v16：节日开幕琶音（festival）
-    | 'alarm' | 'cheer' | 'achieve' | 'tech' | 'rescue' | 'movein' | 'bell' | 'festival') => void) | null = null;
+    // v18：地震低频轰鸣（quake）
+    | 'alarm' | 'cheer' | 'achieve' | 'tech' | 'rescue' | 'movein' | 'bell' | 'festival' | 'quake') => void) | null = null;
 
   // ---- v5：天气 / 随机事件 / 成就 ----
   /** 当前天气（engine 每帧回写；纯数据不参与存档，重开随机） */
@@ -886,6 +936,13 @@ export class Tycoon {
   dispatch: Array<{ kind: 9 | 10; hx: number; hy: number; tx: number; ty: number; key: string }> = [];
   /** v12 交班数（engine 每帧读取折算巡逻编制） */
   kobansNow = 0;
+
+  // ---- v18：灾害链（地震 / 洪水）----
+  /** 地震震屏请求（engine 每帧消费：振幅 px；消费后置 null） */
+  quakeReq: number | null = null;
+  /** 累计经历地震 / 洪水场次（成就与编年史） */
+  quakes = 0;
+  floods = 0;
 
   // ---- v16：城市节庆（主动举办的季节节日）----
   /** 进行中的节日（kind = 季节 0-3；null = 无） */
@@ -1117,6 +1174,7 @@ export class Tycoon {
     let hasPower = 0, hasSchool = 0, hasHospital = 0, hasTower = 0;
     let hasLib = 0, hasGreen = 0, foodProd = 0, foodCap = FOOD_BASE_CAP, eduCap = 0, spRaw = 0, culSup = 0;
     let hospitals = 0, firestations = 0, kobans = 0;   // v12：交班计数
+    let levees = 0;                                     // v18：防洪堤计数
     let hasWaterTower = 0, waterCapT = 0;
     let busStops = 0, ferries = 0;
     let tramStops = 0, railHubs = 0;   // v11 轨道交通
@@ -1155,6 +1213,7 @@ export class Tycoon {
         if (o.id === 'hospital') { hasHospital = 1; hospitals++; }
         if (o.id === 'firestation') firestations++;
         if (o.id === 'koban') kobans++;                     // v12
+        if (o.id === 'levee') levees++;                     // v18 防洪堤
       }
       // v6 水务设施：登记覆盖圆心（半径含足迹）
       if (e?.waterR) {
@@ -1354,6 +1413,20 @@ export class Tycoon {
     const rl = map.road;
     for (let i = 0; i < rl.length; i++) if (rl[i] === 2) bridgeTiles++;
 
+    // ---- v18 灾害链：临水领地格数（洪水事件触发条件）----
+    let waterNear = 0;
+    {
+      const n = map.n;
+      for (let y = 1; y < n - 1; y++) {
+        for (let x = 1; x < n - 1; x++) {
+          const i = y * n + x;
+          if (map.terr[i] === 1 || !this.ownedAt(x, y)) continue;
+          if (map.terr[i - 1] === 1 || map.terr[i + 1] === 1 ||
+              map.terr[i - n] === 1 || map.terr[i + n] === 1) waterNear++;
+        }
+      }
+    }
+
     // ---- v10 法令汇总（情绪 / 迁入 / 行政开支）----
     let ordCost = 0;
     for (const o of ORDS) if (this.ords.has(o.id)) ordCost += o.cost;
@@ -1425,6 +1498,7 @@ export class Tycoon {
       citzN: this.citz.roster.length, citzTotal: this.citz.total,   // v13 市民列传
       festN: this.festCount,                                        // v16 城市节庆
       chronN: this.chron.total,                                     // v17 城市编年史
+      waterNear, levees,                                            // v18 灾害链
       eventHap, eventAmenity, multCom, multInd, multFood, multPower, multTraffic, multSp,
       weather: { kind: wt.kind, t: wt.t },
       season: this.season, seasonHap,
@@ -1628,7 +1702,29 @@ export class Tycoon {
     const bill = { g: 0, p: 0 };
     let result = '';
     if (pick.fire) result = pick.fire(this, s, bill) ?? '';
-    if (pick.key === 'storm') this.weatherReq = 'rain';       // 暴风雨：engine 侧强制雨天
+    if (pick.key === 'storm' || pick.key === 'flood') this.weatherReq = 'rain';   // 暴风雨/洪水：engine 侧强制雨天
+    // v18 地震：震屏请求 + 领地内行道树倾倒（纯视觉灾害，损失已在 fire() 结算）
+    let fell = 0;
+    if (pick.key === 'quake') {
+      this.quakes++;
+      this.quakeReq = 7;
+      const trees: number[] = [];
+      const n = map.n;
+      for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+          const i = y * n + x;
+          if (map.tree[i] >= 0 && !map.road[i] && this.ownedAt(x, y)) trees.push(i);
+        }
+      }
+      const want = 3 + (Math.random() * 6) | 0;
+      for (let k = 0; k < want && trees.length; k++) {
+        const j = (Math.random() * trees.length) | 0;
+        map.tree[trees[j]] = -1;
+        trees.splice(j, 1);
+        fell++;
+      }
+    }
+    if (pick.key === 'flood') this.floods++;   // v18 灾害计数（成就）
 
     // 事故现场：从已购领地内挑一栋建筑
     let fx: { x: number; y: number } | undefined;
@@ -1673,10 +1769,18 @@ export class Tycoon {
         pendP: bill.p > 0 ? bill.p : undefined,
       });
       this.sfx?.(pick.kind === 'bad' ? 'alarm' : 'cheer');   // v14：灾害警报 / 喜讯琶音
-      this.msg?.(`${pick.kind === 'bad' ? '⚠' : '✦'} 事件「${pick.name}」：${pick.note}${result ? ' · ' + result : ''}`);
+      if (pick.key === 'quake') this.sfx?.('quake');         // v18：大地低鸣叠加警报
+      this.msg?.(`${pick.kind === 'bad' ? '⚠' : '✦'} 事件「${pick.name}」：${pick.note}${result ? ' · ' + result : ''}${fell > 0 ? ` · ${fell} 棵行道树被震倒` : ''}`);
     } else if (result) {
       this.sfx?.('coin');
       this.msg?.(`${pick.name}：${result}`);
+    }
+
+    // v18 地震次生灾害：过半概率引燃另一处街区（消防队面临的真正考验；事件位有空才烧得起来）
+    if (pick.key === 'quake' && this.events.length < 2 &&
+        !this.events.some(e => e.key === 'fire') && Math.random() < 0.55) {
+      const fireTpl = EVENT_TPLS.find(t => t.key === 'fire');
+      if (fireTpl) this.rollEvent(map, s, fireTpl);
     }
   }
 
@@ -1795,6 +1899,9 @@ export class Tycoon {
       festLv: FEST_LV,
       // ---- v17：城市编年史 ----
       chron: this.chron.view(),
+      // ---- v18：灾害链 ----
+      quakes: this.quakes, floods: this.floods,
+      levees: s?.levees ?? 0, waterNear: s?.waterNear ?? 0,
     };
   }
 
@@ -1915,6 +2022,8 @@ export class Tycoon {
       exportHold: this.exportHold,
       // v12：应急出动计数
       rescueFire: this.rescueFire, rescueAid: this.rescueAid,
+      // v18：灾害链计数（地震 / 洪水场次）
+      quakes: this.quakes, floods: this.floods,
       // v13：市民列传
       citz: this.citz.serialize(),
       // v16：城市节庆
@@ -2019,6 +2128,9 @@ export class Tycoon {
     // v12：应急联动恢复（旧档默认 0；在途出动车辆不保留）
     this.rescueFire = Math.max(0, Math.floor(Number(d.rescueFire) || 0));
     this.rescueAid = Math.max(0, Math.floor(Number(d.rescueAid) || 0));
+    // v18：灾害链计数（老档无字段则归零）
+    this.quakes = Math.max(0, Math.floor(Number(d.quakes) || 0));
+    this.floods = Math.max(0, Math.floor(Number(d.floods) || 0));
     this.dispatch.length = 0;
     // v13：市民列传恢复（旧档给空册）+ 人口基线对齐（防误迁入）
     this.citz.restore(d.citz);
@@ -2126,7 +2238,8 @@ export class Tycoon {
     this.citz.markRead(id);
   }
 
-  /** v12 应急车到场：豁免挂账余损 + 提前终结事件（返回是否生效） */
+  /** v12 应急车到场：豁免挂账余损 + 提前终结事件（返回是否生效）
+   *  v18 泛化：quake/flood 现场同样由消防车队驰援（抽水排涝 / 加固危房） */
   resolveEvent(key: string): boolean {
     const ev = this.events.find(e => e.key === key);
     if (!ev) return false;
@@ -2142,14 +2255,19 @@ export class Tycoon {
     ev.left = Math.min(ev.left, 3.5);
     if (key === 'fire') this.rescueFire++;
     if (key === 'plague') this.rescueAid++;
-    this.citz.onRescue(key === 'fire' ? 'fire' : 'plague', this.playtime);   // v13：英雄入册
-    // v17：编年史 —— 救险入册
-    this.chron.write('event', 'good', key === 'fire' ? 'fire' : 'heart',
-      key === 'fire' ? '烈火英雄' : '妙手回春',
-      key === 'fire'
-        ? `消防车队鸣笛赶到，架梯引水扑灭烈焰${saveG > 0 ? `、挽回 ${saveG}G 损失` : ''} —— 围观市民夹道鼓掌。`
-        : `救护车及时赶到疫区，白衣天使接管了病床${saveP > 0 ? `，${saveP} 位市民免于病退` : ''}。`,
-      this.gHours);
+    // v18：天灾驰援的英雄仍是消防员（抽水排涝 / 搜救排险）
+    this.citz.onRescue(key === 'plague' ? 'plague' : 'fire', this.playtime);   // v13：英雄入册
+    // v17：编年史 —— 救险入册（v18 扩充天灾条目）
+    const CHRON_RESCUE: Record<string, { icon: string; title: string; text: string }> = {
+      fire: { icon: 'fire', title: '烈火英雄', text: `消防车队鸣笛赶到，架梯引水扑灭烈焰${saveG > 0 ? `、挽回 ${saveG}G 损失` : ''} —— 围观市民夹道鼓掌。` },
+      plague: { icon: 'heart', title: '妙手回春', text: `救护车及时赶到疫区，白衣天使接管了病床${saveP > 0 ? `，${saveP} 位市民免于病退` : ''}。` },
+      quake: { icon: 'land', title: '力挽狂澜', text: `消防车队顶着余震赶到灾区，撑梁加固、搜救排险${saveG > 0 ? `、挽回 ${saveG}G 损失` : ''} —— 市政厅的灯彻夜未熄。` },
+      flood: { icon: 'drop', title: '中流砥柱', text: `消防车在齐腰的洪水中架泵排涝、转移受困市民${saveG > 0 ? `、挽回 ${saveG}G 损失` : ''} —— 大堤上人头攒动。` },
+    };
+    const cr = CHRON_RESCUE[key];
+    if (cr) {
+      this.chron.write('event', 'good', cr.icon, cr.title, cr.text, this.gHours);
+    }
     this.sfx?.('rescue');   // v14：应急到场扫弦
     return true;
   }

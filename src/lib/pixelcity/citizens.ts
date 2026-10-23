@@ -579,6 +579,15 @@ export class CitizenRegistry {
         react(pick(), `货运站冷清了不少，同行都在议论关税`, -4);
         break;
       }
+      // ---- v18 灾害链：地震 / 洪水 ----
+      case 'quake': {
+        react(pick(), `地震那晚抱着存折蹲在桌下，天亮后第一件事是去查看家里的裂缝`, -12);
+        break;
+      }
+      case 'flood': {
+        react(pick(), `洪水退去后和邻居们一起清了三条街的淤泥`, -9);
+        break;
+      }
       case 'scandal': {
         react(pick(), `去市政厅递了意见书，附了按满手印的联名信`, -6);
         break;

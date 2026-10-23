@@ -2,11 +2,12 @@
 // b_water.ts — v6 水务设施：水塔（1×1，小范围供水）/
 //               净水厂（2×2，大范围供水 + 高容量）
 //   供水覆盖率 = 半径内住宅人口占比 × 总容量/总人口
+// v18 灾害链新增：防洪堤（1×1，洪灾减损建筑）
 // ============================================================
 
 import { box, frustum, prism, buildModel, type Face } from './geo';
 import { pWall, pWindows, pFlatRoof, pTankShell, pBands, pWaterStatic, pStone, cell, type PatFn } from './patterns';
-import { RAMP } from './palette';
+import { RAMP, bayer } from './palette';
 import { acUnit, waterTank, type BuildResult } from './b_util';
 
 const P = RAMP;
@@ -125,4 +126,51 @@ export function genWaterplant(seed: number): BuildResult {
     right: stone, left: stone, top: () => cell(P.SIDE, 1),
   });
   return { model: buildModel(faces, 32, 32) };
+}
+
+/** 防洪堤（1×1，v18 灾害链）：三级阶梯混凝土护岸 + 黄黑警示斜纹 +
+ *  堤顶护栏 + 琥珀信标灯（夜间闪烁）+ 迎水基脚浪花白沫 */
+export function genLevee(seed: number): BuildResult {
+  const faces: Face[] = [];
+  const concrete: PatFn = (u, v, px, py) => pStone(P.CREAM)(u, v, px, py);
+  // 黄黑警示斜纹（变体翻转纹路走向）
+  const flip = (seed & 1) === 1 ? -1 : 1;
+  const hazard: PatFn = (u, v, px, py) => {
+    const s = ((u + flip * v * 1.4) % 7 + 7) % 7;
+    return s < 3.5 ? cell(P.YELLOW, 0) : cell(P.OUTLINE, 1);
+  };
+  // ---- 三级阶梯护岸（下宽上窄；二级迎水面贴警示条）----
+  box(faces, 2.0, 2.6, 14.0, 15.0, 0, 1.8, {
+    right: concrete, left: concrete, top: pStone(P.SIDE),
+  });
+  box(faces, 3.2, 3.8, 12.8, 14.2, 1.8, 3.4, {
+    right: hazard, left: concrete, top: pStone(P.SIDE),
+  });
+  box(faces, 4.4, 5.0, 11.6, 13.4, 3.4, 4.6, {
+    right: concrete, left: concrete, top: pFlatRoof(P.CREAM, 6),
+  });
+  // ---- 堤顶护栏（四角 + 中点立柱，顶杆沿三边）----
+  for (const [qx, qy] of [[4.9, 5.5], [7.9, 5.5], [10.9, 5.5],
+    [4.9, 12.9], [10.9, 12.9], [4.9, 9.2], [10.9, 9.2]] as const) {
+    box(faces, qx, qy, qx + 0.5, qy + 0.5, 4.6, 6.8, {
+      right: pWall(P.METAL), left: pWall(P.METAL),
+    });
+  }
+  box(faces, 4.9, 5.5, 11.4, 6.0, 6.3, 6.7, { right: pWall(P.METAL), left: pWall(P.METAL) });
+  box(faces, 4.9, 12.9, 11.4, 13.4, 6.3, 6.7, { right: pWall(P.METAL), left: pWall(P.METAL) });
+  box(faces, 4.9, 5.5, 5.4, 13.4, 6.3, 6.7, { right: pWall(P.METAL), left: pWall(P.METAL) });
+  box(faces, 10.9, 5.5, 11.4, 13.4, 6.3, 6.7, { right: pWall(P.METAL), left: pWall(P.METAL) });
+  // ---- 堤顶信标（短杆 + 琥珀灯，夜间闪烁）----
+  box(faces, 7.6, 9.2, 8.1, 9.7, 4.6, 6.2, {
+    right: pWall(P.METAL), left: pWall(P.METAL),
+  });
+  box(faces, 7.3, 8.9, 8.4, 10.0, 6.2, 7.0, {
+    right: () => cell(P.LAMP, 0), left: () => cell(P.LAMP, 0), top: () => cell(P.LAMP, 1),
+  });
+  // ---- 迎水基脚浪花（白沫点缀的浅水带）----
+  box(faces, 2.6, 14.6, 13.4, 15.4, 0, 0.7, {
+    left: (u, v, px, py) => (bayer(px, py, 0.42) ? cell(P.WHITE, 0) : cell(P.WATER2, 0)),
+    right: pWall(P.SIDE),
+  });
+  return { model: buildModel(faces, 16, 16), blinkAt: [7.85, 9.45, 6.6] };
 }

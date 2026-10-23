@@ -103,6 +103,7 @@ export const EV_ICON: Record<string, string> = {
   fire: 'fire', plague: 'heart', blackout: 'bolt', storm: 'cloud', scandal: 'coin',
   boom: 'people', harvest: 'wheat', expo: 'flask', festival: 'fest', invest: 'coin',
   tourseason: 'people', badreview: 'star', bullmkt: 'coin', tradewar: 'box',
+  quake: 'land', flood: 'drop',   // v18 灾害链
 };
 
 // ------------------------------------------------------------

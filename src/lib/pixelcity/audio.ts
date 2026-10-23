@@ -14,7 +14,9 @@ export type SfxName =
   // ---- v14 音效矩阵 ----
   | 'alarm' | 'cheer' | 'siren' | 'bell' | 'achieve' | 'season' | 'movein' | 'tech' | 'rescue'
   // ---- v16 城市节庆 ----
-  | 'festival';
+  | 'festival'
+  // ---- v18 灾害链 ----
+  | 'quake';
 
 const STORE_KEY = 'pxc_sound';
 
@@ -22,6 +24,7 @@ const STORE_KEY = 'pxc_sound';
 const COOLDOWN: Partial<Record<SfxName, number>> = {
   click: 60, paint: 150, coin: 420, zoom: 120, place: 90,
   bell: 9000, siren: 6000, movein: 2600, season: 1500, alarm: 2500,
+  quake: 8000,
 };
 
 export class Beeper {
@@ -171,6 +174,13 @@ export class Beeper {
         this.tone(1046, 0.06, 0.195, 0.08, 'triangle');
         this.tone(1319, 0.16, 0.26, 0.09, 'triangle');
         this.tone(2093, 0.1, 0.34, 0.05, 'triangle');
+        break;
+      // ---- v18 灾害链 ----
+      case 'quake':    // 地震：低频轰鸣下坠 + 尘噪余波（叠加在灾害警报之后）
+        this.tone(66, 0.7, 0, 0.14, 'sawtooth');
+        this.tone(52, 0.55, 0.12, 0.12, 'sawtooth');
+        this.tone(38, 0.5, 0.28, 0.1, 'square');
+        this.noise(0.65, 0.32, 0.07);
         break;
     }
   }

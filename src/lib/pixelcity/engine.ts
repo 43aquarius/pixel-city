@@ -181,6 +181,18 @@ export class Engine {
   /** 孔明灯（12 × 4：x, y, 摆动相位, 上升速度；暖光缓升） */
   private lampPts: Float32Array | null = null;
 
+  // ---- v18：灾害链视觉（地震震屏 / 洪水淹没层）----
+  /** 地震震屏剩余秒数（> 0 时相机随机抖动，振幅随剩余时间衰减） */
+  quakeT = 0;
+  /** 震屏总时长（衰减归一用） */
+  private quakeDur = 1;
+  /** 震屏峰值振幅（px，低分辨率层坐标） */
+  private quakeAmp = 0;
+  /** 洪水淹没格（idx 打包；事件开始时重算，随 map.version 失效） */
+  private floodTiles: number[] | null = null;
+  /** floodTiles 计算时的地图版本（地形变动后重算） */
+  private floodVer = -1;
+
   private listeners: Array<[EventTarget, string, EventListener]> = [];
 
   constructor(beeper: Beeper) {
@@ -861,6 +873,87 @@ export class Engine {
     }
   }
 
+  /** v18 地震震屏：amp px 振幅，约 4.5 秒随机抖动后衰减归零 */
+  startQuake(amp: number): void {
+    this.quakeAmp = Math.max(2, Math.min(12, amp));
+    this.quakeDur = 4.5;
+    this.quakeT = this.quakeDur;
+  }
+
+  /** v18 洪水淹没层：临水领地格（距水曼哈顿 ≤ 2）半透明水面 + 波光 + 岸线白沫
+   *  绘制顺序：桥面之上 · 建筑/行人之下（楼如立在泽国中）
+   *  淹没格打包为 idx*2 + (深度-1)，随 map.version 变化失效重算 */
+  private drawFloodOverlay(ctx: CanvasRenderingContext2D, t: number): void {
+    const eco = this.tycoon;
+    if (!eco || !eco.events.some(e => e.key === 'flood')) return;
+    const m = this.map, n = m.n;
+    if (!this.floodTiles || this.floodVer !== m.version) {
+      this.floodVer = m.version;
+      this.floodTiles = [];
+      for (let y = 2; y < n - 2; y++) {
+        for (let x = 2; x < n - 2; x++) {
+          const i = y * n + x;
+          if (m.terr[i] === 1 || m.road[i] === 2 || !eco.ownedAt(x, y)) continue;
+          let dmin = 9;
+          for (let dy = -2; dy <= 2; dy++) {
+            for (let dx = -2; dx <= 2; dx++) {
+              if (Math.abs(dx) + Math.abs(dy) > 2) continue;
+              if (m.terr[(y + dy) * n + (x + dx)] === 1) {
+                dmin = Math.abs(dx) + Math.abs(dy);
+                break;
+              }
+            }
+            if (dmin <= 1) break;
+          }
+          if (dmin <= 2) this.floodTiles.push(i * 2 + (dmin - 1));
+        }
+      }
+    }
+    if (!this.floodTiles.length) return;
+    const rise = (t % 2400) / 2400;                     // 洪位 2.4s 缓慢涨落（呼吸感）
+    const lift = Math.sin(rise * Math.PI) * 2;
+    for (const v of this.floodTiles) {
+      const i = v >> 1, depth = (v & 1) + 1;
+      const tx = i % n, ty = (i / n) | 0;
+      const sx = this.w2sx(tx, ty);
+      const sy = this.w2sy(tx, ty) + this.hOfs(tx, ty);
+      if (sx < -40 || sx > this.lw + 40 || sy < -40 || sy > this.lh + 40) continue;
+      // 水面菱形（深水贴岸浓 · 浅水远岸淡；涨落抬升一点高度）
+      const yTop = sy - 8 + lift * depth * 0.5;
+      ctx.fillStyle = depth === 1 ? 'rgba(40,74,128,0.62)' : 'rgba(54,94,152,0.40)';
+      ctx.beginPath();
+      ctx.moveTo(sx - 16, sy);
+      ctx.lineTo(sx, yTop);
+      ctx.lineTo(sx + 16, sy);
+      ctx.lineTo(sx, sy + 8);
+      ctx.closePath();
+      ctx.fill();
+      // 波光：两道错相横线随时间明灭
+      const ph = (t / 650 + tx * 0.7 + ty * 1.3) % 3;
+      const gl = ph < 1 ? 1 - ph : 0;
+      if (gl > 0.05) {
+        ctx.globalAlpha = 0.5 * gl;
+        ctx.fillStyle = '#9CC4EA';
+        const wy = sy - 3 + depth * 2 - lift;
+        ctx.fillRect(Math.round(sx - 9 + depth * 2), Math.round(wy), 6, 1);
+        ctx.fillRect(Math.round(sx + 3 - depth * 2), Math.round(wy - 2), 5, 1);
+        ctx.globalAlpha = 1;
+      }
+      // 岸线白沫（深水格朝水面一侧的白点）
+      if (depth === 1) {
+        const fp = (t / 420 + tx * 2.1 + ty * 0.9) % 4;
+        const fa = fp < 2 ? 0.9 - fp * 0.4 : 0;
+        if (fa > 0.05) {
+          ctx.globalAlpha = fa;
+          ctx.fillStyle = '#E8F2FA';
+          ctx.fillRect(Math.round(sx - 4), Math.round(sy - 6), 2, 1);
+          ctx.fillRect(Math.round(sx + 2), Math.round(sy - 4), 2, 1);
+          ctx.globalAlpha = 1;
+        }
+      }
+    }
+  }
+
   crowdCount(): { peds: number; cars: number; pets: number; birds: number; buses: number; boats: number; tourists: number; trams: number; firetrucks: number; ambulances: number; patrols: number } {
     return {
       peds: this.actors.peds, cars: this.actors.cars,
@@ -1010,6 +1103,7 @@ export class Engine {
       this.stepSeason(dh);              // v6：季节时钟随昼夜同步轮转
       if (this.tycoon) this.tycoon.gHours += dh;   // v17：编年史纪日（游戏小时累计，随倍速缩放）
     }
+    if (this.quakeT > 0) this.quakeT = Math.max(0, this.quakeT - dt / 1000);   // v18：震屏衰减
     this.actors.dayness = 1 - this.dayNight.dark;
     this.actors.winterIce = this.season === 3;   // v7：冬季冰封 → 船舶归航
     // v5 天气状态机（雨雪粒子 / 云影 / 色调）+ 经营联动回写
@@ -1022,19 +1116,24 @@ export class Engine {
         this.setWeather(this.tycoon.weatherReq);
         this.tycoon.weatherReq = null;
       }
-      // v12 应急联动：消费出动请求（消防车/救护车驰援事故现场）
+      // v18 地震：震屏请求（振幅 px，历时约 4.5 秒衰减）
+      if (this.tycoon.quakeReq !== null) {
+        this.startQuake(this.tycoon.quakeReq);
+        this.tycoon.quakeReq = null;
+      }
+      // v12 应急联动：消费出动请求（消防车/救护车驰援事故现场；v18 携带事件 key）
       let dispatchedN = 0;
       while (this.tycoon.dispatch.length) {
         const q = this.tycoon.dispatch.shift()!;
-        if (this.actors.dispatchEmergency(this.map, q.kind, q.hx, q.hy, q.tx, q.ty)) dispatchedN++;
+        if (this.actors.dispatchEmergency(this.map, q.kind, q.hx, q.hy, q.tx, q.ty, q.key)) dispatchedN++;
       }
       if (dispatchedN > 0) this.beeper.play('siren');   // v14：应急出动警笛
       // v12 巡逻编制：交班常驻 + 治安巡逻令 +1（上限 3 辆）
       this.actors.patrolCap = Math.min(3,
         this.tycoon.kobansNow + (this.tycoon.hasOrd('patrol') ? 1 : 0));
-      // v12 到场回调 → 提前终结事件 + 豁免余损
-      this.actors.onRescueArrive = (kind) => {
-        this.tycoon?.resolveEvent(kind === 9 ? 'fire' : 'plague');
+      // v12 到场回调 → 提前终结事件 + 豁免余损（v18：按事件 key 精准终结）
+      this.actors.onRescueArrive = (kind, _tx, _ty, evKey) => {
+        this.tycoon?.resolveEvent(evKey ?? (kind === 9 ? 'fire' : 'plague'));
       };
       // v16 城市节庆：节日视觉状态同步（粒子层驱动）
       this.festKind = this.tycoon.fest ? this.tycoon.fest.kind : -1;
@@ -1097,6 +1196,16 @@ export class Engine {
     const { lw, lh } = this;
     const dk = this.dayNight.dark;
     const wm = this.dayNight.warm;
+    // v18 地震震屏：临时相机偏移（世界层随大地抖动；Pass 3 前恢复，光标/浮字稳定）
+    let shx = 0, shy = 0;
+    if (this.quakeT > 0) {
+      const k = this.quakeT / this.quakeDur;            // 1 → 0 线性衰减
+      const amp = this.quakeAmp * (0.35 + 0.65 * k);    // 前段猛后段弱
+      shx = (Math.random() - 0.5) * 2 * amp;
+      shy = (Math.random() - 0.5) * 1.4 * amp;
+      this.cam.x += shx;
+      this.cam.y += shy;
+    }
 
     // 背景虚空（缓存绘制：日间点阵 + 夜间星月）
     this.ensureBg(lw, lh);
@@ -1124,6 +1233,7 @@ export class Engine {
     if (this.terrBuf) ctx.drawImage(this.terrBuf, Math.round(dcx), Math.round(dcy));
     this.drawWaterAnim(ctx, wf, dcx, dcy);
     this.drawBridges(ctx, dcx, dcy);   // v6：跨水桥（水面之上 / 建筑之下）
+    this.drawFloodOverlay(ctx, t);     // v18：洪水淹没层（桥之上 · 建筑之下）
     if (this.lampSp && this.lampNight && this.lampPool) {
       const sp = this.lampSp, ns = this.lampNight, pool = this.lampPool;
       for (const L of this.lampList) {
@@ -1528,7 +1638,8 @@ export class Engine {
     // v16：城市节庆粒子（花吹雪加密 / 花火 / 金叶 / 孔明灯；最上层特效）
     this.drawFestivalParticles(ctx);
 
-    // ---- Pass 3：光标 + 幽灵 + 浮字 ----
+    // ---- Pass 3：光标 + 幽灵 + 浮字 ----（v18：震屏偏移在此恢复，输入层不抖）
+    if (shx || shy) { this.cam.x -= shx; this.cam.y -= shy; }
     this.drawCursor(ctx);
     this.drawFloats(ctx, t);
 

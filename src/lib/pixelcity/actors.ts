@@ -1205,8 +1205,9 @@ export type Actor = {
   flee?: number;          // 鸽子受惊剩余秒
   thx?: number; thy?: number;      // 威胁来源坐标（受惊时记录）
   tour?: boolean;                  // v10 系统游客（景点漫步，短行程，独立于市民行人池）
-  /** v12 应急任务（消防车/救护车）：tx,ty=事故格 hx,hy=归队设施格 phase=0前往/1处置/2返程 */
-  mission?: { tx: number; ty: number; hx: number; hy: number; phase: 0 | 1 | 2 };
+  /** v12 应急任务（消防车/救护车）：tx,ty=事故格 hx,hy=归队设施格 phase=0前往/1处置/2返程
+   *  v18：evKey = 触发事件 key（到场后精准 resolve 对应事件；缺省按车型回退 fire/plague） */
+  mission?: { tx: number; ty: number; hx: number; hy: number; phase: 0 | 1 | 2; evKey?: string };
 };
 
 const DIRS: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -1365,7 +1366,7 @@ export class ActorSystem {
   /** 巡逻车编制（engine 每帧回写：交班数 + 治安巡逻令加成，上限 3） */
   patrolCap = 0;
   /** v12 应急车到场回调（engine 接线 → tycoon.resolveEvent） */
-  onRescueArrive: ((kind: 9 | 10, tx: number, ty: number) => void) | null = null;
+  onRescueArrive: ((kind: 9 | 10, tx: number, ty: number, evKey?: string) => void) | null = null;
   /** v14 音效矩阵：actor 侧事件回调（engine 接线到 Beeper；电车发车铃等） */
   onSfx: ((n: 'bell') => void) | null = null;
   /** v15 市民外观偏置池：在册市民的（衣装/体型/制服）三元组，
@@ -1867,22 +1868,44 @@ export class ActorSystem {
     return null;
   }
 
-  /** v12 应急出动：消防车 / 救护车自设施邻路格驰援事故现场（无路可达返回 false） */
-  dispatchEmergency(map: CityMap, kind: 9 | 10, hx: number, hy: number, tx: number, ty: number): boolean {
+  /** v12 应急出动：消防车 / 救护车自设施邻路格驰援事故现场（无路可达返回 false）
+   *  v18：evKey 随车携带事件 key，到场后精准终结对应事件（缺省回退 fire/plague 兼容旧档）
+   *  v18 修复：事故就在设施隔壁（home===site，如消防局自身失火）时 BFS 返回 null ——
+   *  此时生成「已在现场」的空路径出车，下一帧即进入处置相位 */
+  dispatchEmergency(map: CityMap, kind: 9 | 10, hx: number, hy: number, tx: number, ty: number, evKey?: string): boolean {
     this.ensureSprites();
     const home = this.adjRoad(map, hx, hy, 1);
     if (!home) return false;
     const site = this.adjRoad(map, tx, ty, 3);
     if (!site) return false;
     const p = bfsRoad(map, home[0], home[1], site);
-    if (!p || !p.length) return false;
-    const nxt = p.shift()!;
+    let ndx = 0, ndy = 1;                        // 默认朝南（各分支按需覆写）
+    let path: Array<[number, number]>;
+    if (p && p.length) {
+      const nxt = p.shift()!;
+      ndx = nxt[0]; ndy = nxt[1];
+      path = p;
+    } else if (!p && home[0] === site[0] && home[1] === site[1]) {
+      // 零距离驰援：空路径直入处置相位。车头朝向任意邻路格 ——
+      // （若朝事故建筑格，首个移动步会踏入非道路格被通行判定移除）
+      let faced = false;
+      for (const [ddx, ddy] of DIRS) {
+        const nx = home[0] + ddx, ny = home[1] + ddy;
+        if (nx >= 0 && ny >= 0 && nx < map.n && ny < map.n && map.road[map.idx(nx, ny)]) {
+          ndx = ddx; ndy = ddy; faced = true; break;
+        }
+      }
+      if (!faced) { ndx = 0; ndy = 1; }
+      path = [];
+    } else {
+      return false;
+    }
     const a: Actor = {
-      kind, fx: home[0], fy: home[1], dx: nxt[0], dy: nxt[1], t: 0,
+      kind, fx: home[0], fy: home[1], dx: ndx, dy: ndy, t: 0,
       speed: 1.55 + Math.random() * 0.25,        // 一路警笛，快于巴士
       look: 0, body: 0, role: 0, phase: Math.random() * 1000,
-      offX: 0, offY: 0, path: p, wait: 0.25, master: null, gone: false,
-      mission: { tx, ty, hx: home[0], hy: home[1], phase: 0 },
+      offX: 0, offY: 0, path, wait: 0.25, master: null, gone: false,
+      mission: { tx, ty, hx: home[0], hy: home[1], phase: 0, evKey },
     };
     this.actors.push(a);
     if (kind === 9) this.firetrucks++; else this.ambulances++;
@@ -1990,7 +2013,7 @@ export class ActorSystem {
         m.phase = 1;
         a.dx = -a.dx; a.dy = -a.dy;
         a.wait = a.kind === 9 ? 6.5 : 5.0;
-        this.onRescueArrive?.(a.kind, m.tx, m.ty);
+        this.onRescueArrive?.(a.kind, m.tx, m.ty, m.evKey);
         return true;
       }
       if (m.phase === 1) {

@@ -32,7 +32,7 @@ import {
   genBakery, genGas, genFerry, genWindmill, genGreenhouse,
   genBrewery, genPavilion, genAquarium, genCellmast,
 } from './b_dusk';
-import { genWatertower, genWaterplant } from './b_water';
+import { genWatertower, genWaterplant, genLevee } from './b_water';
 
 export type Cat = 'res' | 'com' | 'ind' | 'civ';
 
@@ -187,6 +187,8 @@ export const CATALOG: Def[] = [
     gen: genWatertower, desc: '四腿支架大水柜：小范围供水（半径 9 格 · 供 260 人）' },
   { id: 'waterplant', name: '净水厂', cat: 'civ', w: 2, h: 2, variants: 1, pop: 24,
     gen: genWaterplant, desc: '双沉淀池水厂：大范围供水（半径 20 格 · 供 2200 人）' },
+  { id: 'levee', name: '防洪堤', cat: 'civ', w: 1, h: 1, variants: 2, pop: 0,
+    gen: genLevee, desc: '三级阶梯混凝土护岸：洪水损失 −15%/座（至多叠 3 座）· 临水城市的安全底牌' },
   // ---- 剧情（经营模式专属，不可直接建造）----
   { id: 'cityhall', name: '市政厅', cat: 'civ', w: 2, h: 2, variants: 1, pop: 0,
     gen: genCityhall, hidden: true, desc: '城市的心脏：金顶钟塔与旗帜' },
