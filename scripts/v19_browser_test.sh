@@ -34,6 +34,8 @@ agent-browser eval "(()=>{const b=[...document.querySelectorAll('button')].filte
 echo "=== [2] P 段：污染空间场 ==="
 agent-browser eval "(()=>{const e=window.__pxc;const t=e.tycoon;t.level=9;t.coins=30000;
 for(let x=112;x<=136;x++){e.map.setRoad(x,126,true);e.map.setRoad(x,127,true);e.map.setRoad(x,128,true);}
+// v21 兼容：一座垃圾收集站(117,120)罩住全部市民建筑 —— 否则 v21 垃圾堆积会拖累 envIdx（与本深污染测试无关）
+e.map.place('binshed',0,117,120);
 return 'roads';})()" >/dev/null 2>&1
 # P1：单工厂（2×2 占 122-123×124-125）→ 锚点格恰 60 轻度 → 恰 1 格
 P1=$(agent-browser eval "JSON.stringify((()=>{const e=window.__pxc;const t=e.tycoon;
@@ -115,8 +117,10 @@ return {env:v.envIdx,tiles:v.smogTiles,mile:x?('tone:'+x.tone):'none'};})())" 2>
 chk "E4a 拆厂后环境指数回升=100" "$(echo "${E4:-x}" | grep -o 'env:[0-9]*')" "env:100"
 chk "E4b 雾霾散尽 smogTiles=0" "$(echo "${E4:-x}" | grep -o 'tiles:[0-9]*')" "tiles:0"
 chk "E4c 编年史「重现蓝天」入册（good）" "$(echo "${E4:-x}" | grep -o 'mile:tone:[a-z]*')" "mile:tone:good"
-# E5：绿水青山（pop≥120 且 envIdx≥85）
-agent-browser eval "(()=>{const t=window.__pxc.tycoon;t.pop=125;t.tick(0.05,window.__pxc.map);return 'set';})()" >/dev/null 2>&1
+# E5：绿水青山（pop≥120 且 envIdx≥85；v21 兼容：pop 回填循环消磨成就 2s 轮询的竞态 ——
+#   旧写法 pop=125 在真实引擎的迁移衰减下 0.6s 内跌破 120，靠运气过检）
+agent-browser eval "(()=>{const t=window.__pxc.tycoon;const m=window.__pxc.map;
+for(let k=0;k<45;k++){t.pop=125;t.tick(0.06,m);}return 'set';})()" >/dev/null 2>&1
 agent-browser wait 2600
 E5V=$(agent-browser eval "window.__pxc.tycoon.achv.has('greencty')?'yes':'no'" 2>/dev/null | tail -1 | tr -d '"')
 chk "E5 成就「绿水青山」解锁" "${E5V:-x}" "yes"

@@ -34,6 +34,7 @@ import {
   genBrewery, genPavilion, genAquarium, genCellmast,
 } from './b_dusk';
 import { genWatertower, genWaterplant, genLevee } from './b_water';
+import { genBinshed, genRecycle, genIncin } from './b_waste';
 
 export type Cat = 'res' | 'com' | 'ind' | 'civ';
 
@@ -133,6 +134,10 @@ export const CATALOG: Def[] = [
     gen: genWindfarm, desc: '荒原三叶风机群：清洁大电源 −60MW 零污染，供电半径 7 格（需研究「电力工程」）' },
   { id: 'solarfarm', name: '太阳能电站', cat: 'ind', w: 2, h: 2, variants: 2, pop: 6,
     gen: genSolarfarm, desc: '3×3 斜面光伏板阵：−50MW 零污染，仅白昼发电（深夜归零），供电半径 7 格（需研究「电力工程」）' },
+  { id: 'recycle', name: '回收中心', cat: 'ind', w: 2, h: 2, variants: 2, pop: 35,
+    gen: genRecycle, desc: '分拣厂房与打包垛的循环工坊：半径 8 格清运 34 件/分，废品变钱 +4.5G/分 —— 循环经济的核心' },
+  { id: 'incin', name: '焚烧发电厂', cat: 'ind', w: 2, h: 2, variants: 2, pop: 45,
+    gen: genIncin, desc: '给料斗与余热锅炉：半径 10 格清运 70 件/分，垃圾烧成电 −30MW（供电半径 6）—— 代价是烟囱冒烟（污染 +3）' },
   { id: 'greenhouse', name: '温室大棚', cat: 'ind', w: 1, h: 1, variants: 2, pop: 6,
     gen: genGreenhouse, desc: '玻璃大棚，夜间亮起植物灯' },
   { id: 'brewery', name: '酿造厂', cat: 'ind', w: 1, h: 1, variants: 2, pop: 15,
@@ -198,6 +203,8 @@ export const CATALOG: Def[] = [
     gen: genEcotower, desc: '三层滤网盘的城市之肺：半径 5 格内雾霾大幅削减 —— 工业区的下风向首选' },
   { id: 'substation', name: '变电站', cat: 'civ', w: 1, h: 1, variants: 2, pop: 2,
     gen: genSubstation, desc: '格构钢塔中继：建在任一电源 6 格内＝有效，再向外辐射 6 格供电 —— 新区不必贴着电厂盖楼' },
+  { id: 'binshed', name: '垃圾收集站', cat: 'civ', w: 1, h: 1, variants: 2, pop: 3,
+    gen: genBinshed, desc: '翻盖垃圾箱排与清运车棚：半径 6 格内建筑垃圾自动清运（14 件/分）—— 超量会堆积，多建几座分担' },
   // ---- 剧情（经营模式专属，不可直接建造）----
   { id: 'cityhall', name: '市政厅', cat: 'civ', w: 2, h: 2, variants: 1, pop: 0,
     gen: genCityhall, hidden: true, desc: '城市的心脏：金顶钟塔与旗帜' },

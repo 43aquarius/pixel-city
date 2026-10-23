@@ -197,7 +197,10 @@ export type CitzCtx = {
   fest: number;
   /** v19 重污染住宅栋数（雾霾心声） */
   smog: number;
+  /** v20 断电住宅栋数（暗夜心声） */
   dark: number;
+  /** v21 垃圾堆积住宅栋数（环卫心声） */
+  waste: number;
 };
 
 const rnd = <T,>(a: T[]): T => a[(Math.random() * a.length) | 0];
@@ -223,7 +226,7 @@ export class CitizenRegistry {
   private mailTimer = 26;          // 首封信来得早些，让玩家尽快见到新玩法
   private nextLetterId = 1;
   private nextFam = 1;
-  private lastCtx: CitzCtx = { pop: 0, happiness: 60, taxRate: 8, season: 0, famine: 0, events: [], fest: -1, smog: 0, dark: 0 };
+  private lastCtx: CitzCtx = { pop: 0, happiness: 60, taxRate: 8, season: 0, famine: 0, events: [], fest: -1, smog: 0, dark: 0, waste: 0 };
   private lastT = 0;
   /** 消息回调（tycoon.msg 接线） */
   onMsg: ((s: string) => void) | null = null;
@@ -659,6 +662,13 @@ export class CitizenRegistry {
       '家里停了电，冰箱的存货眼看要坏，急死人',
       '听说新区等电网延伸，盼着变电站早点立项',
       '夜里抬头能看见银河了 —— 可我更想要一盏灯',
+    ]);
+    // v21 环卫心声：巷口垃圾成堆的住户（优先级在断电之后：黑灯可忍，臭气熏天难忍）
+    else if (ctx.waste > 0) text = rnd([
+      '巷口的垃圾袋堆成了小山，一开窗就是一股酸味',
+      '垃圾车说这片不在清运线上，投诉信我都写好了',
+      '天一热垃圾就发馊，苍蝇比邻居还熟门熟路',
+      '听说回收中心能把垃圾变成钱，盼着早点建到家门口',
     ]);
     else if (ctx.taxRate > 12) text = rnd(['税越收越狠，肉摊都少割两斤了', '这税率，攒钱的速度赶不上市政厅收的']);
     else if (ctx.taxRate <= 5) text = rnd(['低税的日子里，钱包都胖了一圈', '市政厅这个月大方，下馆子加了个鸡腿']);

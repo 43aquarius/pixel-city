@@ -137,6 +137,7 @@ export class Chronicle {
     pop: new Set<number>(), rate: new Set<number>(), bld: new Set<number>(),
     land: new Set<number>(), coin: new Set<number>(), eco: new Set<number>(),   // v19 生态（1 雾霾围城 / 2 重现蓝天）
     pw: new Set<number>(),                                                   // v20 电网（1 暗夜之城 / 2 华灯初上 / 3 重见光明）
+    gs: new Set<number>(),                                                   // v21 环卫（1 垃圾围城 / 2 循环之城）
   };
 
   /** 游戏小时 → 开埠第 N 天 */
@@ -159,7 +160,8 @@ export class Chronicle {
    */
   survey(ctx: { pop: number; rating: number; buildings: number; chunks: number; coins: number;
       smogRes?: number; envIdx?: number; ecotowers?: number;
-      gridCover?: number; darkN?: number; powerRes?: number }, gHours: number): number {
+      gridCover?: number; darkN?: number; powerRes?: number;
+      wasteN?: number; recycles?: number; sweepCover?: number }, gHours: number): number {
     let eraUp = -1;
     // 纪元跃迁（只升不重记；人口回落后再升回不重复入册）
     const e = eraOfPop(ctx.pop);
@@ -236,6 +238,18 @@ export class Chronicle {
       this.write('mile', 'good', 'bolt', '华灯初上',
         `电网覆盖率 ${gridCover}%：入夜时分，全城窗火与路灯一道次第点亮，远方来客未入城门先见灯海。`, gHours);
     }
+    // ---- v21 环卫里程碑：垃圾围城 → 循环之城（一对救赎叙事；先围城后治理才成对入册）----
+    const wasteN = ctx.wasteN ?? 0, recycles = ctx.recycles ?? 0;
+    if (wasteN >= 5 && !this.miles.gs.has(1)) {
+      this.miles.gs.add(1);
+      this.write('mile', 'bad', 'box', '垃圾围城',
+        `${wasteN} 处垃圾堆在巷口过了腰线，风一吹满街都是酸味。市民捏着鼻子抱怨：这届市政厅，怕是连把扫帚都没有。`, gHours);
+    }
+    if (this.miles.gs.has(1) && !this.miles.gs.has(2) && recycles >= 1 && wasteN === 0 && envIdx >= 75) {
+      this.miles.gs.add(2);
+      this.write('mile', 'good', 'box', '循环之城',
+        `回收中心的传送带日夜不停，废瓶旧纸各归其位，环境指数回到 ${envIdx}。曾经捏着鼻子的街巷，如今窗明几净。`, gHours);
+    }
     return eraUp;
   }
 
@@ -256,7 +270,7 @@ export class Chronicle {
     this.nextId = 1;
     this.miles = {
       pop: new Set(), rate: new Set(), bld: new Set(), land: new Set(), coin: new Set(), eco: new Set(),
-      pw: new Set(),
+      pw: new Set(), gs: new Set(),
     };
   }
 
@@ -266,7 +280,7 @@ export class Chronicle {
       m: {
         pop: [...this.miles.pop], rate: [...this.miles.rate], bld: [...this.miles.bld],
         land: [...this.miles.land], coin: [...this.miles.coin], eco: [...this.miles.eco],
-        pw: [...this.miles.pw],
+        pw: [...this.miles.pw], gs: [...this.miles.gs],
       },
     });
   }
@@ -279,7 +293,7 @@ export class Chronicle {
       const d = JSON.parse(raw) as {
         e?: unknown; tot?: unknown; era?: unknown; maxEra?: unknown; nid?: unknown; m?: {
           pop?: unknown; rate?: unknown; bld?: unknown; land?: unknown; coin?: unknown;
-          eco?: unknown; pw?: unknown;
+          eco?: unknown; pw?: unknown; gs?: unknown;
         };
       };
       if (!Array.isArray(d.e)) return false;
@@ -310,7 +324,7 @@ export class Chronicle {
       this.miles = {
         pop: new Set(L(d.m?.pop)), rate: new Set(L(d.m?.rate)), bld: new Set(L(d.m?.bld)),
         land: new Set(L(d.m?.land)), coin: new Set(L(d.m?.coin)), eco: new Set(L(d.m?.eco)),
-        pw: new Set(L(d.m?.pw)),
+        pw: new Set(L(d.m?.pw)), gs: new Set(L(d.m?.gs)),
       };
       return true;
     } catch {

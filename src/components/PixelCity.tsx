@@ -1649,6 +1649,16 @@ export default function PixelCity() {
                           : `全覆盖 ${econ.gridCover}%${econ.substations > 0 ? `（变电站 ${econ.substations} 座中继）` : ''}`
                       }</td>
                     </tr>
+                    <tr className={econ.wasteN > 0 ? 'bad' : (econ.sweeps + econ.recycles + econ.incins > 0 ? 'g' : '')}>
+                      <td>市容环卫</td>
+                      <td>{
+                        econ.wasteN > 0
+                          ? `堆积 ${econ.wasteN} 处（重灾 ${econ.wasteBad} · 住宅受损 ${econ.wasteRes} 栋${econ.wasteRes > 0 ? ` · 幸福 −` + Math.min(10, Math.round(econ.wasteRes * 1.8)) : ''}${econ.sweepOverN > 0 ? ` · 设施超载 ${econ.sweepOverN} 座` : ''}）`
+                          : `清运覆盖 ${econ.sweepCover}%${econ.sweeps + econ.recycles + econ.incins > 0
+                            ? `（收集站 ${econ.sweeps}${econ.recycles > 0 ? ` · 回收 ${econ.recycles}` : ''}${econ.incins > 0 ? ` · 焚烧 ${econ.incins}` : ''}）`
+                            : ''}`
+                      }</td>
+                    </tr>
                     <tr className={econ.healthIdx < 55 ? 'bad' : ''}>
                       <td>健康指数</td><td>{econ.healthIdx} / 100（医院 {econ.hospitals} 座）</td>
                     </tr>

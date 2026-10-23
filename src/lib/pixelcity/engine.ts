@@ -20,7 +20,7 @@ import type { CitzCard } from './citizens';
 import {
   Tycoon, ECON, CHUNK, CHUNKS, TREE_COST, ROAD_REFUND, TREE_REFUND,
   REFUND_RATE, LIFT_COST, WATER_COST, FLAT_FEE, BRIDGE_REFUND, SEASONS,
-  techNameOf, type EconView,
+  techNameOf, WASTE_LV2, type EconView,
   type WeatherKind,
 } from './tycoon';
 
@@ -954,6 +954,88 @@ export class Engine {
     }
   }
 
+  /** v21：垃圾堆积层 —— 清运不到的建筑门口垃圾成堆（黑袋/纸箱/瓶罐/鱼骨点缀 +
+   *  贴地污渍；重灾 ≥80 浓度：杂物翻倍 + 苍蝇盘旋 + 臭气绿雾）。画在建筑之上、雾霾之下 ——
+   *  雾能罩住垃圾，垃圾罩不住雾；垃圾是实体贴地物，比雾更「近」更扎眼 */
+  private drawWasteOverlay(ctx: CanvasRenderingContext2D, t: number): void {
+    const eco = this.tycoon;
+    if (!eco || eco.wasteField.size === 0) return;
+    const n = this.map.n;
+    for (const [i, c] of eco.wasteField) {
+      const tx = i % n, ty = (i / n) | 0;
+      const sx = this.w2sx(tx, ty);
+      const sy = this.w2sy(tx, ty) + this.hOfs(tx, ty);
+      if (sx < -40 || sx > this.lw + 40 || sy < -56 || sy > this.lh + 40) continue;
+      const heavy = c >= WASTE_LV2;
+      // 贴地污渍（半透明橄榄绿菱形 —— 污水横流的感觉；比 v19 雾霾更浓一档：贴地实体感）
+      ctx.fillStyle = heavy ? 'rgba(66,74,36,0.46)' : 'rgba(70,78,40,0.30)';
+      ctx.beginPath();
+      ctx.moveTo(sx - 17, sy + 3);
+      ctx.lineTo(sx, sy + 11);
+      ctx.lineTo(sx + 17, sy + 3);
+      ctx.lineTo(sx, sy - 5);
+      ctx.closePath();
+      ctx.fill();
+      // 垃圾杂物（确定性伪随机摆位：黑袋 / 纸箱 / 瓶罐 / 鱼骨 —— 大件高对比；
+      //   摆在楼基之前 sy+5..16：读作「堆在门口」而非楼身贴花）
+      const items = heavy ? 6 : 3;
+      for (let k = 0; k < items; k++) {
+        const h = (tx * 7 + ty * 13 + k * 29) % 97;
+        const ox = -12 + ((h * 5) % 25);
+        const oy = 5 + ((h * 3) % 8) + (k > 2 ? 4 : 0);
+        const kind = h % 4;
+        const ix = Math.round(sx + ox), iy = Math.round(sy + oy);
+        if (kind === 0) {          // 黑垃圾袋（束口鼓包 + 顶部高光）
+          ctx.fillStyle = 'rgba(38,42,50,0.95)';
+          ctx.fillRect(ix, iy, 8, 6);
+          ctx.fillRect(ix + 2, iy - 2, 3, 2);
+          ctx.fillStyle = 'rgba(96,104,120,0.95)';
+          ctx.fillRect(ix + 1, iy + 1, 2, 1);
+          ctx.fillStyle = 'rgba(18,20,26,0.95)';
+          ctx.fillRect(ix + 1, iy + 5, 5, 1);
+        } else if (kind === 1) {   // 纸箱（摊盖 + 胶带十字 + 深色描边）
+          ctx.fillStyle = 'rgba(184,146,90,0.95)';
+          ctx.fillRect(ix, iy, 9, 6);
+          ctx.fillStyle = 'rgba(222,192,140,0.95)';
+          ctx.fillRect(ix + 1, iy + 1, 7, 1);
+          ctx.fillStyle = 'rgba(110,84,52,0.95)';
+          ctx.fillRect(ix, iy, 9, 1);
+          ctx.fillRect(ix + 4, iy, 1, 6);
+        } else if (kind === 2) {   // 瓶瓶罐罐（青瓶 + 棕罐 + 白盖）
+          ctx.fillStyle = 'rgba(88,152,156,0.95)';
+          ctx.fillRect(ix, iy, 3, 5);
+          ctx.fillStyle = 'rgba(196,120,64,0.95)';
+          ctx.fillRect(ix + 4, iy + 1, 3, 4);
+          ctx.fillStyle = 'rgba(240,238,226,0.95)';
+          ctx.fillRect(ix, iy - 1, 3, 1);
+        } else {                   // 鱼骨（白刺 + 歪斜脊骨）
+          ctx.fillStyle = 'rgba(238,236,224,0.95)';
+          ctx.fillRect(ix, iy, 7, 1);
+          ctx.fillRect(ix + 3, iy - 1, 1, 1);
+          ctx.fillRect(ix + 1, iy + 1, 1, 1);
+          ctx.fillRect(ix + 5, iy + 1, 1, 1);
+        }
+      }
+      // 重灾区：臭气绿雾（两缕半透明缓升 —— 隔着屏幕都闻得到）+ 苍蝇盘旋
+      if (heavy) {
+        const ph = t / 1700 + (tx + ty) * 0.7;
+        for (let f = 0; f < 2; f++) {
+          const rise = (t / 46 + f * 13 + ((tx * 5 + ty * 3) % 11)) % 18;
+          ctx.fillStyle = `rgba(128,164,66,${Math.max(0, 0.34 - rise / 56).toFixed(3)})`;
+          const wx = Math.round(sx - 4 + f * 9 + Math.sin(ph + f * 2) * 3);
+          ctx.fillRect(wx, Math.round(sy - 2 - rise), 5, 3);
+          ctx.fillRect(wx + 1, Math.round(sy - 4 - rise), 3, 2);
+        }
+        ctx.fillStyle = 'rgba(26,28,24,0.9)';
+        for (let f = 0; f < 2; f++) {
+          const fp = t / 240 + (tx + ty * 3 + f * 2) * 1.7;
+          const fr = 3 + f * 2;
+          ctx.fillRect(Math.round(sx + Math.cos(fp) * fr), Math.round(sy - 2 + Math.sin(fp * 1.6) * 2), 1, 1);
+        }
+      }
+    }
+  }
+
   /** v19：雾霾层 —— 污染空间场可视化（浓度 ≥45 的格铺暖土黄雾菱形，随呼吸波动 +
    *  随风缓漂；重污染 ≥75 棕褐浓雾 + 复用烟囱烟精灵的缓升烟团 —— 远看连绵霾带，
    *  近看烟霭蒸腾；笼罩建筑但在事件特效之下，随昼夜一起压暗） */
@@ -1650,6 +1732,8 @@ export class Engine {
 
     // ---- v5：事件事故特效（火灾烟柱 / 火点，覆盖在建筑之上）----
     this.drawEventFx(ctx, t);
+    // ---- v21：垃圾堆积层（清运不到的巷口垃圾成堆；雾霾之下）----
+    this.drawWasteOverlay(ctx, t);
     // ---- v19：雾霾层（污染空间场可视化；笼罩建筑，事件特效之下）----
     this.drawSmogOverlay(ctx, t);
     // ---- v7：飞艇巡航（建筑之上 / 云层之下）----

@@ -55,9 +55,32 @@ export const SMOG_FALL = [1, 0.62, 0.32, 0.14];
  *  半径外的耗电建筑＝断电：收入归零、夜里窗灯不亮（火电厂零污染是痴心妄想，风电与阳光才是干净账） */
 export const GRID_R: Record<string, number> = {
   power: 8, windfarm: 7, solarfarm: 7, cityhall: 6, substation: 6, windmill: 5,
+  incin: 6,   // v21 焚烧发电厂：垃圾烧出的电也算真电源
 };
 /** 真电源集合（变电站只能从真电源受电中继，变电站之间不能手拉手） */
-export const GRID_SRC = ['power', 'windfarm', 'solarfarm', 'cityhall', 'windmill'];
+export const GRID_SRC = ['power', 'windfarm', 'solarfarm', 'cityhall', 'windmill', 'incin'];
+// ---- v21 环卫系统：拾荒之路 · 循环之城 ----
+/** 各环卫设施的清运半径（切比雪夫，自锚点起算）与容量（件/分）。
+ *  收集站 6/14 · 回收中心 8/34 · 焚烧发电厂 10/70。
+ *  超出半径或超出容量的建筑＝垃圾堆积：环境受损、住宅幸福扣减、巷口垃圾成山 */
+export const SWEEP_R: Record<string, number> = { binshed: 6, recycle: 8, incin: 10 };
+export const SWEEP_CAP: Record<string, number> = { binshed: 14, recycle: 34, incin: 70 };
+/** 堆积浓度分档：≥45 巷口垃圾成堆（可见垃圾袋）· ≥80 臭气熏天（重灾统计） */
+export const WASTE_LV1 = 45;
+export const WASTE_LV2 = 80;
+
+/** v21 垃圾产量（件/分）：住宅按人口、商业按营收、工业按污染规模推导；
+ *  环卫设施自产归零（自家的账自家清）；市政厅/公园等 pop=0 公共设施天然零产。 */
+export function wasteRateOf(id: string): number {
+  if (SWEEP_CAP[id] !== undefined) return 0;
+  const d = CATALOG.find(x => x.id === id);
+  const e = ECON[id];
+  if (!d || !e) return 0;
+  if (d.cat === 'res') return d.pop * 0.018;
+  if (d.cat === 'com') return (e.earn ?? 0) * 0.14;
+  if (d.cat === 'ind') return ((e.pollute || 0) + 0.8) * 1.1;
+  return d.pop * 0.008;   // 公共设施（学校/医院…）少量
+}
 
 // ------------------------------------------------------------
 // 四季体系（v6）：季节由 engine 时钟驱动，经济在快照层联动
@@ -167,6 +190,9 @@ export const ECON: Record<string, EconDef> = {
   bakery: D(80, 2, { power: 2, earn: 3.9, upk: 1.15, goodsC: 0.55 }),
   gas: D(170, 2, { power: 2, earn: 5.5, upk: 1.3, goodsC: 0.25 }),
   ferry: D(720, 5, { power: 6, earn: 12, upk: 2.2 }),
+  // ---- 环卫（v21 循环经济：回收中心把垃圾变钱，焚烧厂把垃圾变电但产霾）----
+  recycle: D(780, 5, { power: 8, earn: 4.5, upk: 2.6 }),   // 回收中心：清运 34 件/分 · 循环产业收入
+  incin: D(1250, 7, { power: -30, pollute: 3, upk: 5.2 }),  // 焚烧发电厂：清运 70 件/分 · 发电但排污（v19 联动）
   // ---- 工业（污染；upk 设备折旧）v8：收入 −5%、维护费 +15% ----
   factory: D(620, 5, { power: 14, earn: 30, pollute: 4, upk: 6.7, goodsP: 2.2 }),
   warehouse: D(270, 6, { power: 6, earn: 9.4, pollute: 1, upk: 1.6, goodsP: 0.8, goodsCap: 80 }),
@@ -198,6 +224,7 @@ export const ECON: Record<string, EconDef> = {
   koban: D(140, 2, { power: 1, amenity: 1, upk: 0.8 }),   // v12 交番：安全护盾 + 巡逻车
   ecotower: D(720, 6, { power: 8, amenity: 2, upk: 2.4 }),  // v19 空气净化塔：半径 5 格强净化
   substation: D(220, 4, { power: 1, upk: 0.9 }),    // v20 变电站：自身在电源 6 格内＝有效中继（再向外辐射 6 格）
+  binshed: D(140, 2, { power: 1, amenity: 1, upk: 1.0 }),   // v21 垃圾收集站：半径 6 清运 14 件/分
   lighthouse: D(140, 8, { power: 1, amenity: 1, upk: 0.5, cul: 1 }),
   castle: D(2200, 9, { power: 4, amenity: 3, upk: 1.5, edu: 5, cul: 3 }),
   busstop: D(50, 1, { amenity: 2, upk: 0.6 }),
@@ -550,6 +577,11 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 95, val: (s, t) => (t.pop >= 150 ? s.gridCover : 0) },
   { id: 'cleanp', name: '清风明月', desc: '风电与太阳能装机 ≥2 且全城无火电厂 —— 清洁能源之城（火电厂是雾霾大户：见 v19）', icon: 'bolt',
     goal: 1, val: s => ((s.windfarms + s.solarfarms >= 2 && s.coalN === 0) ? 1 : 0) },
+  // ---- v21 循环经济 ----
+  { id: 'cyclecty', name: '循环之城', desc: '回收中心 ≥2 座且全城垃圾零堆积、人口 ≥120 —— 废瓶旧纸各归其位，垃圾也能变成钱（堆积详情见城市志「市容环卫」）', icon: 'box',
+    goal: 1, val: (s, t) => (s.recycles >= 2 && s.wasteN === 0 && t.pop >= 120 ? 1 : 0) },
+  { id: 'spotless', name: '一尘不染', desc: '人口 ≥300 且清运覆盖率 100% —— 街巷比邻城的大堂还干净', icon: 'medal',
+    goal: 100, val: (s, t) => (t.pop >= 300 ? s.sweepCover : 0) },
 ];
 
 /** 需特定科技才可建造的建筑
@@ -686,6 +718,15 @@ export type QS = {
   windfarms: number; solarfarms: number;  // 清洁能源装机座数
   coalN: number;        // 火电厂座数（成就「清风明月」反指标）
   cleanMW: number; solarMW: number;       // 清洁发电实时 MW / 太阳能当前出力 MW
+  // ---- v21 环卫系统 ----
+  wasteN: number;       // 垃圾堆积建筑数（清运半径外或设施超载）
+  wasteBad: number;     // 重灾堆积数（浓度 ≥80：环境修正加重）
+  wasteRes: number;     // 堆积住宅栋数（幸福惩罚源）
+  sweepCover: number;   // 清运覆盖率 %（已清运 / 应清运建筑）
+  sweeps: number;       // 垃圾收集站座数
+  recycles: number;     // 回收中心座数
+  incins: number;       // 焚烧发电厂座数
+  sweepOverN: number;   // 超载环卫设施座数（该上更大的站了）
 };
 
 export type Quest = {
@@ -789,6 +830,9 @@ export const QUESTS: Quest[] = [
     val: s => s.substations, rG: 260, rXp: 130 },
   { id: 'clean1', title: '清风与阳光', hint: '风力发电场与太阳能电站各建 1 座（均需「电力工程」）：清洁发电零污染 —— 注意太阳能夜间歇业，得留别的电源兜底', goal: 2,
     val: s => (s.windfarms > 0 ? 1 : 0) + (s.solarfarms > 0 ? 1 : 0), rG: 420, rXp: 200 },
+  // ---- v21 环卫系统 ----
+  { id: 'sweep2', title: '窗明几净', hint: '建造 2 座环卫设施（垃圾收集站/回收中心/焚烧发电厂）：半径内建筑垃圾自动清运，堆积会拖累环境与幸福 —— 回收中心还能把垃圾变成钱，焚烧厂把垃圾烧成电', goal: 2,
+    val: s => s.sweeps + s.recycles + s.incins, rG: 300, rXp: 140 },
 ];
 
 // ------------------------------------------------------------
@@ -882,6 +926,15 @@ export type EconView = {
   coalN: number;                    // 火电厂座数
   cleanMW: number;                  // 清洁能源实时出力 MW
   solarMW: number;                  // 太阳能当前出力 MW
+  // ---- v21：环卫系统 ----
+  wasteN: number;                   // 垃圾堆积建筑数
+  wasteBad: number;                 // 重灾堆积数（浓度 ≥80）
+  wasteRes: number;                 // 堆积住宅栋数（幸福惩罚源）
+  sweepCover: number;               // 清运覆盖率 %
+  sweeps: number;                   // 垃圾收集站座数
+  recycles: number;                 // 回收中心座数
+  incins: number;                   // 焚烧发电厂座数
+  sweepOverN: number;               // 超载环卫设施座数
 };
 
 export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
@@ -1048,6 +1101,18 @@ export class Tycoon {
   private gridVer = -1;
   /** 断电警告（一档一次，缓解后复位） */
   private darkWarned = false;
+
+  // ---- v21：环卫系统（拾荒之路 · 循环之城）----
+  /** 已清运建筑锤点集合（engine/测试钩子读取） */
+  sweepField = new Set<number>();
+  /** 垃圾堆积场：tileIdx → 浓度 0..100（仅堆积建筑锤点；engine 渲染垃圾袋堆） */
+  wasteField = new Map<number, number>();
+  /** 超载环卫设施锤点集合（半径内建筑产垃超过容量：UI 警示「该扩容了」） */
+  sweepOverField = new Set<number>();
+  /** 清运场缓存版本（仅随 map.version 变化重算：摆盘即重算） */
+  private sweepVer = -1;
+  /** 堆积警告（一档一次，清干净后复位） */
+  private wasteWarned = false;
 
   hasOrd(id: string): boolean { return this.ords.has(id); }
 
@@ -1258,6 +1323,8 @@ export class Tycoon {
     this.ensureSmog(map);
     // v20：电网覆盖场先行（断电建筑收入归零 / 夜灯熄灭的判定源；仅随摆盘重算）
     this.ensureGrid(map);
+    // v21：清运分配场先行（堆积建筑折扣 / 指数 / 统计判定源；仅随摆盘重算）
+    this.ensureSweep(map);
     let cap = 0, jobs = 0, earnCom = 0, earnInd = 0, upk = 0;
     let powerSup = 0, powerDem = 0, amenitySup = 0, pollute = 0;
     let res = 0, com = 0, ind = 0, civ = 0, park = 0, buildings = 0;
@@ -1271,6 +1338,8 @@ export class Tycoon {
     // v20：电网时代累计器
     let powerRes = 0, coalN = 0, windfarms = 0, solarfarms = 0, substations = 0;
     let cleanMW = 0, solarMW = 0;
+    // v21：环卫累计器
+    let sweeps = 0, recycles = 0, incins = 0;
     // v10：货物 / 旅游累计器
     let goodsP = 0, goodsC = 0, goodsCapV = GOODS_BASE_CAP;
     let hotelBeds = 0, attract = 0, ports = 0;
@@ -1295,8 +1364,10 @@ export class Tycoon {
         const brandB = this.has('brand') &&
           ['hotel', 'mall', 'ferris', 'aquarium', 'cinema', 'castle'].includes(o.id);
         const smogK = (this.smogField.get(map.idx(o.ax, o.ay)) ?? 0) >= SMOG_LV1 ? 0.82 : 1;
+        // v21 环卫：垃圾堆门的店没客流（堆积建筑商业收入 ×0.88）
+        const wasteK = this.wasteField.has(map.idx(o.ax, o.ay)) ? 0.88 : 1;
         // v20 电网：断电商铺收入归零（黑暗的店谁也进不去）；未断电才计入
-        if (!offGrid) earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK;
+        if (!offGrid) earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK * wasteK;
         if (o.id === 'ferris') park++;
       } else if (d.cat === 'ind') {
         ind++; jobs += d.pop;
@@ -1341,6 +1412,10 @@ export class Tycoon {
       else if (o.id === 'windfarm') windfarms++;
       else if (o.id === 'solarfarm') solarfarms++;
       else if (o.id === 'substation') substations++;
+      // v21 环卫设施计数
+      else if (o.id === 'binshed') sweeps++;
+      else if (o.id === 'recycle') recycles++;
+      else if (o.id === 'incin') incins++;
       // v20：太阳能电站出力随昼夜（白昼满发、深夜归零——需其它电源兜底）
       const pw = o.id === 'solarfarm' ? pwRaw * this.dayLight : pwRaw;
       if (pw < 0) {
@@ -1480,10 +1555,21 @@ export class Tycoon {
       if (dcat !== 'res') continue;
       if ((this.smogField.get(map.idx(o.ax, o.ay)) ?? 0) >= SMOG_LV2) smogRes++;
     }
+    // v21 环卫统计：堆积建筑 / 重灾堆积（浓度 ≥80）/ 堆积住宅 / 超载设施
+    let wasteBad = 0;
+    for (const c of this.wasteField.values()) if (c >= WASTE_LV2) wasteBad++;
+    let wasteRes = 0;
+    for (const o of map.objs.values()) {
+      if (defById(o.id).cat !== 'res') continue;
+      if (this.wasteField.has(map.idx(o.ax, o.ay))) wasteRes++;
+    }
+    const wasteN = this.wasteField.size;
+    const sweptN = this.sweepField.size;
+    const sweepCover = (sweptN + wasteN) > 0 ? Math.round(100 * sweptN / (sweptN + wasteN)) : 100;
     // 环境：污染净额 → 指数化（越高越好；每净污染点扣 9 分）
     //   v19：再叠加空间雾霾修正（重污染格 −0.5/格 · 重污染住宅 −3/栋 —— 工业挨着住宅盖会现世报）
     const envIdx = Math.max(0, Math.min(100, Math.round(
-      100 - polluteNet * 9 - smogBad * 0.5 - smogRes * 3)));
+      100 - polluteNet * 9 - smogBad * 0.5 - smogRes * 3 - wasteN * 0.8 - wasteBad * 0.8)));
     // 健康：病床覆盖（每院 450 床 + 市政厅 50；公共医疗 +20%）
     const beds = (hospitals * 450 + 50) * (this.has('health') ? 1.2 : 1);
     const healthIdx = pop < 8 ? 80 : Math.max(0, Math.min(100, Math.round(100 * Math.min(1, beds / pop))));
@@ -1569,11 +1655,13 @@ export class Tycoon {
     const smogHap = Math.min(12, smogRes * 2.5);
     // v20：暗夜压城 —— 每栋断电住宅 −2，至多 −10（拉变电站/补电源可解）
     const powerHap = Math.min(10, powerRes * 2);
+    // v21：垃圾围门 —— 每栋堆积住宅 −1.8，至多 −10（建收集站/回收中心可解）
+    const wasteHap = Math.min(10, Math.round(wasteRes * 1.8));
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
       0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap
-      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap)));   // v11 电车干线通车：出行体面 +2 幸福；v20 断电住宅扣减
+      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap)));   // v11 电车干线通车：出行体面 +2 幸福；v20 断电/v21 垃圾扣减
     const happyMult = 0.6 + happiness / 125;
 
     // ---- v10 旅游：景点吸引力 × 文化/幸福 × 季节/天气 → 游客（酒店床位为接待上限）----
@@ -1632,6 +1720,8 @@ export class Tycoon {
       waterNear, levees,                                            // v18 灾害链
       smogTiles: this.smogField.size, smogBad, smogRes,             // v19 污染空间化
       gridCover, darkN, powerRes, substations, windfarms, solarfarms, coalN, cleanMW, solarMW,  // v20 电网空间化
+      wasteN, wasteBad, wasteRes, sweepCover, sweeps, recycles, incins,
+      sweepOverN: this.sweepOverField.size,                                        // v21 环卫系统
       ecotowers: this.smogTowerN,
       eventHap, eventAmenity, multCom, multInd, multFood, multPower, multTraffic, multSp,
       weather: { kind: wt.kind, t: wt.t },
@@ -1760,6 +1850,72 @@ export class Tycoon {
     this.darkField = dark;
   }
 
+  // ---------------- v21：清运分配场（拾荒之路 · 循环之城） ----------------
+
+  /** 重算清运分配场（版本缓存：仅 map.version 变化才重算，摆盘/拆迁即触发）。
+   *  Pass A：登记环卫设施（半径/容量）与产垃圾建筑（锤点/产率）；
+   *  Pass B：建筑按「最近设施距离」升序处理，依次在范围内设施中挑「仍有余量的最近设施」
+   *          —— 近者先得，装不下的设施记一次拒收（sweepOverField）；
+   *  Pass C：清运半径之外 / 所有范围内设施都装不下 → wasteField 堆积
+   *          （浓度 = 55 + 产率×10 封顶 100：大产户一户就是一座小山）。 */
+  private ensureSweep(map: CityMap): void {
+    if (map.version === this.sweepVer) return;
+    this.sweepVer = map.version;
+    const facs: Array<{ x: number; y: number; r: number; cap: number; i: number }> = [];
+    const prods: Array<{ x: number; y: number; rate: number; i: number }> = [];
+    for (const o of map.objs.values()) {
+      const cap = SWEEP_CAP[o.id];
+      if (cap !== undefined) {
+        facs.push({ x: o.ax, y: o.ay, r: SWEEP_R[o.id] ?? 6, cap, i: map.idx(o.ax, o.ay) });
+        continue;
+      }
+      const rate = wasteRateOf(o.id);
+      if (rate > 0) prods.push({ x: o.ax, y: o.ay, rate, i: map.idx(o.ax, o.ay) });
+    }
+    const swept = new Set<number>();
+    const waste = new Map<number, number>();
+    const over = new Set<number>();
+    if (!prods.length) {   // 无产垃建筑：无堆积亦无超载（设施闲置或空城）
+      this.sweepField = swept;
+      this.wasteField = waste;
+      this.sweepOverField = over;
+      return;
+    }
+    // 每栋建筑到最近设施的距离（排序用）
+    const nearest = (p: { x: number; y: number }) => {
+      let d = Infinity;
+      for (const f of facs) d = Math.min(d, Math.max(Math.abs(p.x - f.x), Math.abs(p.y - f.y)));
+      return d;
+    };
+    prods.sort((a, b) => nearest(a) - nearest(b));
+    const load = facs.map(() => 0);
+    const W = (rate: number) => Math.min(100, 55 + rate * 10);
+    for (const p of prods) {
+      // 范围内设施按距离近→远，找第一座还有余量的
+      const near: Array<{ k: number; d: number }> = [];
+      for (let k = 0; k < facs.length; k++) {
+        const d = Math.max(Math.abs(p.x - facs[k].x), Math.abs(p.y - facs[k].y));
+        if (d <= facs[k].r) near.push({ k, d });
+      }
+      if (!near.length) { waste.set(p.i, W(p.rate)); continue; }   // 半径外：无人清运
+      near.sort((a, b) => a.d - b.d);
+      let served = false;
+      for (const n of near) {
+        if (load[n.k] + p.rate <= facs[n.k].cap) {
+          load[n.k] += p.rate;
+          swept.add(p.i);
+          served = true;
+          break;
+        }
+        over.add(facs[n.k].i);   // 这座装不下了（拒收记录）
+      }
+      if (!served) waste.set(p.i, W(p.rate));   // 范围内设施全满 → 堆积
+    }
+    this.sweepField = swept;
+    this.wasteField = waste;
+    this.sweepOverField = over;
+  }
+
   // ---------------- 每帧心跳 ----------------
 
   tick(dt: number, map: CityMap): void {
@@ -1828,6 +1984,12 @@ export class Tycoon {
       this.msg?.(`电网告急：${s.darkN} 栋建筑未接入电网 —— 收入归零、夜里窗灯不亮；在电源 6-8 格内建变电站可向外中继供电`);
     } else if (s.darkN === 0) this.darkWarned = false;
 
+    // v21 环卫警告：垃圾堆积出现时一档一次（清干净后复位）
+    if (s.wasteN > 0 && !this.wasteWarned) {
+      this.wasteWarned = true;
+      this.msg?.(`垃圾围城：${s.wasteN} 处垃圾无人清运 —— 建垃圾收集站（半径内自动清运），或上回收中心/焚烧发电厂扩容`);
+    } else if (s.wasteN === 0) this.wasteWarned = false;
+
     // 科技点累积（教育设施 × 智慧加成）
     this.sp += s.spRaw * (0.5 + s.wisdom / 100) * (this.has('higher') ? 1.35 : 1) * dt / 60;
 
@@ -1857,6 +2019,7 @@ export class Tycoon {
       fest: this.fest ? this.fest.kind : -1,   // v16：节日心声
       smog: s.smogRes,                         // v19：雾霾心声
       dark: s.powerRes,                        // v20：断电住宅心声
+      waste: s.wasteRes,                       // v21：垃圾堆积心声
     }, this.playtime);
     if (this.citz.total > citzTotalBefore) this.sfx?.('movein');
     if (this.citz.unread > mailUnreadBefore) this.sfx?.('bell');   // v15：叮——新来信
@@ -1892,6 +2055,7 @@ export class Tycoon {
       chunks: s.chunks, coins: this.coins,
       smogRes: s.smogRes, envIdx: s.envIdx, ecotowers: s.ecotowers,   // v19 生态里程碑
       gridCover: s.gridCover, darkN: s.darkN, powerRes: s.powerRes,   // v20 电网里程碑
+      wasteN: s.wasteN, recycles: s.recycles, sweepCover: s.sweepCover,   // v21 环卫里程碑
     }, this.gHours);
     if (eraUp >= 1) {
       const ERAS_NAME = ['炊烟村庄', '市井小镇', '一方城市', '摩登都会'];
@@ -2178,6 +2342,15 @@ export class Tycoon {
       coalN: s?.coalN ?? 0,
       cleanMW: s?.cleanMW ?? 0,
       solarMW: s?.solarMW ?? 0,
+      // ---- v21：环卫系统 ----
+      wasteN: s?.wasteN ?? 0,
+      wasteBad: s?.wasteBad ?? 0,
+      wasteRes: s?.wasteRes ?? 0,
+      sweepCover: s?.sweepCover ?? 100,
+      sweeps: s?.sweeps ?? 0,
+      recycles: s?.recycles ?? 0,
+      incins: s?.incins ?? 0,
+      sweepOverN: s?.sweepOverN ?? 0,
     };
   }
 
@@ -2241,6 +2414,9 @@ export class Tycoon {
     this.smogWarned = false;
     this.darkWarned = false;
     this.gridVer = -1;
+    // v21：环卫场同样复位
+    this.wasteWarned = false;
+    this.sweepVer = -1;
     this.dayLight = 1;
     // v12：应急联动重置
     this.rescueFire = 0;
@@ -2496,6 +2672,7 @@ export class Tycoon {
       fest: this.fest ? this.fest.kind : -1,   // v16：节日心声
       smog: s?.smogRes ?? 0,                    // v19：雾霾心声
       dark: s?.powerRes ?? 0,                   // v20：断电住宅心声
+      waste: s?.wasteRes ?? 0,                  // v21：垃圾堆积心声
     });
   }
 
