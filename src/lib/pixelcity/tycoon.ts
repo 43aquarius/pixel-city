@@ -1345,7 +1345,8 @@ export class Tycoon {
       const pw = o.id === 'solarfarm' ? pwRaw * this.dayLight : pwRaw;
       if (pw < 0) {
         powerSup += -pw;
-        if (o.id !== 'power') {                                        // 清洁能源实时出力（风车/风场/太阳）
+        // 清洁能源实时出力（风车/风场/光伏 —— cityhall 自备柴油机组不算清洁，火电更不算）
+        if (o.id === 'windmill' || o.id === 'windfarm' || o.id === 'solarfarm') {
           cleanMW += -pw;
           if (o.id === 'solarfarm') solarMW += -pw;
         }
@@ -2494,6 +2495,7 @@ export class Tycoon {
       season: this.season, famine: s?.famine ?? 0, events: this.events.map(e => e.key),
       fest: this.fest ? this.fest.kind : -1,   // v16：节日心声
       smog: s?.smogRes ?? 0,                    // v19：雾霾心声
+      dark: s?.powerRes ?? 0,                   // v20：断电住宅心声
     });
   }
 

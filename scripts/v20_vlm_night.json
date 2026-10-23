@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "1) **是**。画面左下角有几栋建筑亮着暖黄色的窗灯，而画面右侧及上方的大片区域（空地/未开发区域）则完全漆黑，形成了明显的明暗分区。\n2) **否**。画面中目前没有看到电线塔或变电站样式的格构塔建筑。\n3) **否**。画面渲染正常，没有出现明显的渲染错乱或穿模现象。",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1792749196,
+  "id": "20261023175313c3c14c6519af4bdd",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "20261023175313c3c14c6519af4bdd",
+  "usage": {
+    "completion_tokens": 91,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 1763,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 1854
+  }
+}

@@ -1617,6 +1617,13 @@ export default function PixelCity() {
                     <tr><td>幸福度</td><td>{econ.happiness} / 100</td></tr>
                     <tr><td>宜居度</td><td>{econ.livability} / 100</td></tr>
                     <tr><td>宜居 供/需</td><td>{econ.amenitySup} / {econ.amenityNeed}</td></tr>
+                    <tr className={econ.cleanMW > 0 ? 'g' : (econ.coalN > 0 ? 'bad' : '')}>
+                      <td>能源结构</td><td>{
+                        econ.cleanMW > 0
+                          ? `清洁出力 ${econ.cleanMW} MW（风 ${econ.windfarms} 场 · 光 ${econ.solarfarms} 站${econ.solarfarms > 0 ? ` · 此刻光伏 ${econ.solarMW} MW` : ''}）`
+                          : econ.coalN > 0 ? `火电 ${econ.coalN} 座支撑全城 —— 风与阳光还在路上` : '电网待建'
+                      }</td>
+                    </tr>
                     <tr><td>工业污染</td><td>{econ.pollute} 点</td></tr>
                   </tbody></table>
                 </section>
@@ -1633,6 +1640,14 @@ export default function PixelCity() {
                           ? `雾霾覆盖 ${econ.smogTiles} 格（重污染 ${econ.smogBad} 格 · 住宅受损 ${econ.smogRes} 栋${econ.smogRes > 0 ? ' · 幸福 −' + Math.min(12, econ.smogRes * 2.5) : ''}）`
                           : econ.ecotowers > 0 ? `晴空如洗（净化塔 ${econ.ecotowers} 座值守）` : '晴空如洗'
                       }{econ.ecotowers > 0 ? ` · 净化塔 ${econ.ecotowers} 座` : ''}</td>
+                    </tr>
+                    <tr className={econ.darkN > 0 ? 'bad' : (econ.gridCover >= 95 ? 'g' : '')}>
+                      <td>电网覆盖</td>
+                      <td>{
+                        econ.darkN > 0
+                          ? `覆盖 ${econ.gridCover}%（断电 ${econ.darkN} 栋 · 收入归零${econ.powerRes > 0 ? ` · 住宅受损 ${econ.powerRes} 栋 · 幸福 −` + Math.min(10, econ.powerRes * 2) : ''}）`
+                          : `全覆盖 ${econ.gridCover}%${econ.substations > 0 ? `（变电站 ${econ.substations} 座中继）` : ''}`
+                      }</td>
                     </tr>
                     <tr className={econ.healthIdx < 55 ? 'bad' : ''}>
                       <td>健康指数</td><td>{econ.healthIdx} / 100（医院 {econ.hospitals} 座）</td>

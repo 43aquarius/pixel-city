@@ -4,7 +4,7 @@
 
 import { box, gableRoof, prism, frustum, makeFace, buildModel, type Face, type V3 } from './geo';
 import {
-  pWall, pCorrugated, pShutter, pFlatRoof, pSawTooth, pWindows, pTankShell, pBands, pStone,
+  pWall, pCorrugated, pShutter, pFlatRoof, pSawTooth, pWindows, pTankShell, pBands, pStone, cell,
 } from './patterns';
 import { RAMP, bayer } from './palette';
 import { mulberry32 } from './rng';

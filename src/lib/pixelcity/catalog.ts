@@ -12,11 +12,11 @@ import { smokeFrames, NO_EFFECTS } from './b_util';
 import type { V3 } from './geo';
 import { genHouse, genTownhouse, genApartment } from './b_res';
 import { genShop, genOffice, genTower } from './b_com';
-import { genFactory, genWarehouse, genTankfarm } from './b_ind';
+import { genFactory, genWarehouse, genTankfarm, genWindfarm, genSolarfarm } from './b_ind';
 import {
   genPark, genTree, genPlaza, genSchool, genHospital,
   genTemple, genStadium, genRadioTower, genMonument, genCityhall, genLibrary,
-  genEcotower,
+  genEcotower, genSubstation,
 } from './b_civ';
 import {
   genManor, genResTower, genConvenience, genHotel, genMall, genParking,
@@ -129,6 +129,10 @@ export const CATALOG: Def[] = [
     gen: genSilo, desc: '金属筒仓群与天桥连管' },
   { id: 'windmill', name: '风车磨坊', cat: 'ind', w: 1, h: 1, variants: 2, pop: 4,
     gen: genWindmill, desc: '石塔红帽，四叶迎风' },
+  { id: 'windfarm', name: '风力发电场', cat: 'ind', w: 2, h: 2, variants: 2, pop: 8,
+    gen: genWindfarm, desc: '荒原三叶风机群：清洁大电源 −60MW 零污染，供电半径 7 格（需研究「电力工程」）' },
+  { id: 'solarfarm', name: '太阳能电站', cat: 'ind', w: 2, h: 2, variants: 2, pop: 6,
+    gen: genSolarfarm, desc: '3×3 斜面光伏板阵：−50MW 零污染，仅白昼发电（深夜归零），供电半径 7 格（需研究「电力工程」）' },
   { id: 'greenhouse', name: '温室大棚', cat: 'ind', w: 1, h: 1, variants: 2, pop: 6,
     gen: genGreenhouse, desc: '玻璃大棚，夜间亮起植物灯' },
   { id: 'brewery', name: '酿造厂', cat: 'ind', w: 1, h: 1, variants: 2, pop: 15,
@@ -192,6 +196,8 @@ export const CATALOG: Def[] = [
     gen: genLevee, desc: '三级阶梯混凝土护岸：洪水损失 −15%/座（至多叠 3 座）· 临水城市的安全底牌' },
   { id: 'ecotower', name: '空气净化塔', cat: 'civ', w: 1, h: 1, variants: 2, pop: 4,
     gen: genEcotower, desc: '三层滤网盘的城市之肺：半径 5 格内雾霾大幅削减 —— 工业区的下风向首选' },
+  { id: 'substation', name: '变电站', cat: 'civ', w: 1, h: 1, variants: 2, pop: 2,
+    gen: genSubstation, desc: '格构钢塔中继：建在任一电源 6 格内＝有效，再向外辐射 6 格供电 —— 新区不必贴着电厂盖楼' },
   // ---- 剧情（经营模式专属，不可直接建造）----
   { id: 'cityhall', name: '市政厅', cat: 'civ', w: 2, h: 2, variants: 1, pop: 0,
     gen: genCityhall, hidden: true, desc: '城市的心脏：金顶钟塔与旗帜' },
