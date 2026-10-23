@@ -1625,3 +1625,169 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 .pxc.m .citz-card img { width: 40px; height: 40px; }
 .pxc.m .citz-detail .cd-ava { width: 72px; height: 72px; }
 .pxc.m .citz-detail .cd-tbl .pxc-btn { display: block; margin: 4px 0 0; }
+
+/* ---------------- v14 新手引导横幅 ---------------- */
+.pxc-tut {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%);
+  z-index: 35;
+  width: min(420px, calc(100vw - 24px));
+  background: var(--cream, #f4f2e8);
+  border: 2px solid;
+  border-color: #fffdf4 var(--silver-shadow, #8a919c) var(--silver-shadow, #8a919c) #fffdf4;
+  box-shadow: 3px 3px 0 rgba(5, 7, 15, 0.55);
+  padding: 8px 10px 9px;
+  animation: pxcTutIn 0.22s steps(4);
+}
+@keyframes pxcTutIn {
+  from { transform: translate(-50%, 10px); opacity: 0; }
+}
+.pxc-tut .tut-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pxc-tut .tut-badge {
+  background: var(--navy);
+  color: var(--gold);
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+  border: 1px solid var(--gold);
+  letter-spacing: 2px;
+  flex: none;
+}
+.pxc-tut .tut-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: #23283a;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pxc-tut .tut-stepno {
+  font-size: 11px;
+  color: #6b7280;
+  font-family: ui-monospace, 'Courier New', monospace;
+  flex: none;
+}
+.pxc-tut .tut-text {
+  font-size: 12px;
+  line-height: 1.75;
+  color: #3d434e;
+  margin: 6px 2px 7px;
+}
+.pxc-tut .tut-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+.pxc-tut .tut-actions .pxc-btn { flex: 1; }
+.pxc-tut .tut-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pxc-tut .tut-goal {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  color: #8a6d1a;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pxc-tut .tut-dots {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+.pxc-tut .tut-dots i {
+  width: 8px;
+  height: 8px;
+  background: #d8d3c2;
+  border: 1px solid #b7b2a0;
+}
+.pxc-tut .tut-dots i.on {
+  background: var(--gold);
+  border-color: #b98f13;
+}
+.pxc-tut .tut-skip {
+  flex: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  color: #8a919c;
+  text-decoration: underline;
+  padding: 2px;
+}
+.pxc-tut .tut-skip:hover { color: #d64545; }
+
+/* ---------------- v14 声音设置弹层 ---------------- */
+.pxc-sndpop {
+  position: absolute;
+  top: 42px;
+  right: 12px;
+  z-index: 60;
+  width: 230px;
+  background: var(--cream, #f4f2e8);
+  border: 2px solid;
+  border-color: #fffdf4 var(--silver-shadow, #8a919c) var(--silver-shadow, #8a919c) #fffdf4;
+  box-shadow: 3px 3px 0 rgba(5, 7, 15, 0.55);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: pxcTutIn 0.18s steps(3);
+}
+.pxc-sndpop .sp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pxc-sndpop .sp-lbl {
+  font-size: 12px;
+  font-weight: 700;
+  color: #3d434e;
+  width: 30px;
+  flex: none;
+}
+.pxc-sndpop input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  accent-color: #b98f13;
+  height: 18px;
+  margin: 0;
+}
+.pxc-sndpop .sp-vol {
+  font-size: 12px;
+  width: 30px;
+  text-align: right;
+  font-family: ui-monospace, 'Courier New', monospace;
+  color: #23283a;
+}
+.pxc-sndpop .sp-hint {
+  flex: 1;
+  font-size: 10.5px;
+  color: #8a919c;
+  line-height: 1.4;
+}
+.pxc-sndpop .sp-last { align-items: center; }
+.pxc.m .pxc-sndpop {
+  top: 40px;
+  right: 8px;
+  width: min(230px, calc(100vw - 16px));
+}
+
+/* 移动端：引导横幅上移避开底部工具条 */
+.pxc.m .pxc-tut {
+  bottom: calc(140px + env(safe-area-inset-bottom, 0px));
+  width: calc(100vw - 16px);
+}
+.pxc.m .pxc-tut .tut-text { font-size: 11.5px; }

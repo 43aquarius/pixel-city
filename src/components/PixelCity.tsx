@@ -22,6 +22,7 @@ import {
   type EconView, type HistPoint,
 } from '@/lib/pixelcity/tycoon';
 import type { CitzCard } from '@/lib/pixelcity/citizens';
+import { Tutorial, TUT_STEPS } from '@/lib/pixelcity/tutorial';
 
 const ICON_NAMES = [
   'undo', 'redo', 'zoomin', 'zoomout', 'sound', 'soundoff',
@@ -252,6 +253,15 @@ export default function PixelCity() {
   const [citzSel, setCitzSel] = useState<number | null>(null);
   const [citzSpot, setCitzSpot] = useState<CitzCard | null>(null);
   const [citzVoice, setCitzVoice] = useState<{ name: string; text: string; mood: number } | null>(null);
+  /** v14 新手引导：状态机实例（ref）+ 渲染快照（state） */
+  const tutRef = useRef<Tutorial | null>(null);
+  const [tutSnap, setTutSnap] = useState<{ step: number; active: boolean }>({ step: 0, active: false });
+  /** v14 引导条件：本次会话是否打开过财政 / 市民列传 */
+  const fiscalSeenRef = useRef(false);
+  const citzSeenRef = useRef(false);
+  /** v14 声音设置弹层 + 主音量即时值 */
+  const [sndPop, setSndPop] = useState(false);
+  const [sndVol, setSndVol] = useState(0.7);
   const [soundOn, setSoundOn] = useState(true);
   /** 税率滑杆即时值（null=跟随引擎），避免等下一心跳 */
   const [taxDraft, setTaxDraft] = useState<number | null>(null);
@@ -260,6 +270,10 @@ export default function PixelCity() {
   const [iconSrc, setIconSrc] = useState<Record<string, string>>({});
   const [clock, setClock] = useState({ text: '10:00', ph: '昼' });
   const [season, setSeasonS] = useState(1);
+  /** 沙盒四季：自动轮转开关镜像（engine.seasonAuto → state，避免渲染期读 ref） */
+  const [seasonAutoS, setSeasonAutoS] = useState(true);
+  /** v13 市民列传：模态内使用的引擎句柄（打开时捕获到 state，避免渲染期读 ref） */
+  const [citzEng, setCitzEng] = useState<Engine | null>(null);
   const [ui] = useUiState();
   const [isMobile, setIsMobile] = useState(false);
 
@@ -324,6 +338,7 @@ export default function PixelCity() {
       onPedestrianClick: (c) => {   // v13 观察工具点击行人 → 市民名片
         setCitzSpot(c);
         setCitzSel(null);
+        setCitzEng(eng);
         setModal('citz');
       },
     };
@@ -357,12 +372,21 @@ export default function PixelCity() {
       setIconSrc(iuMap);
       setPhase('ready');
       // ---- 模式恢复：默认经营（新玩家从荒地开始）----
+      // v14 新手引导：本机无引导记录但已有城市存档 → 老玩家静默结业；
+      // 否则立即落盘（新手中途 reload 不丢引导进度、也不会被误判为老玩家）
+      tutRef.current = Tutorial.load();
       if ((u0.mode ?? 'tycoon') === 'tycoon') {
         const saved = Tycoon.loadRaw();
         const earned = eng.enterTycoon(saved as Record<string, unknown> | null);
         if (saved && earned > 0) say(`欢迎回来！离线期间城市收入 +${fmtG(earned)}G`);
         else if (!saved) say('经营模式：从一块荒地开始 —— 修路 · 建房 · 购地 · 扩张！');
+        tutRef.current.skipForVeteran(!!saved);
       }
+      tutRef.current.save();
+      setTutSnap({ step: tutRef.current.step, active: tutRef.current.active });
+      // v14 音效偏好（localStorage）同步到 UI
+      setSoundOn(beeper.enabled);
+      setSndVol(beeper.volume);
       beeper.play('open');
     });
 
@@ -412,6 +436,7 @@ export default function PixelCity() {
         setCrowd(eng3.crowdCount());
         setClock({ text: eng3.clockText(), ph: eng3.phaseChar() });
         setSeasonS(eng3.season);   // v6：季节状态同步（沙盒 HUD 芯片用）
+        setSeasonAutoS(eng3.seasonAuto);   // 沙盒四季自动轮转镜像
         // 每分钟把当前时刻回写持久化（供下次启动恢复）
         clockTick.current = (clockTick.current + 1) % 60;
         if (clockTick.current === 0) {
@@ -457,10 +482,54 @@ export default function PixelCity() {
     return () => window.clearInterval(t);
   }, [modal]);
 
+  // v14 新手引导：记录本次会话打开过的面板（财政 / 市民列传）
+  useEffect(() => {
+    if (modal === 'fiscal') fiscalSeenRef.current = true;
+    if (modal === 'citz') citzSeenRef.current = true;
+  }, [modal]);
+
+  // v14 新手引导：经营心跳推进（条件满足自动滑到下一步）
+  useEffect(() => {
+    const t = tutRef.current;
+    if (!econ || !t || !t.active) return;
+    const advanced = t.check({
+      roads: stats.roads, cap: econ.cap, pop: econ.pop, jobs: econ.jobs,
+      fiscalOpened: fiscalSeenRef.current, citzOpened: citzSeenRef.current,
+    });
+    setTutSnap(prev => (prev.step === t.step && prev.active === t.active)
+      ? prev : { step: t.step, active: t.active });
+    if (advanced) beeperRef.current?.play('quest');
+  }, [econ, stats]);
+
+  /** v14 引导：跳过（永久，帮助面板可重看） */
+  const dismissTut = useCallback(() => {
+    const t = tutRef.current;
+    if (!t) return;
+    t.dismiss();
+    setTutSnap({ step: t.step, active: t.active });
+    beeperRef.current?.play('click');
+  }, []);
+
+  /** v14 引导：欢迎「开始引导」/ 结业「毕业」按钮推进 */
+  const advanceTut = useCallback(() => {
+    const t = tutRef.current;
+    if (!t) return;
+    const st = TUT_STEPS[t.step];
+    t.advanceButton();
+    setTutSnap({ step: t.step, active: t.active });
+    if (st?.finale) {
+      beeperRef.current?.play('achieve');
+      say('新手引导毕业！接下来的城市故事由你书写');
+    } else {
+      beeperRef.current?.play('open');
+    }
+  }, [say]);
+
   const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz') => {
     if (m === 'save') {
       setSlotMeta([0, 1, 2].map(i => Engine.slotMeta(i)));
     }
+    if (m === 'citz') setCitzEng(engineRef.current);   // 捕获引擎句柄到 state（头像/定位用）
     if (m !== 'citz') { setCitzSel(null); setCitzSpot(null); }
     setModal(m);
     beeperRef.current?.play('click');
@@ -850,16 +919,16 @@ export default function PixelCity() {
             ) : (
               <>
                 <button
-                  className={`pxc-btn mini${engineRef.current?.seasonAuto ? ' on' : ''}`}
-                  title={engineRef.current?.seasonAuto ? '自动轮转（每季 4 分钟实时×1，随昼夜时钟）' : '手动锁定：点此恢复四季轮转'}
-                  onClick={() => { engineRef.current?.setSeason(season, true); }}>
+                  className={`pxc-btn mini${seasonAutoS ? ' on' : ''}`}
+                  title={seasonAutoS ? '自动轮转（每季 4 分钟实时×1，随昼夜时钟）' : '手动锁定：点此恢复四季轮转'}
+                  onClick={() => { engineRef.current?.setSeason(season, true); setSeasonAutoS(true); }}>
                   自动
                 </button>
                 {SEASONS.map((s, idx) => (
                   <button key={s.icon}
-                    className={`pxc-btn mini${season === idx && !engineRef.current?.seasonAuto ? ' on' : ''}`}
+                    className={`pxc-btn mini${season === idx && !seasonAutoS ? ' on' : ''}`}
                     title={`${s.name}季：${s.note}`}
-                    onClick={() => { engineRef.current?.setSeason(idx, false); setSeasonS(idx); }}>
+                    onClick={() => { engineRef.current?.setSeason(idx, false); setSeasonS(idx); setSeasonAutoS(false); }}>
                     {s.name}
                   </button>
                 ))}
@@ -943,7 +1012,9 @@ export default function PixelCity() {
             昼夜循环（入夜点亮万家灯火、路灯与霓虹），
             经固定 2:1 等距正交投影离线光栅化为透明精灵，
             叠加 {PALETTE.length} 色有限色板、Bayer 有序抖动、
-            扫描线与 CRT 暗角 —— 向 DOS/PC98 与 SimCity 致敬。
+            扫描线与 CRT 暗角 —— 向 DOS/PC98 与 SimCity 致敬；
+            <b style={{ color: '#8a6d1a' }}>8-bit 音效矩阵</b>（建造/金币/灾害警报/警笛/电车铃/成就等 21 种音色，顶栏喇叭可调音量）与
+            <b style={{ color: '#8a6d1a' }}>新手引导</b>（首次开局横幅逐步带路，帮助面板可重看）。
           </div>
         </div>
       )}
@@ -1000,14 +1071,8 @@ export default function PixelCity() {
               aria-label="行人车辆开关" onClick={toggleCrowds}>
               <img src={iu(ui.crowds ? 'person' : 'personoff')} alt="" width={12} height={12} />
             </button>
-            <button className="pxc-winbtn" title="声音" aria-label="声音开关"
-              onClick={() => {
-                const b = beeperRef.current;
-                if (!b) return;
-                b.enabled = !b.enabled;
-                setSoundOn(b.enabled);
-                if (b.enabled) b.play('click');
-              }}>
+            <button className="pxc-winbtn" title="声音设置（开关与音量）" aria-label="声音设置"
+              onClick={() => { setSndPop(v => !v); beeperRef.current?.play('click'); }}>
               <img src={iu(soundOn ? 'sound' : 'soundoff')} alt="" width={12} height={12} />
             </button>
             <button className="pxc-winbtn" title="帮助" aria-label="帮助"
@@ -1184,6 +1249,45 @@ export default function PixelCity() {
             </div>
           )}
 
+          {/* v14 新手引导横幅（欢迎/条件步/结业；经营模式且未跳过时显示） */}
+          {econ && tutSnap.active && (() => {
+            const st = TUT_STEPS[tutSnap.step];   // 状态快照驱动渲染，不读 ref
+            if (!st) return null;
+            const condSteps = TUT_STEPS.filter(s => !s.welcome && !s.finale);
+            const condIdx = condSteps.findIndex(s => s.id === st.id);   // 当前是第几个条件步（-1=欢迎/结业）
+            return (
+              <div className="pxc-tut" role="status" aria-label="新手引导">
+                <div className="tut-head">
+                  <span className="tut-badge">引导</span>
+                  <span className="tut-title">{st.title}</span>
+                  {condIdx >= 0 && <span className="tut-stepno">{condIdx + 1}/{condSteps.length}</span>}
+                </div>
+                <div className="tut-text">{st.text}</div>
+                {st.welcome ? (
+                  <div className="tut-actions">
+                    <button className="pxc-btn primary" onClick={advanceTut}>开始引导</button>
+                    <button className="pxc-btn" onClick={dismissTut}>跳过引导</button>
+                  </div>
+                ) : st.finale ? (
+                  <div className="tut-actions">
+                    <button className="pxc-btn primary" onClick={advanceTut}>毕业！</button>
+                    <button className="pxc-btn" onClick={dismissTut}>跳过</button>
+                  </div>
+                ) : (
+                  <div className="tut-foot">
+                    <div className="tut-goal">◎ 目标：{st.goal}</div>
+                    <div className="tut-dots" aria-hidden>
+                      {condSteps.map((s, i) => (
+                        <i key={s.id} className={i <= condIdx ? 'on' : ''} />
+                      ))}
+                    </div>
+                    <button className="tut-skip" onClick={dismissTut}>跳过引导</button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* 任务卡 */}
           {econ && (
             <div className={`pxc-quest${ui.quest ? '' : ' closed'}`}>
@@ -1213,6 +1317,44 @@ export default function PixelCity() {
           </div>
 
           {toast && <div key={toast.id} className="pxc-toast" role="status">{toast.msg}</div>}
+
+          {/* v14 声音设置弹层（顶栏喇叭） */}
+          {sndPop && (
+            <div className="pxc-sndpop" role="dialog" aria-label="声音设置">
+              <div className="sp-row">
+                <span className="sp-lbl">音效</span>
+                <button className={`pxc-btn mini${soundOn ? ' on' : ''}`}
+                  title={soundOn ? '当前：开（点击静音）' : '当前：关（点击开启）'}
+                  onClick={() => {
+                    const b = beeperRef.current;
+                    if (!b) return;
+                    b.enabled = !b.enabled;
+                    b.savePrefs();
+                    setSoundOn(b.enabled);
+                    if (b.enabled) b.play('open');
+                  }}>{soundOn ? '开' : '关'}</button>
+                <button className="pxc-btn mini" title="试听一段"
+                  onClick={() => beeperRef.current?.play('open')}>♪ 试听</button>
+              </div>
+              <div className="sp-row">
+                <span className="sp-lbl">音量</span>
+                <input type="range" min={0} max={100} step={5}
+                  value={Math.round(sndVol * 100)}
+                  onChange={e => {
+                    const v = Number(e.target.value) / 100;
+                    setSndVol(v);
+                    const b = beeperRef.current;
+                    if (b) { b.volume = v; b.savePrefs(); }
+                  }}
+                  aria-label="主音量（0-100）" />
+                <b className="sp-vol">{Math.round(sndVol * 100)}</b>
+              </div>
+              <div className="sp-row sp-last">
+                <span className="sp-hint">21 种 8-bit 音色 · 本地记忆偏好</span>
+                <button className="pxc-btn mini" onClick={() => setSndPop(false)}>完成</button>
+              </div>
+            </div>
+          )}
 
           {/* 加载画面 */}
           {phase === 'loading' && (
@@ -1881,7 +2023,7 @@ export default function PixelCity() {
 
       {/* v13 市民列传模态 */}
       {modal === 'citz' && econ && (() => {
-        const eng = engineRef.current;
+        const eng = citzEng;   // 打开模态时捕获的引擎句柄（state，不读 ref）
         const av = (c: { look: number; body: 0 | 1 | 2; role: CitzCard['role'] }, sz = 64): string =>
           eng?.citizenAvatar(c.look, c.body, c.role, sz) ?? BLANK;
         const cz = econ.citz;
@@ -2028,6 +2170,8 @@ export default function PixelCity() {
                     <tr><td>桥梁</td><td>道路工具拖过水面自动架桥（15G/格），桥面与岸上齐平，行人车辆畅通无阻</td></tr>
                     <tr><td>经营</td><td>顶部 HUD 看金币/人口/电力/幸福；点迷雾金框购地；点市政厅开财政报告；工业产货供商业、缺货打折，景点招游客消费；两座电车站开通电车干线，铁路货运站让内陆城市出口；出口市价随行就市波动，可惜售囤货低吸高抛；财政报告里可进市政法令厅颁布政策</td></tr>
                     <tr><td>市民</td><td>顶栏「民」指标开<b>市民列传</b>：人口迁入迎来有名有姓的市民（传记/性格/住所/大事记），还能「去家里看看」；观察工具点击街上的行人也能遇到他们</td></tr>
+                    <tr><td>引导</td><td>首次进入经营模式自动展开新手引导横幅（修路→建房→迎市民→开业→看面板→认市民）；随时可跳过，也可在这里点「重新查看新手引导」重看</td></tr>
+                    <tr><td>音效</td><td>顶栏喇叭图标：音效开关 + 主音量滑杆（本地记忆）；建造/金币/灾害警报/警笛/电车铃/成就凯旋各有专属 8-bit 音色</td></tr>
                   </tbody>
                 </table>
               ) : (
@@ -2045,6 +2189,8 @@ export default function PixelCity() {
                     <tr><td>四季</td><td>春樱/夏绿/秋红/冬雪随时钟轮转（每季 4 分钟×1）：春季樱花瓣飘落、冬季水面封冻大地积雪；粮产/商业/用电随季节联动</td></tr>
                     <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>城市卫士应急联动</b>（交番驻巡逻警车·治安+220 护盾；火灾/疫病来袭消防车救护车沿路驰援——到场喷水/接载并免余损，设施邻路是关键）· <b>市民列传</b>（人口迁入迎来有名有姓的市民：顶栏「民」指标开名人册看传记与大事记，观察工具点击街上行人打招呼，市民之声随城市状态轮播）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
                     <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
+                    <tr><td>引导</td><td>首次进入经营模式自动展开新手引导横幅（修路→建房→迎市民→开业→看面板→认市民）；随时可跳过，也可在这里点「重新查看新手引导」重看</td></tr>
+                    <tr><td>音效</td><td>顶栏喇叭图标：音效开关 + 主音量滑杆（本地记忆偏好）；建造/金币/灾害警报/应急警笛/电车铃/季节钟声/成就凯旋等 21 种专属 8-bit 音色</td></tr>
                     <tr><td>Esc</td><td>切回观察工具</td></tr>
                     <tr><td>收缩</td><td>工具条 / 建造中心可「◀ / 收起」折叠；折叠后点左上角「▶ 工具栏」或右缘「◀ 建造中心」竖签恢复</td></tr>
                   </tbody>
@@ -2055,6 +2201,23 @@ export default function PixelCity() {
                 「密度」（疏朗/适中/繁华）与「行人」数量（自动或手动 0-300），沙盒还能手动切「四季」；
                 「昼夜」支持自动循环与场景跳转——深夜会点亮万家灯火、路灯与霓虹，
                 行人也会随夜色回家；随机地图有 10 种地形；植树有 6 种树（含樱花，春日满树粉白）。
+              </div>
+              {/* v14 新手引导：重看入口 */}
+              <div className="pxc-row" style={{ marginTop: 10 }}>
+                <button className="pxc-btn" onClick={() => {
+                  const t = tutRef.current;
+                  if (!t) return;
+                  t.restart();
+                  setTutSnap({ step: t.step, active: t.active });
+                  setModal('none');
+                  beeperRef.current?.play('open');
+                  say('新手引导已重启：跟着横幅走一遍吧');
+                }}>
+                  <img src={iu('flag')} alt="" />重新查看新手引导
+                </button>
+                <span style={{ fontSize: 11, color: '#555c66', alignSelf: 'center' }}>
+                  修路 → 建房 → 迎市民 → 开门营业，几分钟上手
+                </span>
               </div>
             </div>
           </div>

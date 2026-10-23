@@ -1366,6 +1366,8 @@ export class ActorSystem {
   patrolCap = 0;
   /** v12 应急车到场回调（engine 接线 → tycoon.resolveEvent） */
   onRescueArrive: ((kind: 9 | 10, tx: number, ty: number) => void) | null = null;
+  /** v14 音效矩阵：actor 侧事件回调（engine 接线到 Beeper；电车发车铃等） */
+  onSfx: ((n: 'bell') => void) | null = null;
   private targetPatrol = 0;
   private targetP = 0;
   private targetC = 0;
@@ -1828,6 +1830,7 @@ export class ActorSystem {
     this.tramTrip(map, a);
     this.actors.push(a);
     this.trams++;
+    this.onSfx?.('bell');   // v14：电车发车叮叮（Beeper 内置 9s 节流）
   }
 
   /** 建筑足迹周边 maxRing 环内最近的道路格（1×1 / 2×2 通吃） */

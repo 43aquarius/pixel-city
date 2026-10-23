@@ -175,6 +175,8 @@ export class Engine {
     this.lowres = document.createElement('canvas');
     this.lctx = this.lowres.getContext('2d')!;
     this.miniBase = document.createElement('canvas');
+    // v14 音效矩阵：actor 侧事件（电车发车铃）转发到 Beeper
+    this.actors.onSfx = n => this.beeper.play(n);
     this.map.onChange = () => {
       this.miniDirty = true;
       this.actors.invalidate();
@@ -371,10 +373,11 @@ export class Engine {
     }
   }
 
-  /** 季节切换：失效地形缓存（地面 / 水面 / 树冠全换装）+ 经营提示 */
+  /** 季节切换：失效地形缓存（地面 / 水面 / 树冠全换装）+ 经营提示 + 更替钟声 */
   private onSeasonChanged(manual: boolean): void {
     this.terrSeason = -2;   // 强制 ensureTerrain 重绘
     this.actors.invalidate();
+    this.beeper.play('season');   // v14：季节更替音（手动/自动均响）
     const s = SEASONS[this.season];
     if (this.tycoon) {
       this.tycoon.season = this.season;
@@ -859,10 +862,12 @@ export class Engine {
         this.tycoon.weatherReq = null;
       }
       // v12 应急联动：消费出动请求（消防车/救护车驰援事故现场）
+      let dispatchedN = 0;
       while (this.tycoon.dispatch.length) {
         const q = this.tycoon.dispatch.shift()!;
-        this.actors.dispatchEmergency(this.map, q.kind, q.hx, q.hy, q.tx, q.ty);
+        if (this.actors.dispatchEmergency(this.map, q.kind, q.hx, q.hy, q.tx, q.ty)) dispatchedN++;
       }
+      if (dispatchedN > 0) this.beeper.play('siren');   // v14：应急出动警笛
       // v12 巡逻编制：交班常驻 + 治安巡逻令 +1（上限 3 辆）
       this.actors.patrolCap = Math.min(3,
         this.tycoon.kobansNow + (this.tycoon.hasOrd('patrol') ? 1 : 0));

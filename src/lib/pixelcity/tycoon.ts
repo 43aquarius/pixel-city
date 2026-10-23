@@ -771,7 +771,9 @@ export class Tycoon {
   own = new Uint8Array(CHUNKS * CHUNKS);
 
   msg: ((s: string) => void) | null = null;
-  sfx: ((n: 'coin' | 'quest' | 'level' | 'buy' | 'error') => void) | null = null;
+  sfx: ((n: 'coin' | 'quest' | 'level' | 'buy' | 'error'
+    // v14 音效矩阵：事件警报 / 喜讯 / 成就 / 科技 / 救援 / 迁入
+    | 'alarm' | 'cheer' | 'achieve' | 'tech' | 'rescue' | 'movein') => void) | null = null;
 
   // ---- v5：天气 / 随机事件 / 成就 ----
   /** 当前天气（engine 每帧回写；纯数据不参与存档，重开随机） */
@@ -878,7 +880,7 @@ export class Tycoon {
     this.sp -= t.cost;
     this.techs.add(id);
     this.addXp(30 + t.tier * 15);
-    this.sfx?.('level');
+    this.sfx?.('tech');   // v14：科技研究完成音
     this.msg?.(`研究完成「${t.name}」：${t.desc}`);
     return 'ok';
   }
@@ -1387,11 +1389,13 @@ export class Tycoon {
 
     // v13 市民列传：人口联动迁入/搬离 + 心情漂移 + 生活大事记
     this.citz.onMsg = this.msg;
+    const citzTotalBefore = this.citz.total;   // v14：新市民落户音
     this.citz.tick(dt, map, {
       pop: this.pop, happiness: s.happiness, taxRate: this.taxRate,
       season: this.season, famine: s.famine,
       events: this.events.map(e => e.key),
     }, this.playtime);
+    if (this.citz.total > citzTotalBefore) this.sfx?.('movein');
 
     // 任务链
     while (this.questIdx < QUESTS.length) {
@@ -1440,7 +1444,7 @@ export class Tycoon {
         if (this.achv.has(a.id)) continue;
         if (a.val(s, this) >= a.goal) {
           this.achv.add(a.id);
-          this.sfx?.('level');
+          this.sfx?.('achieve');   // v14：成就专属凯旋音
           this.msg?.(`成就解锁「${a.name}」：${a.desc}`);
         }
       }
@@ -1510,7 +1514,7 @@ export class Tycoon {
         pendG: bill.g > 0 ? bill.g : undefined,
         pendP: bill.p > 0 ? bill.p : undefined,
       });
-      this.sfx?.(pick.kind === 'bad' ? 'error' : 'coin');
+      this.sfx?.(pick.kind === 'bad' ? 'alarm' : 'cheer');   // v14：灾害警报 / 喜讯琶音
       this.msg?.(`${pick.kind === 'bad' ? '⚠' : '✦'} 事件「${pick.name}」：${pick.note}${result ? ' · ' + result : ''}`);
     } else if (result) {
       this.sfx?.('coin');
@@ -1899,6 +1903,7 @@ export class Tycoon {
     if (key === 'fire') this.rescueFire++;
     if (key === 'plague') this.rescueAid++;
     this.citz.onRescue(key === 'fire' ? 'fire' : 'plague', this.playtime);   // v13：英雄入册
+    this.sfx?.('rescue');   // v14：应急到场扫弦
     return true;
   }
 
