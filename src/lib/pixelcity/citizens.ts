@@ -69,6 +69,9 @@ const STREETS = [
   '稻香胡同', '灯塔坡', '盐仓后街', '钟楼下巷', '樱花堤',
 ];
 
+/** v22 学历阶梯：蒙童 → 初小 → 高小 → 大学（hrIdx 按此折算 0-100） */
+export const EDU_NAMES = ['蒙童', '初小', '高小', '大学'] as const;
+
 /** 职业 → 行人制服（精灵 role） */
 const JOB_ROLE: Record<string, Role> = {
   hospital: 6, school: 3, library: 3, koban: 1, firestation: 7,
@@ -131,6 +134,7 @@ export type Citizen = {
   spouse: number;       // v15 配偶市民 id（0 = 未婚）
   pa: number;           // v15 父亲 id（0 = 未知；本城出生者必知）
   ma: number;           // v15 母亲 id
+  edu: number;          // v22 学历 0-3（蒙童/初小/高小/大学；学区内容随时间升学）
   bio: string;
   log: Array<{ t: number; text: string }>;
 };
@@ -171,6 +175,7 @@ export type CitzCard = {
   look: number; body: 0 | 1 | 2; role: Role;
   job: string; trait: string; hobby: string; origin: string;
   bio: string; mood: number; since: number;
+  edu: string;                        // v22 学历（名片/详情页展示）
   homeName: string; homeAt: { x: number; y: number } | null;
   workName: string; workAt: { x: number; y: number } | null;
   log: Array<{ t: number; text: string }>;
@@ -201,6 +206,10 @@ export type CitzCtx = {
   dark: number;
   /** v21 垃圾堆积住宅栋数（环卫心声） */
   waste: number;
+  /** v22 学区外住宅栋数（望学心声） */
+  eduOut: number;
+  /** v22 学区判定回调（tycoon 闭包捕获 eduField：升学事件只举学区内市民） */
+  inEdu?: (x: number, y: number) => boolean;
 };
 
 const rnd = <T,>(a: T[]): T => a[(Math.random() * a.length) | 0];
@@ -226,7 +235,9 @@ export class CitizenRegistry {
   private mailTimer = 26;          // 首封信来得早些，让玩家尽快见到新玩法
   private nextLetterId = 1;
   private nextFam = 1;
-  private lastCtx: CitzCtx = { pop: 0, happiness: 60, taxRate: 8, season: 0, famine: 0, events: [], fest: -1, smog: 0, dark: 0, waste: 0 };
+  /** v22 累计升学人次（成就口径） */
+  gradTotal = 0;
+  private lastCtx: CitzCtx = { pop: 0, happiness: 60, taxRate: 8, season: 0, famine: 0, events: [], fest: -1, smog: 0, dark: 0, waste: 0, eduOut: 0 };
   private lastT = 0;
   /** 消息回调（tycoon.msg 接线） */
   onMsg: ((s: string) => void) | null = null;
@@ -242,6 +253,7 @@ export class CitizenRegistry {
     this.mailTimer = 26;
     this.nextLetterId = 1;
     this.nextFam = 1;
+    this.gradTotal = 0;
   }
 
   /** 存档恢复后对齐人口基线（避免读档误触发「迁入」） */
@@ -291,6 +303,7 @@ export class CitizenRegistry {
       mood: clamp(ctx.happiness + trait.mood, 5, 100),
       since: t,
       fam: 0, spouse: 0, pa: 0, ma: 0,   // v15 家族谱系：落户时子然一身
+      edu: body === 1 ? 0 : 1 + (Math.random() < 0.5 ? 1 : 0),   // v22 迁入学历：儿童蒙童 / 成人与长者自带初小~高小
       bio: '',
       log: [],
     };
@@ -363,6 +376,18 @@ export class CitizenRegistry {
   private lifeEvent(map: CityMap, t: number): void {
     const c = rnd(this.roster);
     const roll = Math.random();
+    // v22 升学：学区内住所得天独厚（学堂就在街口），蒙童→初小→高小→大学
+    //   （条件不满足自然落入后续分支：无学区时生活事件维持原节奏）
+    if (roll < 0.15 && c.edu < 3 && c.homeAt && this.lastCtx.inEdu &&
+        this.lastCtx.inEdu(c.homeAt[0], c.homeAt[1])) {
+      c.edu++;
+      this.gradTotal++;
+      this.pushLog(c, t, c.edu === 3
+        ? `考取了大学，成了巷子里第一个大学生，门口挂了红绸`
+        : `升入${EDU_NAMES[c.edu]}，先生夸他字写得周正`);
+      c.mood = clamp(c.mood + 6, 5, 100);
+      return;
+    }
     if (roll < 0.16 && c.body === 0) {
       this.pushLog(c, t, `升任领班加了薪，请全屋人吃了顿烧鸟`);
       c.mood = clamp(c.mood + 8, 5, 100);
@@ -494,6 +519,7 @@ export class CitizenRegistry {
       since: t,
       fam: a.fam || b.fam || this.nextFam++,
       spouse: 0, pa: pa.id, ma: ma.id,
+      edu: 0,   // v22 新生儿从蒙童读起（本城出生的第一代读书人）
       bio: `在这座城市出生的第一代孩子，第一声啼哭混在电车铃声里。街坊都说这娃有福气。`,
       log: [],
     };
@@ -670,6 +696,13 @@ export class CitizenRegistry {
       '天一热垃圾就发馊，苍蝇比邻居还熟门熟路',
       '听说回收中心能把垃圾变成钱，盼着早点建到家门口',
     ]);
+    // v22 望学心声：孩子上学翻山的住户（优先级在垃圾之后：臭气可忍，误了孩子不可忍）
+    else if (ctx.eduOut > 0) text = rnd([
+      '孩子上学要走十里山路，天不亮就打着手电出门',
+      '咱这片的娃想读书，得寄宿到城那头的亲戚家',
+      '联名信都递了三回了，就盼着家门口有所学堂',
+      '听说城里在办学，可咱巷子连个小学的影子都没有',
+    ]);
     else if (ctx.taxRate > 12) text = rnd(['税越收越狠，肉摊都少割两斤了', '这税率，攒钱的速度赶不上市政厅收的']);
     else if (ctx.taxRate <= 5) text = rnd(['低税的日子里，钱包都胖了一圈', '市政厅这个月大方，下馆子加了个鸡腿']);
     else if (ctx.happiness < 40) text = rnd(['这日子……再看看吧，不行就搬去隔壁城', '唉，晚上都睡不踏实']);
@@ -713,7 +746,7 @@ export class CitizenRegistry {
         ? `从远方来的旅人，为这座城市的风景停下了脚步。说不定哪天会把家安在这里。`
         : `与这座城市擦肩而过的路人 —— 街坊们说，多来几次就脸熟了。`,
       mood: clamp(this.lastCtx.happiness + (Math.random() * 20 - 10), 5, 100),
-      since: 0, guest: true,
+      since: 0, guest: true, edu: '说不清',
       homeName: '客栈 / 亲戚家', homeAt: null,
       workName: job, workAt: null,
       log: [],
@@ -733,6 +766,7 @@ export class CitizenRegistry {
       look: c.look, body: c.body, role: c.role,
       job: c.job, trait: c.trait, hobby: c.hobby, origin: c.origin,
       bio: c.bio, mood: Math.round(c.mood), since: c.since,
+      edu: EDU_NAMES[c.edu] ?? '蒙童',
       homeName: c.homeName,
       homeAt: c.homeAt ? { x: c.homeAt[0], y: c.homeAt[1] } : null,
       workName: c.workAt ? c.workName : (c.job === '襁褓婴儿' ? '襁褓中' : c.body === 1 ? '就读于本城学堂' : c.body === 2 ? '含饴弄孙中' : c.workName || '自由职业'),
@@ -920,6 +954,30 @@ export class CitizenRegistry {
     return this.born(c, t) ? { ok: true, msg: 'born' } : { ok: false, msg: 'no-spouse' };
   }
 
+  /** v22 人力资本指数：在册市民平均学历 → 0-100（空册兑底 50 = 外来人口基线：
+   *  tycoon 以 50 为零点，超过基线才有工业/科研加成） */
+  hrIdx(): number {
+    if (!this.roster.length) return 50;
+    let sum = 0;
+    for (const c of this.roster) sum += c.edu;
+    return Math.round((100 * (sum / this.roster.length)) / 3);
+  }
+
+  /** v22 测试钩子：强制一位市民升学（id=-1 随机可升者）；gradTotal 同步累加 */
+  forceGrad(id = -1): { ok: boolean; msg: string } {
+    const pool = this.roster.filter(c => c.edu < 3);
+    if (!pool.length) return { ok: false, msg: 'no-candidate' };
+    const c = id >= 0 ? pool.find(x => x.id === id) : rnd(pool);
+    if (!c) return { ok: false, msg: 'not-found' };
+    c.edu++;
+    this.gradTotal++;
+    this.pushLog(c, this.lastT, c.edu === 3
+      ? `考取了大学，巷口放了一挂鞭炮`
+      : `升入${EDU_NAMES[c.edu]}，全家与有荣焉`);
+    c.mood = clamp(c.mood + 6, 5, 100);
+    return { ok: true, msg: 'grad' };
+  }
+
   view(): CitzView {
     let sum = 0;
     for (const c of this.roster) sum += c.mood;
@@ -938,6 +996,7 @@ export class CitizenRegistry {
       nextFam: this.nextFam,
       replyCount: this.replyCount,
       nextLid: this.nextLetterId,
+      gradTotal: this.gradTotal,   // v22 累计升学人次
       letters: this.letters.map(l => ({
         id: l.id, from: l.from, fn: l.fromName,
         look: l.look, body: l.body, role: l.role,
@@ -955,6 +1014,7 @@ export class CitizenRegistry {
         wax: c.workAt ? c.workAt[0] : -1, way: c.workAt ? c.workAt[1] : -1,
         mood: Math.round(c.mood), since: Math.round(c.since), bio: c.bio,
         fam: c.fam, sp: c.spouse, pa: c.pa, ma: c.ma,
+        ed: c.edu,   // v22 学历
         log: c.log.map(l => [Math.round(l.t), l.text]),
       })),
     };
@@ -964,7 +1024,7 @@ export class CitizenRegistry {
     this.reset();
     const o = d as {
       total?: number; nextId?: number; nextFam?: number;
-      replyCount?: number; nextLid?: number;
+      replyCount?: number; nextLid?: number; gradTotal?: number;
       letters?: Array<Record<string, unknown>>;
       roster?: Array<Record<string, unknown>>;
     } | null;
@@ -974,6 +1034,7 @@ export class CitizenRegistry {
     this.nextFam = Math.max(1, Math.floor(Number(o.nextFam) || 1));
     this.replyCount = Math.max(0, Math.floor(Number(o.replyCount) || 0));
     this.nextLetterId = Math.max(1, Math.floor(Number(o.nextLid) || 1));
+    this.gradTotal = Math.max(0, Math.floor(Number(o.gradTotal) || 0));   // v22（旧档无记录归零）
     // v15 信箱恢复（旧档无 letters 字段 → 空箱）
     if (Array.isArray(o.letters)) {
       for (const r of o.letters.slice(0, 8)) {
@@ -1034,6 +1095,7 @@ export class CitizenRegistry {
         spouse: Math.max(0, Math.floor(Number(r.sp) || 0)),
         pa: Math.max(0, Math.floor(Number(r.pa) || 0)),
         ma: Math.max(0, Math.floor(Number(r.ma) || 0)),
+        edu: Math.max(0, Math.min(3, Math.floor(Number(r.ed ?? (Number(r.body) === 1 ? 0 : 1))))),   // v22 学历（旧档按体型补默认）
         bio: String(r.bio ?? ''),
         log: log.slice(-LOG_MAX),
       });

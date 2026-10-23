@@ -138,6 +138,7 @@ export class Chronicle {
     land: new Set<number>(), coin: new Set<number>(), eco: new Set<number>(),   // v19 生态（1 雾霾围城 / 2 重现蓝天）
     pw: new Set<number>(),                                                   // v20 电网（1 暗夜之城 / 2 华灯初上 / 3 重见光明）
     gs: new Set<number>(),                                                   // v21 环卫（1 垃圾围城 / 2 循环之城）
+    edu: new Set<number>(),                                                  // v22 文教（1 望学兴叹 / 2 有教无类）
   };
 
   /** 游戏小时 → 开埠第 N 天 */
@@ -161,7 +162,8 @@ export class Chronicle {
   survey(ctx: { pop: number; rating: number; buildings: number; chunks: number; coins: number;
       smogRes?: number; envIdx?: number; ecotowers?: number;
       gridCover?: number; darkN?: number; powerRes?: number;
-      wasteN?: number; recycles?: number; sweepCover?: number }, gHours: number): number {
+      wasteN?: number; recycles?: number; sweepCover?: number;
+      eduOut?: number; eduCover?: number; universities?: number }, gHours: number): number {
     let eraUp = -1;
     // 纪元跃迁（只升不重记；人口回落后再升回不重复入册）
     const e = eraOfPop(ctx.pop);
@@ -250,6 +252,18 @@ export class Chronicle {
       this.write('mile', 'good', 'box', '循环之城',
         `回收中心的传送带日夜不停，废瓶旧纸各归其位，环境指数回到 ${envIdx}。曾经捏着鼻子的街巷，如今窗明几净。`, gHours);
     }
+    // ---- v22 文教里程碑：望学兴叹 → 有教无类（一对救赎叙事；先望学后兴学才成对入册）----
+    const eduOut = ctx.eduOut ?? 0, eduCover = ctx.eduCover ?? 100, unis = ctx.universities ?? 0;
+    if (eduOut >= 4 && !this.miles.edu.has(1)) {
+      this.miles.edu.add(1);
+      this.write('mile', 'bad', 'book', '望学兴叹',
+        `${eduOut} 栋住宅的孩子上学要翻过半座城，天不亮就打着灯笼出门。家长们在市政厅门前递了联名信：咱们这头，也该有所学堂。`, gHours);
+    }
+    if (this.miles.edu.has(1) && !this.miles.edu.has(2) && eduCover >= 90 && unis >= 1) {
+      this.miles.edu.add(2);
+      this.write('mile', 'good', 'book', '有教无类',
+        `大学城的钟声悠悠荡开，学区覆盖率回到 ${eduCover}%。再远的孩子也能就近入学，琅琅书声成了这座城新的背景音。`, gHours);
+    }
     return eraUp;
   }
 
@@ -270,7 +284,7 @@ export class Chronicle {
     this.nextId = 1;
     this.miles = {
       pop: new Set(), rate: new Set(), bld: new Set(), land: new Set(), coin: new Set(), eco: new Set(),
-      pw: new Set(), gs: new Set(),
+      pw: new Set(), gs: new Set(), edu: new Set(),
     };
   }
 
@@ -280,7 +294,7 @@ export class Chronicle {
       m: {
         pop: [...this.miles.pop], rate: [...this.miles.rate], bld: [...this.miles.bld],
         land: [...this.miles.land], coin: [...this.miles.coin], eco: [...this.miles.eco],
-        pw: [...this.miles.pw], gs: [...this.miles.gs],
+        pw: [...this.miles.pw], gs: [...this.miles.gs], edu: [...this.miles.edu],
       },
     });
   }
@@ -293,7 +307,7 @@ export class Chronicle {
       const d = JSON.parse(raw) as {
         e?: unknown; tot?: unknown; era?: unknown; maxEra?: unknown; nid?: unknown; m?: {
           pop?: unknown; rate?: unknown; bld?: unknown; land?: unknown; coin?: unknown;
-          eco?: unknown; pw?: unknown; gs?: unknown;
+          eco?: unknown; pw?: unknown; gs?: unknown; edu?: unknown;
         };
       };
       if (!Array.isArray(d.e)) return false;
@@ -324,7 +338,7 @@ export class Chronicle {
       this.miles = {
         pop: new Set(L(d.m?.pop)), rate: new Set(L(d.m?.rate)), bld: new Set(L(d.m?.bld)),
         land: new Set(L(d.m?.land)), coin: new Set(L(d.m?.coin)), eco: new Set(L(d.m?.eco)),
-        pw: new Set(L(d.m?.pw)), gs: new Set(L(d.m?.gs)),
+        pw: new Set(L(d.m?.pw)), gs: new Set(L(d.m?.gs)), edu: new Set(L(d.m?.edu)),
       };
       return true;
     } catch {

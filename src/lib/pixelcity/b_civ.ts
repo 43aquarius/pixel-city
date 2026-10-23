@@ -606,3 +606,115 @@ export function genSubstation(seed: number): BuildResult {
   });
   return { model: buildModel(faces, 16, 16), blinkAt: [8, 8, 14.6] as V3 };
 }
+
+/** 小学（1×1，LV2，v22 教育空间化）：红砖蒙学塾 + 双坡瓦顶 + 拱形门 + 旗杆小操场。
+ *  半径 4 格住宅划入学区 —— 早期办学的实惠之选（教育 +18） */
+export function genPrimary(seed: number): BuildResult {
+  const faces: Face[] = [];
+  const roof = (seed & 1) === 0 ? P.RFRED : P.RFSLATE;   // 变体：瓦色（红陶 / 青灰）
+  // ---- 操场地坪（沥青小院，含跳格游戏白点意象）----
+  box(faces, 1.2, 1.2, 14.8, 14.8, 0, 0.45, {
+    right: pWall(P.ASPH), left: pWall(P.ASPH), top: () => cell(P.ASPH, 1),
+  });
+  // ---- 校舍（北侧：两层红砖 + 大窗，夜里书香灯亮）----
+  box(faces, 2.4, 2.2, 13.6, 9.4, 0.45, 7.8, {
+    right: pWindows(P.BRICK, { seed, lit: 0.45, floorH: 3.5, gapX: 3.4, winH: 1.8, winW: 1.7 }),
+    left: pWindows(P.BRICK, { seed: seed ^ 3, lit: 0.45, floorH: 3.5, gapX: 3.4, winH: 1.8, winW: 1.7, door: true, doorW: 2.6 }),
+  });
+  gableRoof(faces, 1.8, 1.6, 14.2, 10.0, 7.7, 10.6, 'x', {
+    front: pShingle(roof), back: pShingle(roof), endX: pWall(P.CREAM),
+  });
+  // ---- 山墙小校钟（白圆钟意象 + 深色指针）----
+  box(faces, 7.0, 9.4, 9.0, 10.1, 8.0, 9.9, {
+    left: (u, v, px, py) =>
+      Math.abs(u - 8) < 0.55 || (Math.abs(u - 8.6) < 0.45 && v > 5.4)
+        ? cell(P.OUTLINE, 0) : cell(P.WHITE, 0),
+    right: pWall(P.CREAM),
+  });
+  // ---- 旗杆（操场东南角，红领巾的旗）----
+  flagPole(faces, 12.6, 12.4, 10, P.RED);
+  // ---- 滑梯（操场西南角：青漆爬架 + 黄斜板 —— 下课铃一响就排队）----
+  box(faces, 3.0, 11.6, 4.4, 13.0, 0.45, 2.5, {
+    right: pWall(P.CYAN), left: pWall(P.CYAN), top: () => cell(P.CYAN, 0),
+  });
+  box(faces, 4.4, 12.2, 6.6, 13.3, 0.45, 2.3, {
+    top: pWall(P.YELLOW), right: pWall(P.YELLOW),
+  });
+  return { model: buildModel(faces, 16, 16) };
+}
+
+/** 大学城（3×3，LV8，v22 教育空间化）：拱门主楼 + 钟塔 + 青绿穹顶图书馆 +
+ *  红砖学院翼 + 中央绿茵庭院 —— 半径 8 格学区的智慧引擎
+ *  （教育 +80 · 科技点 +3/分；需研究「高等教育」） */
+export function genUniversity(seed: number): BuildResult {
+  const faces: Face[] = [];
+  // ---- 中央主楼（北侧横贯东西：米色石墙 + 两排大窗）----
+  box(faces, 6, 5, 42, 16, 0, 13, {
+    right: pWindows(P.CREAM, { seed: seed ^ 5, lit: 0.5, floorH: 4.4, gapX: 3.8, winH: 2.4, winW: 2.1 }),
+    left: pWindows(P.CREAM, { seed, lit: 0.5, floorH: 4.4, gapX: 3.8, winH: 2.4, winW: 2.1, door: true, doorW: 5 }),
+  });
+  gableRoof(faces, 5, 4, 43, 17, 13, 18, 'x', {
+    front: pShingle(P.RFSLATE), back: pShingle(P.RFSLATE), endX: pWall(P.CREAM),
+  });
+  // ---- 中央大拱门（+Y 正面：石拱框 + 深色门洞 —— 毕业照的必拍地）----
+  box(faces, 19.6, 15.6, 28.4, 18.6, 0, 9.8, {
+    right: pStone(P.CREAM), left: pStone(P.CREAM), top: pStone(P.CREAM),
+  });
+  box(faces, 21.2, 16.4, 26.8, 18.4, 0, 7.2, {
+    right: pWall(P.OUTLINE), left: () => cell(P.OUTLINE, 0),
+  });
+  // ---- 钟塔（主楼中央拔高：四面白钟 + 石板尖顶）----
+  box(faces, 21, 20, 27, 26, 13, 26.5, {
+    right: pWall(P.CREAM), left: pWall(P.CREAM),
+  });
+  box(faces, 21.9, 25.7, 26.1, 26.8, 20.2, 24.2, {
+    left: (u, v, px, py) =>
+      Math.abs(u - 24) < 0.5 || (Math.abs(u - 24.7) < 0.4 && v > 4)
+        ? cell(P.OUTLINE, 0) : cell(P.WHITE, 0),
+  });
+  pyramid(faces, 20.3, 19.3, 27.7, 26.7, 26.5, 31.5, pShingle(P.RFSLATE));
+  box(faces, 23.6, 19.6, 24.4, 20.4, 31.5, 32.8, {
+    right: pWall(P.METAL), left: pWall(P.METAL), top: () => cell(P.LAMP, 0),
+  });
+  // ---- 西翼图书馆（青绿穹顶 + 拱窗长廊）----
+  box(faces, 6, 20, 18, 32, 0, 10, {
+    right: pWindows(P.CREAM, { seed: seed ^ 9, lit: 0.55, floorH: 4.2, gapX: 3.6, winH: 2.4, winW: 1.9 }),
+    left: pWindows(P.CREAM, { seed: seed ^ 12, lit: 0.55, floorH: 4.2, gapX: 3.6, winH: 2.4, winW: 1.9 }),
+  });
+  frustum(faces, 12, 26, 6.6, 5.2, 10, 14.5, {
+    side: (u, v, px, py) => bayer(px, py, 0.14) ? cell(P.RFTEAL, 1) : cell(P.RFTEAL, 0),
+  }, 10);
+  frustum(faces, 12, 26, 5.2, 2.4, 14.5, 17.5, {
+    side: (u, v, px, py) => bayer(px, py, 0.14) ? cell(P.RFTEAL, 1) : cell(P.RFTEAL, 0),
+    top: () => cell(P.METAL, 1),
+  }, 10);
+  // ---- 东翼红砖讲堂（双坡红瓦 + 山花）----
+  box(faces, 30, 20, 42, 32, 0, 10, {
+    right: pWindows(P.BRICK, { seed: seed ^ 21, lit: 0.5, floorH: 4.2, gapX: 3.6, winH: 2.4, winW: 1.9 }),
+    left: pWindows(P.BRICK, { seed: seed ^ 25, lit: 0.5, floorH: 4.2, gapX: 3.6, winH: 2.4, winW: 1.9 }),
+  });
+  gableRoof(faces, 29.4, 19.4, 42.6, 32.6, 10, 14.2, 'y', {
+    front: pShingle(P.RFRED), back: pShingle(P.RFRED), endY: pWall(P.CREAM),
+  });
+  // ---- 中央绿茵庭院（草坪 + 十字石板步道 + 日晷 + 旗杆）----
+  box(faces, 6, 19, 42, 42, 0, 0.35, {
+    right: () => cell(P.GRASS, 1), left: () => cell(P.GRASS, 1), top: () => cell(P.GRASS, 1),
+  });
+  box(faces, 6, 29.2, 42, 31.2, 0.35, 0.85, {   // 横步道
+    right: pStone(P.SIDE), left: pStone(P.SIDE), top: pStone(P.SIDE),
+  });
+  box(faces, 22.8, 19, 24.8, 42, 0.35, 0.85, {   // 纵步道
+    right: pStone(P.SIDE), left: pStone(P.SIDE), top: pStone(P.SIDE),
+  });
+  // 日晷（步道交汇处：石座 + 斜晷针）
+  box(faces, 23.2, 29.6, 24.4, 30.8, 0.85, 2.2, {
+    right: pStone(P.CREAM), left: pStone(P.CREAM), top: () => cell(P.CREAM, 0),
+  });
+  box(faces, 23.5, 29.9, 24.1, 30.5, 2.2, 3.4, {
+    right: pWall(P.METAL), left: pWall(P.METAL),
+  });
+  // 旗杆 ×2（庭院南北）
+  flagPole(faces, 8.5, 39, 11, P.RED);
+  flagPole(faces, 39.5, 39, 11, P.CYAN);
+  return { model: buildModel(faces, 48, 48) };
+}

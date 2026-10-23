@@ -92,7 +92,11 @@ chk "T3 节庆入册（fest/花火大会开幕）" "${T3:-x}" "r:ok|cat:fest|t:�
 
 echo "=== [5] M 段：纪元 / 里程碑 ==="
 # 布住宅（支撑人口容量，防 tick 回落）
-APT=$(agent-browser eval "(()=>{const e=window.__pxc;let n=0;for(let x=116;x<=135;x++){if(e.map.place('apartment',x%5,x,120))n++;if(e.map.place('apartment',(x+2)%5,x,124))n++;}return n;})()" 2>/dev/null | tail -1 | tr -d '"')
+# v22 兼容：同排补 3 所学校（R6 学区全覆盖 40 栋公寓）—— 零学区的住宅群会触发
+#   v22「望学兴叹」幸福 −8，把人造空城压到幸福 <25 的人口负增长区间，百户灯火永不触发
+APT=$(agent-browser eval "(()=>{const e=window.__pxc;let n=0;for(let x=116;x<=135;x++){if(e.map.place('apartment',x%5,x,120))n++;if(e.map.place('apartment',(x+2)%5,x,124))n++;}
+e.map.place('school',0,116,121);e.map.place('school',0,125,121);e.map.place('school',0,133,121);
+return n;})()" 2>/dev/null | tail -1 | tr -d '"')
 chkge "M0 布住宅成功（≥20 栋公寓）" "${APT:-x}" "20"
 agent-browser wait 800
 M1=$(agent-browser eval "(()=>{const t=window.__pxc.tycoon;t.pop=100;return 'set';})()" 2>/dev/null | tail -1)

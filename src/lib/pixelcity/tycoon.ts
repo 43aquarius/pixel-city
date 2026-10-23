@@ -68,6 +68,20 @@ export const SWEEP_CAP: Record<string, number> = { binshed: 14, recycle: 34, inc
 /** 堆积浓度分档：≥45 巷口垃圾成堆（可见垃圾袋）· ≥80 臭气熏天（重灾统计） */
 export const WASTE_LV1 = 45;
 export const WASTE_LV2 = 80;
+// ---- v22 教育空间化：百年树人 · 书香之城 ----
+/** 各教育设施学区半径（切比雪夫，自锤点起算）。
+ *  小学 4 / 学校 6 / 图书馆 5 / 博物馆 6 / 天文台 7 / 大学城 8 /
+ *  神社 3 / 城堡 4 / 水族馆 5 / 市政厅 3（早期聚落市政厅附设蒙学）。
+ *  半径外住宅＝学区外：孩子上学翻山越岭，幸福 −1.6/栋（至多 −8） */
+export const EDU_R: Record<string, number> = {
+  primary: 4, school: 6, library: 5, museum: 6, observatory: 7, university: 8,
+  temple: 3, castle: 4, aquarium: 5, cityhall: 3,
+};
+/** 学区外住宅幸福惩罚上限（−1.6/栋） */
+export const EDU_HAP_MAX = 8;
+/** 人力资本基线：平均学历 1.5（初小~高小之间）＝ hrIdx 50 —— 外来市民自带基础教育。
+ *  超过基线才有工业/科研加成（只加 buff 不打折：老城不因新玩法亏钱） */
+export const HR_BASE = 50;
 
 /** v21 垃圾产量（件/分）：住宅按人口、商业按营收、工业按污染规模推导；
  *  环卫设施自产归零（自家的账自家清）；市政厅/公园等 pop=0 公共设施天然零产。 */
@@ -211,8 +225,10 @@ export const ECON: Record<string, EconDef> = {
   // ---- 公共（宜居；upk 运营开支）v8：维护费 +25%（公共服务更烧钱）----
   park: D(55, 1, { amenity: 2, upk: 1 }),
   plaza: D(85, 2, { power: 1, amenity: 3, upk: 1.5, cul: 0.5 }),
+  primary: D(180, 2, { power: 1, amenity: 2, upk: 0.9, edu: 18 }),   // v22 小学：半径 4 学区（早期实惠）
   school: D(460, 5, { power: 8, amenity: 5, upk: 2.5, edu: 40, sp: 1.2 }),
   library: D(320, 3, { power: 4, amenity: 3, upk: 1.75, edu: 35, sp: 2 }),
+  university: D(2200, 8, { power: 20, amenity: 6, upk: 7, edu: 80, sp: 3, cul: 2 }),  // v22 大学城：半径 8 学区 + 科技引擎（需「高等教育」）
   hospital: D(720, 6, { power: 12, amenity: 6, upk: 3 }),
   temple: D(420, 6, { power: 2, amenity: 4, upk: 2, edu: 8, cul: 2.5 }),
   stadium: D(1800, 9, { power: 16, amenity: 5, upk: 2.5, cul: 2.5 }),
@@ -582,6 +598,11 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 1, val: (s, t) => (s.recycles >= 2 && s.wasteN === 0 && t.pop >= 120 ? 1 : 0) },
   { id: 'spotless', name: '一尘不染', desc: '人口 ≥300 且清运覆盖率 100% —— 街巷比邻城的大堂还干净', icon: 'medal',
     goal: 100, val: (s, t) => (t.pop >= 300 ? s.sweepCover : 0) },
+  // ---- v22 教育空间化 ----
+  { id: 'grad12', name: '桃李满天下', desc: '累计 12 位市民完成升学（学区内的市民会随时间求学深造：蒙童→初小→高小→大学，升学写入他们的史册）', icon: 'book',
+    goal: 12, val: (_s, t) => t.citz.gradTotal },
+  { id: 'scholar', name: '书香之城', desc: '人口 ≥100 且学区覆盖 ≥90% —— 满城书声（学区覆盖见城市志「文教兴学」：小学打底、大学提速）', icon: 'medal',
+    goal: 90, val: (s, t) => (t.pop >= 100 ? s.eduCover : 0) },
 ];
 
 /** 需特定科技才可建造的建筑
@@ -594,6 +615,7 @@ export const TECH_GATE: Record<string, string> = {
   tower: 'struct', restower: 'struct', danchi: 'struct', hiapart: 'struct',
   castle: 'struct', stadium: 'struct',
   observatory: 'higher',
+  university: 'higher',   // v22 大学城：与天文台同源「高等教育」
   aquarium: 'brand',
   dock: 'logistic',
   brewery: 'metal',
@@ -727,6 +749,14 @@ export type QS = {
   recycles: number;     // 回收中心座数
   incins: number;       // 焚烧发电厂座数
   sweepOverN: number;   // 超载环卫设施座数（该上更大的站了）
+  // ---- v22 教育空间化 ----
+  eduCover: number;     // 学区覆盖率 %（学区内住宅 / 全部住宅）
+  eduIn: number;        // 学区内住宅栋数（学区房）
+  eduOut: number;       // 学区外住宅栋数（幸福惩罚源：孩子上学远）
+  hrIdx: number;        // 人力资本指数 0-100（在册市民平均学历；空册兑底 50）
+  primaries: number;    // 小学座数
+  universities: number; // 大学城座数
+  gradTotal: number;    // 累计升学人次（成就口径，随市民档保存）
 };
 
 export type Quest = {
@@ -833,6 +863,9 @@ export const QUESTS: Quest[] = [
   // ---- v21 环卫系统 ----
   { id: 'sweep2', title: '窗明几净', hint: '建造 2 座环卫设施（垃圾收集站/回收中心/焚烧发电厂）：半径内建筑垃圾自动清运，堆积会拖累环境与幸福 —— 回收中心还能把垃圾变成钱，焚烧厂把垃圾烧成电', goal: 2,
     val: s => s.sweeps + s.recycles + s.incins, rG: 300, rXp: 140 },
+  // ---- v22 教育空间化 ----
+  { id: 'edu1', title: '有教无类', hint: '建造 1 座教育设施（小学/学校/图书馆）：半径内住宅自动划入学区 —— 学区外的孩子上学要翻山，市民会念叨；学区内市民还会随时间升学深造', goal: 1,
+    val: s => s.primaries + s.hasSchool + s.hasLib, rG: 260, rXp: 130 },
 ];
 
 // ------------------------------------------------------------
@@ -935,6 +968,14 @@ export type EconView = {
   recycles: number;                 // 回收中心座数
   incins: number;                   // 焚烧发电厂座数
   sweepOverN: number;               // 超载环卫设施座数
+  // ---- v22：教育空间化 ----
+  eduCover: number;                 // 学区覆盖率 %
+  eduIn: number;                    // 学区内住宅栋数
+  eduOut: number;                   // 学区外住宅栋数
+  hrIdx: number;                    // 人力资本指数（平均学历 0-100）
+  primaries: number;                // 小学座数
+  universities: number;             // 大学城座数
+  gradTotal: number;                // 累计升学人次
 };
 
 export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
@@ -1113,6 +1154,16 @@ export class Tycoon {
   private sweepVer = -1;
   /** 堆积警告（一档一次，清干净后复位） */
   private wasteWarned = false;
+
+  // ---- v22：教育空间化（百年树人 · 书香之城）----
+  /** 学区内住宅锤点集合（engine 学区光罩渲染 / 市民升学判定） */
+  eduField = new Set<number>();
+  /** 学区外住宅锤点集合（幸福惩罚源：孩子上学翻山） */
+  eduMissField = new Set<number>();
+  /** 学区场缓存版本（仅随 map.version 变化重算：摆盘即重算） */
+  private eduVer = -1;
+  /** 学区外警告（一档一次，覆盖后复位） */
+  private eduWarned = false;
 
   hasOrd(id: string): boolean { return this.ords.has(id); }
 
@@ -1325,6 +1376,8 @@ export class Tycoon {
     this.ensureGrid(map);
     // v21：清运分配场先行（堆积建筑折扣 / 指数 / 统计判定源；仅随摆盘重算）
     this.ensureSweep(map);
+    // v22：学区覆盖场先行（学区房判定 / 幸福惩罚 / 人力资本；仅随摆盘重算）
+    this.ensureEdu(map);
     let cap = 0, jobs = 0, earnCom = 0, earnInd = 0, upk = 0;
     let powerSup = 0, powerDem = 0, amenitySup = 0, pollute = 0;
     let res = 0, com = 0, ind = 0, civ = 0, park = 0, buildings = 0;
@@ -1340,6 +1393,8 @@ export class Tycoon {
     let cleanMW = 0, solarMW = 0;
     // v21：环卫累计器
     let sweeps = 0, recycles = 0, incins = 0;
+    // v22：教育累计器
+    let primaries = 0, universities = 0, eduIn = 0, eduOut = 0;
     // v10：货物 / 旅游累计器
     let goodsP = 0, goodsC = 0, goodsCapV = GOODS_BASE_CAP;
     let hotelBeds = 0, attract = 0, ports = 0;
@@ -1358,6 +1413,8 @@ export class Tycoon {
         res++; cap += d.pop;
         resList.push({ x: o.ax + d.w / 2, y: o.ay + d.h / 2, pop: d.pop });
         if (offGrid) powerRes++;   // v20：断电住宅（幸福惩罚，夜里黑着）
+        // v22：学区房判定（学区内 → 书声琅琅；学区外 → 上学翻山）
+        if (this.eduField.has(map.idx(o.ax, o.ay))) eduIn++; else eduOut++;
       } else if (d.cat === 'com') {
         com++; jobs += d.pop;
         // 城市名片：文旅商业收入 +20%；v19 空间污染：雾霾区生意冷清 ×0.82
@@ -1416,6 +1473,9 @@ export class Tycoon {
       else if (o.id === 'binshed') sweeps++;
       else if (o.id === 'recycle') recycles++;
       else if (o.id === 'incin') incins++;
+      // v22 教育设施计数
+      else if (o.id === 'primary') primaries++;
+      else if (o.id === 'university') universities++;
       // v20：太阳能电站出力随昼夜（白昼满发、深夜归零——需其它电源兜底）
       const pw = o.id === 'solarfarm' ? pwRaw * this.dayLight : pwRaw;
       if (pw < 0) {
@@ -1509,10 +1569,15 @@ export class Tycoon {
       festAmenity = f.amenity;
     }
     const seasonHap = sn.hap;
+    // v22 人力资本：在册市民平均学历 → hrIdx（空册兑底 50）；超过基线才有加成
+    //   （只 buff 不打折：老城不因新玩法亏钱，大学城工业/科研至多 +16%/+20%）
+    const hrIdx = this.citz.hrIdx();
+    const hrK = 1 + 0.0032 * Math.max(0, hrIdx - HR_BASE);   // 工业熟练工乘数
+    const hrS = 1 + 0.004 * Math.max(0, hrIdx - HR_BASE);    // 科研乘数
     foodProd *= multFood;
     earnCom *= multCom;
-    earnInd *= multInd;
-    spRaw *= multSp;
+    earnInd *= multInd * hrK;
+    spRaw *= multSp * hrS;
     // v10 法令：夜间经济 / 消费券 / 环保条例
     if (this.hasOrd('night')) earnCom *= 1.10;
     if (this.hasOrd('voucher')) earnCom *= 1.15;
@@ -1657,11 +1722,13 @@ export class Tycoon {
     const powerHap = Math.min(10, powerRes * 2);
     // v21：垃圾围门 —— 每栋堆积住宅 −1.8，至多 −10（建收集站/回收中心可解）
     const wasteHap = Math.min(10, Math.round(wasteRes * 1.8));
+    // v22：望学兴叹 —— 每栋学区外住宅 −1.6，至多 −8（建小学/学校/大学可解）
+    const eduHap = Math.min(EDU_HAP_MAX, Math.round(eduOut * 1.6));
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
       0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap
-      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap)));   // v11 电车干线通车：出行体面 +2 幸福；v20 断电/v21 垃圾扣减
+      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外扣减
     const happyMult = 0.6 + happiness / 125;
 
     // ---- v10 旅游：景点吸引力 × 文化/幸福 × 季节/天气 → 游客（酒店床位为接待上限）----
@@ -1722,6 +1789,9 @@ export class Tycoon {
       gridCover, darkN, powerRes, substations, windfarms, solarfarms, coalN, cleanMW, solarMW,  // v20 电网空间化
       wasteN, wasteBad, wasteRes, sweepCover, sweeps, recycles, incins,
       sweepOverN: this.sweepOverField.size,                                        // v21 环卫系统
+      eduCover: (eduIn + eduOut) > 0 ? Math.round(100 * eduIn / (eduIn + eduOut)) : 100,
+      eduIn, eduOut, hrIdx, primaries, universities,                                // v22 教育空间化
+      gradTotal: this.citz.gradTotal,                                               // v22 累计升学
       ecotowers: this.smogTowerN,
       eventHap, eventAmenity, multCom, multInd, multFood, multPower, multTraffic, multSp,
       weather: { kind: wt.kind, t: wt.t },
@@ -1916,6 +1986,37 @@ export class Tycoon {
     this.sweepOverField = over;
   }
 
+  // ---------------- v22：学区覆盖场（百年树人 · 书香之城） ----------------
+
+  /** 重算学区覆盖（版本缓存：仅 map.version 变化才重算，摆盘/拆迁即触发）。
+   *  Pass A：登记教育设施（EDU_R 半径表：小学 4 / 学校 6 / 图书馆 5 / 博物馆 6 /
+   *          天文台 7 / 大学城 8 / 神社 3 / 城堡 4 / 水族馆 5 / 市政厅 3 附设蒙学）；
+   *  Pass B：住宅锤点落在任一教育设施半径内（切比雪夫）→ eduField（学区房），
+   *          否则 → eduMissField（学区外：孩子上学翻山越岭，幸福 −1.6/栋至多 −8）。
+   *  教育设施不参与电网判定也能划学区 —— 学堂开在哪，书声就传到哪 */
+  private ensureEdu(map: CityMap): void {
+    if (map.version === this.eduVer) return;
+    this.eduVer = map.version;
+    const facs: Array<{ x: number; y: number; r: number }> = [];
+    for (const o of map.objs.values()) {
+      const r = EDU_R[o.id];
+      if (r !== undefined) facs.push({ x: o.ax, y: o.ay, r });
+    }
+    const inside = new Set<number>();
+    const outside = new Set<number>();
+    for (const o of map.objs.values()) {
+      if (defById(o.id).cat !== 'res') continue;
+      const i = map.idx(o.ax, o.ay);
+      let hit = false;
+      for (const f of facs) {
+        if (Math.max(Math.abs(o.ax - f.x), Math.abs(o.ay - f.y)) <= f.r) { hit = true; break; }
+      }
+      if (hit) inside.add(i); else outside.add(i);
+    }
+    this.eduField = inside;
+    this.eduMissField = outside;
+  }
+
   // ---------------- 每帧心跳 ----------------
 
   tick(dt: number, map: CityMap): void {
@@ -1990,6 +2091,12 @@ export class Tycoon {
       this.msg?.(`垃圾围城：${s.wasteN} 处垃圾无人清运 —— 建垃圾收集站（半径内自动清运），或上回收中心/焚烧发电厂扩容`);
     } else if (s.wasteN === 0) this.wasteWarned = false;
 
+    // v22 学区警告：学区外住宅出现时一档一次（覆盖后复位）
+    if (s.eduOut > 0 && !this.eduWarned) {
+      this.eduWarned = true;
+      this.msg?.(`望学兴叹：${s.eduOut} 栋住宅的孩子上学要翻山越岭 —— 建小学/学校把周边划入学区，大学城半径最大（8 格）`);
+    } else if (s.eduOut === 0) this.eduWarned = false;
+
     // 科技点累积（教育设施 × 智慧加成）
     this.sp += s.spRaw * (0.5 + s.wisdom / 100) * (this.has('higher') ? 1.35 : 1) * dt / 60;
 
@@ -2020,6 +2127,8 @@ export class Tycoon {
       smog: s.smogRes,                         // v19：雾霾心声
       dark: s.powerRes,                        // v20：断电住宅心声
       waste: s.wasteRes,                       // v21：垃圾堆积心声
+      eduOut: s.eduOut,                        // v22：学区外住宅心声
+      inEdu: (x, y) => this.eduField.has(map.idx(x, y)),   // v22：升学判定（学区内市民会随时间求学深造）
     }, this.playtime);
     if (this.citz.total > citzTotalBefore) this.sfx?.('movein');
     if (this.citz.unread > mailUnreadBefore) this.sfx?.('bell');   // v15：叮——新来信
@@ -2056,6 +2165,7 @@ export class Tycoon {
       smogRes: s.smogRes, envIdx: s.envIdx, ecotowers: s.ecotowers,   // v19 生态里程碑
       gridCover: s.gridCover, darkN: s.darkN, powerRes: s.powerRes,   // v20 电网里程碑
       wasteN: s.wasteN, recycles: s.recycles, sweepCover: s.sweepCover,   // v21 环卫里程碑
+      eduOut: s.eduOut, eduCover: s.eduCover, universities: s.universities,   // v22 文教里程碑
     }, this.gHours);
     if (eraUp >= 1) {
       const ERAS_NAME = ['炊烟村庄', '市井小镇', '一方城市', '摩登都会'];
@@ -2351,6 +2461,14 @@ export class Tycoon {
       recycles: s?.recycles ?? 0,
       incins: s?.incins ?? 0,
       sweepOverN: s?.sweepOverN ?? 0,
+      // ---- v22：教育空间化 ----
+      eduCover: s?.eduCover ?? 100,
+      eduIn: s?.eduIn ?? 0,
+      eduOut: s?.eduOut ?? 0,
+      hrIdx: s?.hrIdx ?? 50,
+      primaries: s?.primaries ?? 0,
+      universities: s?.universities ?? 0,
+      gradTotal: this.citz.gradTotal,
     };
   }
 
@@ -2417,6 +2535,9 @@ export class Tycoon {
     // v21：环卫场同样复位
     this.wasteWarned = false;
     this.sweepVer = -1;
+    // v22：学区场同样复位
+    this.eduWarned = false;
+    this.eduVer = -1;
     this.dayLight = 1;
     // v12：应急联动重置
     this.rescueFire = 0;
@@ -2673,6 +2794,7 @@ export class Tycoon {
       smog: s?.smogRes ?? 0,                    // v19：雾霾心声
       dark: s?.powerRes ?? 0,                   // v20：断电住宅心声
       waste: s?.wasteRes ?? 0,                  // v21：垃圾堆积心声
+      eduOut: s?.eduOut ?? 0,                   // v22：学区外住宅心声
     });
   }
 

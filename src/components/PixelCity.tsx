@@ -1659,6 +1659,16 @@ export default function PixelCity() {
                             : ''}`
                       }</td>
                     </tr>
+                    <tr className={econ.eduOut > 0 ? 'bad' : (econ.primaries + econ.universities > 0 ? 'g' : '')}>
+                      <td>文教兴学</td>
+                      <td>{
+                        econ.eduOut > 0
+                          ? `学区覆盖 ${econ.eduCover}%（学区外 ${econ.eduOut} 栋${econ.eduIn > 0 ? ` · 学区内 ${econ.eduIn} 栋` : ''} · 幸福 −${Math.min(8, Math.round(econ.eduOut * 1.6))} —— 孩子上学要翻山）`
+                          : `学区覆盖 ${econ.eduCover}%${econ.primaries + econ.universities > 0
+                            ? `（小学 ${econ.primaries}${econ.universities > 0 ? ` · 大学城 ${econ.universities}` : ''}）`
+                            : ''}`
+                      } · 人力资本 ${econ.hrIdx}（累计升学 ${econ.gradTotal} 人次）</td>
+                    </tr>
                     <tr className={econ.healthIdx < 55 ? 'bad' : ''}>
                       <td>健康指数</td><td>{econ.healthIdx} / 100（医院 {econ.hospitals} 座）</td>
                     </tr>
@@ -2263,7 +2273,7 @@ export default function PixelCity() {
                         <div className="cd-meta">
                           <b>{c.name}{c.guest && <i className="cd-guest">路人</i>}</b>
                           <span>{c.age} 岁 · {c.gender === 1 ? '女' : '男'} · {c.job}</span>
-                          <span>{c.trait} · 爱好{c.hobby}</span>
+                          <span>{c.trait} · 爱好{c.hobby}{!c.guest ? ` · 学历${c.edu}` : ''}</span>
                           <div className="moodbar" title={`心情 ${c.mood}/100（随城市幸福度与个人性格波动）`}>
                             <i style={{ width: `${c.mood}%` }} />
                             <em>{c.mood}</em>
@@ -2297,6 +2307,7 @@ export default function PixelCity() {
                           </td>
                         </tr>
                         <tr><td>出身</td><td>{c.origin}{c.guest ? '（萍水相逢）' : `（迁来 ${fmtT(c.since)} 时）`}</td></tr>
+                        {!c.guest && <tr><td>学历</td><td>{c.edu}（学区内住所会随时间升学：蒙童 → 初小 → 高小 → 大学）</td></tr>}
                       </tbody></table>
                       {!c.guest && c.fam && c.fam.length > 0 && (
                         <div className="cd-famwrap">

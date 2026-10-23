@@ -1036,6 +1036,53 @@ export class Engine {
     }
   }
 
+  /** v22：学区层 —— 学区内住宅淡金光罩（呼吸，清晨阳光洒在校园的感觉）+
+   *  白色书页小方片从楼顶旋转飘落（书声琅琅的氛围粒子）。
+   *  画在垃圾层之下：光是氛围底色，垃圾是贴地实体，垃圾更「近」 */
+  private drawEduOverlay(ctx: CanvasRenderingContext2D, t: number): void {
+    const eco = this.tycoon;
+    if (!eco || eco.eduField.size === 0) return;
+    const n = this.map.n;
+    for (const i of eco.eduField) {
+      const tx = i % n, ty = (i / n) | 0;
+      const sx = this.w2sx(tx, ty);
+      const sy = this.w2sy(tx, ty) + this.hOfs(tx, ty);
+      if (sx < -40 || sx > this.lw + 40 || sy < -56 || sy > this.lh + 40) continue;
+      // 金色光罩（呼吸 —— 学区房自带光环；v19 教训：金叠绿草对比度不足，
+      //   alpha 提到 0.20-0.28 + 内核提亮，远看一片暖金学苑区）
+      const br = 0.75 + 0.35 * Math.sin(t / 1300 + (tx + ty) * 0.8);
+      ctx.fillStyle = `rgba(244,208,96,${(0.24 * br).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.moveTo(sx - 19, sy + 2);
+      ctx.lineTo(sx, sy + 12);
+      ctx.lineTo(sx + 19, sy + 2);
+      ctx.lineTo(sx, sy - 8);
+      ctx.closePath();
+      ctx.fill();
+      // 内核提亮（楼脚一抹浓金 —— 对比锚点）
+      ctx.fillStyle = `rgba(252,232,150,${(0.16 * br).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.moveTo(sx - 9, sy + 2);
+      ctx.lineTo(sx, sy + 7);
+      ctx.lineTo(sx + 9, sy + 2);
+      ctx.lineTo(sx, sy - 3);
+      ctx.closePath();
+      ctx.fill();
+      // 书页两枚（确定性伪随机相位，旋转飘落 2.8s 一轮）
+      for (let k = 0; k < 2; k++) {
+        const ph = ((t / 2800) + k * 0.5 + ((tx * 7 + ty * 13) % 17) / 17) % 1;
+        const px = sx - 6 + k * 12 + Math.sin(ph * Math.PI * 2) * 4;
+        const py = sy - 30 + ph * 34;
+        const a = ph < 0.15 ? ph / 0.15 : ph > 0.85 ? (1 - ph) / 0.15 : 1;
+        if (a <= 0.02) continue;
+        ctx.fillStyle = `rgba(248,246,236,${(0.85 * a).toFixed(3)})`;
+        ctx.fillRect(Math.round(px), Math.round(py), 3, 2);
+        ctx.fillStyle = `rgba(214,196,150,${(0.7 * a).toFixed(3)})`;
+        ctx.fillRect(Math.round(px) + 1, Math.round(py), 1, 2);
+      }
+    }
+  }
+
   /** v19：雾霾层 —— 污染空间场可视化（浓度 ≥45 的格铺暖土黄雾菱形，随呼吸波动 +
    *  随风缓漂；重污染 ≥75 棕褐浓雾 + 复用烟囱烟精灵的缓升烟团 —— 远看连绵霾带，
    *  近看烟霭蒸腾；笼罩建筑但在事件特效之下，随昼夜一起压暗） */
@@ -1732,6 +1779,8 @@ export class Engine {
 
     // ---- v5：事件事故特效（火灾烟柱 / 火点，覆盖在建筑之上）----
     this.drawEventFx(ctx, t);
+    // ---- v22：学区层（学区内住宅金光罩 + 书页飘飞；垃圾之下）----
+    this.drawEduOverlay(ctx, t);
     // ---- v21：垃圾堆积层（清运不到的巷口垃圾成堆；雾霾之下）----
     this.drawWasteOverlay(ctx, t);
     // ---- v19：雾霾层（污染空间场可视化；笼罩建筑，事件特效之下）----

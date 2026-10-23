@@ -16,7 +16,7 @@ import { genFactory, genWarehouse, genTankfarm, genWindfarm, genSolarfarm } from
 import {
   genPark, genTree, genPlaza, genSchool, genHospital,
   genTemple, genStadium, genRadioTower, genMonument, genCityhall, genLibrary,
-  genEcotower, genSubstation,
+  genEcotower, genSubstation, genPrimary, genUniversity,
 } from './b_civ';
 import {
   genManor, genResTower, genConvenience, genHotel, genMall, genParking,
@@ -149,12 +149,16 @@ export const CATALOG: Def[] = [
   // ---- 公共 ----
   { id: 'park', name: '街心公园', cat: 'civ', w: 1, h: 1, variants: 3, pop: 0,
     gen: genPark, ground: 'park', seasonal: true, desc: '小径、水塘与绿荫（四季换装：春樱秋红冬雪）' },
+  { id: 'primary', name: '小学', cat: 'civ', w: 1, h: 1, variants: 2, pop: 12,
+    gen: genPrimary, desc: '红砖蒙学塾与旗杆操场：半径 4 格住宅划入学区，孩子出门就是学堂 —— 早期办学的实惠之选' },
+  { id: 'university', name: '大学城', cat: 'civ', w: 3, h: 3, variants: 1, pop: 150,
+    gen: genUniversity, desc: '拱门主楼与青绿穹顶的智慧殿堂：半径 8 格学区 · 教育 +80 · 科技点 +3/分（需研究「高等教育」）' },
   { id: 'plaza', name: '广场喷泉', cat: 'civ', w: 1, h: 1, variants: 1, pop: 0,
     gen: genPlaza, ground: 'plaza', desc: '棋格铺装与八角喷泉' },
   { id: 'school', name: '学校', cat: 'civ', w: 2, h: 2, variants: 1, pop: 60,
-    gen: genSchool, ground: 'school', desc: '红瓦双翼校舍与钟塔' },
+    gen: genSchool, ground: 'school', desc: '红瓦双翼校舍与钟塔：半径 6 格学区 · 教育 +40' },
   { id: 'library', name: '图书馆', cat: 'civ', w: 2, h: 1, variants: 1, pop: 20,
-    gen: genLibrary, desc: '廊柱山花的知识殿堂：教育 +35 · 科技点 +2/分' },
+    gen: genLibrary, desc: '廊柱山花的知识殿堂：半径 5 格学区 · 教育 +35 · 科技点 +2/分' },
   { id: 'hospital', name: '医院', cat: 'civ', w: 2, h: 2, variants: 1, pop: 90,
     gen: genHospital, desc: '白色主楼，楼顶红十字' },
   { id: 'temple', name: '神社', cat: 'civ', w: 2, h: 2, variants: 1, pop: 15,
