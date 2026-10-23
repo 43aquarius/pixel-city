@@ -954,6 +954,72 @@ export class Engine {
     }
   }
 
+  /** v19：雾霾层 —— 污染空间场可视化（浓度 ≥45 的格铺暖土黄雾菱形，随呼吸波动 +
+   *  随风缓漂；重污染 ≥75 棕褐浓雾 + 复用烟囱烟精灵的缓升烟团 —— 远看连绵霾带，
+   *  近看烟霭蒸腾；笼罩建筑但在事件特效之下，随昼夜一起压暗） */
+  private drawSmogOverlay(ctx: CanvasRenderingContext2D, t: number): void {
+    const eco = this.tycoon;
+    if (!eco || eco.smogField.size === 0) return;
+    const n = this.map.n;
+    const smoke = this.book.smoke;
+    for (const [i, c] of eco.smogField) {
+      const tx = i % n, ty = (i / n) | 0;
+      const sx = this.w2sx(tx, ty);
+      const sy = this.w2sy(tx, ty) + this.hOfs(tx, ty);
+      if (sx < -48 || sx > this.lw + 48 || sy < -64 || sy > this.lh + 48) continue;
+      const heavy = c >= 75;
+      const k = Math.min(1, (c - 45) / 55);                       // 浓度梯度 0..1
+      const br = 0.82 + 0.18 * Math.sin(t / 1100 + (tx + ty) * 0.9);   // 呼吸
+      const drift = Math.sin(t / 2600 + ty * 0.21) * 3;               // 随风缓漂
+      // 下层贴地雾（主体；暖土黄在绿草上有对比，棕褐留给重灾区）
+      ctx.fillStyle = heavy
+        ? `rgba(110,92,60,${((0.30 + 0.16 * k) * br).toFixed(3)})`
+        : `rgba(205,178,98,${((0.30 + 0.17 * k) * br).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.moveTo(sx - 16 + drift, sy);
+      ctx.lineTo(sx + drift, sy - 8);
+      ctx.lineTo(sx + 16 + drift, sy);
+      ctx.lineTo(sx + drift, sy + 8);
+      ctx.closePath();
+      ctx.fill();
+      // 上层稀薄雾（抬高 7px，遮住建物下部 —— 体积感）
+      ctx.fillStyle = heavy
+        ? `rgba(110,92,60,${(0.13 * br).toFixed(3)})`
+        : `rgba(196,172,106,${(0.10 * br).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.moveTo(sx - 16 + drift, sy - 7);
+      ctx.lineTo(sx + drift, sy - 15);
+      ctx.lineTo(sx + 16 + drift, sy - 7);
+      ctx.lineTo(sx + drift, sy + 1);
+      ctx.closePath();
+      ctx.fill();
+      // 烟霭尘斑（三团错位颗粒，随时间游移 —— 浮尘质感；轻雾的可见性主力）
+      const ph = t / 1400 + (tx * 0.37 + ty * 0.61);
+      const b1x = Math.round(sx - 8 + Math.sin(ph) * 3 + drift);
+      const b1y = Math.round(sy - 3 + Math.cos(ph * 1.3) * 2);
+      const b2x = Math.round(sx + 3 + Math.cos(ph * 0.8) * 3 + drift);
+      const b2y = Math.round(sy - 8 + Math.sin(ph * 1.1) * 2);
+      const b3x = Math.round(sx - 2 + Math.sin(ph * 1.7) * 4 + drift);
+      const b3y = Math.round(sy + 1 + Math.cos(ph * 0.6) * 2);
+      ctx.fillStyle = heavy
+        ? `rgba(80,66,44,${(0.26 * br).toFixed(3)})`
+        : `rgba(168,142,78,${(0.30 * br).toFixed(3)})`;
+      ctx.fillRect(b1x, b1y, 8, 3);
+      ctx.fillRect(b2x, b2y, 7, 3);
+      ctx.fillRect(b3x, b3y, 6, 2);
+      // 重灾区：缓升烟团（复用烟囱三帧精灵；错相循环不齐步）
+      if (heavy && smoke.length) {
+        const c0 = ((tx * 7 + ty * 13) % 17) / 17;
+        const fr = Math.floor(t / 300 + c0 * 3) % smoke.length;
+        const s = smoke[fr];
+        const rise = (t / 52 + c0 * 26) % 24;
+        ctx.globalAlpha = Math.max(0, (0.55 - rise / 44) * br);
+        ctx.drawImage(s.cv, Math.round(sx - 5 + drift + s.ox), Math.round(sy - 10 - rise + s.oy));
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
   crowdCount(): { peds: number; cars: number; pets: number; birds: number; buses: number; boats: number; tourists: number; trams: number; firetrucks: number; ambulances: number; patrols: number } {
     return {
       peds: this.actors.peds, cars: this.actors.cars,
@@ -1581,6 +1647,8 @@ export class Engine {
 
     // ---- v5：事件事故特效（火灾烟柱 / 火点，覆盖在建筑之上）----
     this.drawEventFx(ctx, t);
+    // ---- v19：雾霾层（污染空间场可视化；笼罩建筑，事件特效之下）----
+    this.drawSmogOverlay(ctx, t);
     // ---- v7：飞艇巡航（建筑之上 / 云层之下）----
     this.drawBlimp(ctx, t);
     // ---- v5：云影（缓速漂移的大团软影，覆盖一切顶面）----

@@ -135,7 +135,7 @@ export class Chronicle {
   /** 已入册里程碑（去重） */
   private miles = {
     pop: new Set<number>(), rate: new Set<number>(), bld: new Set<number>(),
-    land: new Set<number>(), coin: new Set<number>(),
+    land: new Set<number>(), coin: new Set<number>(), eco: new Set<number>(),   // v19 生态（1 雾霾围城 / 2 重现蓝天）
   };
 
   /** 游戏小时 → 开埠第 N 天 */
@@ -156,7 +156,8 @@ export class Chronicle {
    * 里程碑巡检（tycoon.tick 每帧调用）。
    * 返回本次新跃迁的纪元序号（无跃迁 = -1）——调用方借此提示与奏乐。
    */
-  survey(ctx: { pop: number; rating: number; buildings: number; chunks: number; coins: number }, gHours: number): number {
+  survey(ctx: { pop: number; rating: number; buildings: number; chunks: number; coins: number;
+      smogRes?: number; envIdx?: number; ecotowers?: number }, gHours: number): number {
     let eraUp = -1;
     // 纪元跃迁（只升不重记；人口回落后再升回不重复入册）
     const e = eraOfPop(ctx.pop);
@@ -204,6 +205,18 @@ export class Chronicle {
         this.write('mile', 'good', m.icon, m.title, m.text, gHours);
       }
     }
+    // ---- v19 生态里程碑：雾霾围城 → 重现蓝天（一对救赎叙事；先污染后治理才成对入册）----
+    const smogRes = ctx.smogRes ?? 0, envIdx = ctx.envIdx ?? 100, ecotowers = ctx.ecotowers ?? 0;
+    if (smogRes >= 3 && !this.miles.eco.has(1)) {
+      this.miles.eco.add(1);
+      this.write('mile', 'bad', 'cloud', '雾霾围城',
+        `${smogRes} 栋住宅被浓烟笼罩，晾在窗外的白衬衫半天就蒙了灰。市民开始念叨：烟囱与卧房，总该隔着几条街。`, gHours);
+    }
+    if (this.miles.eco.has(1) && !this.miles.eco.has(2) && ecotowers >= 1 && envIdx >= 80) {
+      this.miles.eco.add(2);
+      this.write('mile', 'good', 'tree', '重现蓝天',
+        `空气净化塔的滤网盘日夜转动，环境指数重回 ${envIdx}。孩子们又能在街心公园里追着风筝跑了。`, gHours);
+    }
     return eraUp;
   }
 
@@ -223,7 +236,7 @@ export class Chronicle {
     this.maxEra = 0;
     this.nextId = 1;
     this.miles = {
-      pop: new Set(), rate: new Set(), bld: new Set(), land: new Set(), coin: new Set(),
+      pop: new Set(), rate: new Set(), bld: new Set(), land: new Set(), coin: new Set(), eco: new Set(),
     };
   }
 
@@ -232,7 +245,7 @@ export class Chronicle {
       e: this.entries, tot: this.total, era: this.era, maxEra: this.maxEra, nid: this.nextId,
       m: {
         pop: [...this.miles.pop], rate: [...this.miles.rate], bld: [...this.miles.bld],
-        land: [...this.miles.land], coin: [...this.miles.coin],
+        land: [...this.miles.land], coin: [...this.miles.coin], eco: [...this.miles.eco],
       },
     });
   }
@@ -245,6 +258,7 @@ export class Chronicle {
       const d = JSON.parse(raw) as {
         e?: unknown; tot?: unknown; era?: unknown; maxEra?: unknown; nid?: unknown; m?: {
           pop?: unknown; rate?: unknown; bld?: unknown; land?: unknown; coin?: unknown;
+          eco?: unknown;
         };
       };
       if (!Array.isArray(d.e)) return false;
@@ -274,7 +288,7 @@ export class Chronicle {
       const L = (v: unknown) => (Array.isArray(v) ? v.filter((n) => Number.isFinite(n)).map(Number) : []);
       this.miles = {
         pop: new Set(L(d.m?.pop)), rate: new Set(L(d.m?.rate)), bld: new Set(L(d.m?.bld)),
-        land: new Set(L(d.m?.land)), coin: new Set(L(d.m?.coin)),
+        land: new Set(L(d.m?.land)), coin: new Set(L(d.m?.coin)), eco: new Set(L(d.m?.eco)),
       };
       return true;
     } catch {

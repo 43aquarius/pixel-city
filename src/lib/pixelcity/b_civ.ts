@@ -497,3 +497,59 @@ export function genLibrary(seed: number): BuildResult {
   }
   return { model: buildModel(faces, 32, 16) };
 }
+
+/** 空气净化塔（1×1，v19 生态治理）：混凝土基座 + 白瓷塔身 + 三层渐大滤网盘 +
+ *  青瓷锥顶罩 + 顶端风机盘 + 绿藤垂挂 + 塔顶绿灯（夜间呼吸）。
+ *  半径 5 格内雾霾大幅削减 —— 重工业区里的「城市之肺」 */
+export function genEcotower(seed: number): BuildResult {
+  const faces: Face[] = [];
+  const celadon = (seed & 1) === 0 ? P.RFTEAL : P.RFRED;   // 变体：顶罩环带色
+  // ---- 混凝土基座 ----
+  box(faces, 4.4, 4.4, 11.6, 11.6, 0, 1.4, {
+    right: pStone(P.SIDE), left: pStone(P.SIDE), top: pStone(P.SIDE),
+  });
+  // ---- 白瓷塔身（青瓷环带 + 铆钉竖缝）----
+  prism(faces, 8, 8, 2.7, 1.4, 15.6, {
+    side: (u, v, px, py) => pBands(P.CREAM, 3.4)(u, v, px, py),
+  }, 10);
+  // ---- 三层渐大滤网盘（白格栅 + 盘沿青瓷圈）----
+  const tray = (z: number, r: number) => {
+    prism(faces, 8, 8, r, z, z + 1.15, {
+      side: (u, v, px, py) => {
+        // 格栅：亮白竖条 + 稀疏透空点（滤材质感）
+        const bar = Math.abs((u % 2.2) - 1.1) < 0.55;
+        if (bayer(px, py, 0.14)) return cell(P.METAL, 1);
+        return bar ? cell(P.WHITE, 0) : cell(P.CREAM, 1);
+      },
+      top: () => cell(P.CREAM, 0),
+    }, 12);
+    // 盘沿环（青瓷点缀）
+    prism(faces, 8, 8, r + 0.35, z + 0.85, z + 1.15, {
+      side: pWall(celadon), top: () => cell(celadon, 1),
+    }, 12);
+  };
+  tray(4.6, 4.0);
+  tray(8.8, 4.8);
+  tray(13.0, 5.6);
+  // ---- 青瓷锥顶罩 + 顶端风机盘 ----
+  cone(faces, 8, 8, 2.7, 15.6, 18.2, (u, v, px, py) =>
+    pCanopyGrad(celadon, 0, 5, seed)(u, v, px, py), 10);
+  prism(faces, 8, 8, 1.5, 18.2, 19.3, {
+    side: pWall(P.METAL),
+    top: (u, v, px, py) => {
+      // 风机辐条：中心毂 + 六向扇叶
+      const dx = px - 8, dy = py - 8, rr = Math.hypot(dx, dy);
+      if (rr < 0.8) return cell(P.METAL, 0);
+      const ang = (Math.atan2(dy, dx) + Math.PI) / (Math.PI / 3);
+      if (Math.abs(ang - Math.round(ang)) < 0.28) return cell(P.METAL, 1);
+      return cell(P.WHITE, 0);
+    },
+  }, 10);
+  // ---- 绿藤垂挂（西南面两条，滤过的空气都带着植物香）----
+  for (const gx of [4.1, 11.0] as const) {
+    box(faces, gx, 11.4, gx + 0.7, 12.1, 3.2, 8.6, {
+      left: (u, v, px, py) => (bayer(px, py, 0.45) ? cell(P.LEAF, 1) : cell(P.PINE, 2)),
+    });
+  }
+  return { model: buildModel(faces, 16, 16), blinkAt: [8, 8, 18.8] as V3 };
+}

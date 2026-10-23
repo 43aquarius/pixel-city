@@ -1626,6 +1626,14 @@ export default function PixelCity() {
                     <tr className={econ.envIdx < 55 ? 'bad' : ''}>
                       <td>环境指数</td><td>{econ.envIdx} / 100（净污染 {rinc(econ.envIdx < 100 ? (100 - econ.envIdx) / 9 : 0)} 点）</td>
                     </tr>
+                    <tr className={econ.smogBad > 0 || econ.smogRes > 0 ? 'bad' : (econ.ecotowers > 0 ? 'g' : '')}>
+                      <td>雾霾治理</td>
+                      <td>{
+                        econ.smogTiles > 0
+                          ? `雾霾覆盖 ${econ.smogTiles} 格（重污染 ${econ.smogBad} 格 · 住宅受损 ${econ.smogRes} 栋${econ.smogRes > 0 ? ' · 幸福 −' + Math.min(12, econ.smogRes * 2.5) : ''}）`
+                          : econ.ecotowers > 0 ? `晴空如洗（净化塔 ${econ.ecotowers} 座值守）` : '晴空如洗'
+                      }{econ.ecotowers > 0 ? ` · 净化塔 ${econ.ecotowers} 座` : ''}</td>
+                    </tr>
                     <tr className={econ.healthIdx < 55 ? 'bad' : ''}>
                       <td>健康指数</td><td>{econ.healthIdx} / 100（医院 {econ.hospitals} 座）</td>
                     </tr>

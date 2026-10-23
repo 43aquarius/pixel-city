@@ -195,6 +195,8 @@ export type CitzCtx = {
   events: string[];
   /** v16 进行中的节日（0-3；-1 = 无） */
   fest: number;
+  /** v19 重污染住宅栋数（雾霾心声） */
+  smog: number;
 };
 
 const rnd = <T,>(a: T[]): T => a[(Math.random() * a.length) | 0];
@@ -220,7 +222,7 @@ export class CitizenRegistry {
   private mailTimer = 26;          // 首封信来得早些，让玩家尽快见到新玩法
   private nextLetterId = 1;
   private nextFam = 1;
-  private lastCtx: CitzCtx = { pop: 0, happiness: 60, taxRate: 8, season: 0, famine: 0, events: [], fest: -1 };
+  private lastCtx: CitzCtx = { pop: 0, happiness: 60, taxRate: 8, season: 0, famine: 0, events: [], fest: -1, smog: 0 };
   private lastT = 0;
   /** 消息回调（tycoon.msg 接线） */
   onMsg: ((s: string) => void) | null = null;
@@ -644,6 +646,12 @@ export class CitizenRegistry {
     ];
     if (ctx.famine) text = rnd(['粮价一天一个样，家里米缸快见底了', '菜场的白菜都要抢了，得想想办法']);
     else if (ctx.fest >= 0 && ctx.fest <= 3) text = rnd(FEST_VOICE[ctx.fest]);
+    else if (ctx.smog > 0) text = rnd([
+      '开窗就是一股呛人的烟味，晒被子的心思都没了',
+      '这雾霾天，出门都得捂着口罩送孩子上学',
+      '听说市政厅在想办法治污，盼着早点见效',
+      '隔壁街区空气好多了 —— 人家那边种了一整排树',
+    ]);
     else if (ctx.taxRate > 12) text = rnd(['税越收越狠，肉摊都少割两斤了', '这税率，攒钱的速度赶不上市政厅收的']);
     else if (ctx.taxRate <= 5) text = rnd(['低税的日子里，钱包都胖了一圈', '市政厅这个月大方，下馆子加了个鸡腿']);
     else if (ctx.happiness < 40) text = rnd(['这日子……再看看吧，不行就搬去隔壁城', '唉，晚上都睡不踏实']);

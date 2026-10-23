@@ -42,6 +42,13 @@ export const EXPORT_PRICE = 1.35;      // 每单位货物出口价（冶金工�
 export const EXPORT_MKT_MIN = 0.55;    // v11 出口市价下限（55%）
 export const EXPORT_MKT_MAX = 1.55;    // v11 出口市价上限（155%）
 export const TOUR_SPEND = 0.09;        // 每名游客每分钟消费 G
+// ---- v19 污染空间化：工业之殇 · 绿水青山 ----
+export const SMOG_R = 3;               // 污染扩散半径（曼哈顿距离）
+export const SMOG_SRC = 15;            // 每 1 点 ECON.pollute 折算源强（中心浓度）
+export const SMOG_LV1 = 45;            // 轻度雾霾：可见烟雾 · 商业收入 ×0.82
+export const SMOG_LV2 = 75;            // 重度雾霾：住宅幸福惩罚 · 市民吐槽
+/** 距离衰减：d=0..3 → 100% / 62% / 32% / 14%（工业区相邻叠加会连片成霾带） */
+export const SMOG_FALL = [1, 0.62, 0.32, 0.14];
 
 // ------------------------------------------------------------
 // 四季体系（v6）：季节由 engine 时钟驱动，经济在快照层联动
@@ -178,6 +185,7 @@ export const ECON: Record<string, EconDef> = {
   museum: D(550, 7, { power: 6, amenity: 4, upk: 2, edu: 25, sp: 1.5, cul: 4 }),
   firestation: D(240, 5, { power: 3, amenity: 3, upk: 1.5 }),
   koban: D(140, 2, { power: 1, amenity: 1, upk: 0.8 }),   // v12 交番：安全护盾 + 巡逻车
+  ecotower: D(720, 6, { power: 8, amenity: 2, upk: 2.4 }),  // v19 空气净化塔：半径 5 格强净化
   lighthouse: D(140, 8, { power: 1, amenity: 1, upk: 0.5, cul: 1 }),
   castle: D(2200, 9, { power: 4, amenity: 3, upk: 1.5, edu: 5, cul: 3 }),
   busstop: D(50, 1, { amenity: 2, upk: 0.6 }),
@@ -520,6 +528,11 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 3, val: (_s, t) => t.quakes },
   { id: 'floodsafe', name: '高墙铁壁', desc: '建成 3 座防洪堤，洪峰再汹涌也漫不过堤岸', icon: 'bridge',
     goal: 3, val: s => s.levees },
+  // ---- v19 生态治理 ----
+  { id: 'greencty', name: '绿水青山', desc: '环境指数 ≥85 且人口 ≥120 —— 工业与生态共生（空间雾霾会拖累环境指数：规划绿化带、上净化塔）', icon: 'tree',
+    goal: 85, val: (s, t) => (t.pop >= 120 ? s.envIdx : 0) },
+  { id: 'ecotower3', name: '城市之肺', desc: '建成 3 座空气净化塔，重工业区也能呼吸顺畅', icon: 'tree',
+    goal: 3, val: s => s.ecotowers },
 ];
 
 /** 需特定科技才可建造的建筑
@@ -645,6 +658,8 @@ export type QS = {
   chronN: number;
   // ---- v18 灾害链 ----
   waterNear: number; levees: number;
+  // ---- v19 污染空间化 ----
+  smogTiles: number; smogBad: number; smogRes: number; ecotowers: number;
 };
 
 export type Quest = {
@@ -740,6 +755,9 @@ export const QUESTS: Quest[] = [
   // ---- v18 灾害链：防洪堤 ----
   { id: 'levee1', title: '防患未然', hint: '建造 1 座防洪堤（临水而建的混凝土堤岸）：洪水损失 −15%/座，至多叠 3 座 —— 临水城市的安全底牌', goal: 1,
     val: s => s.levees, rG: 240, rXp: 120 },
+  // ---- v19 生态治理 ----
+  { id: 'eco1', title: '还我蓝天', hint: '建造 1 座空气净化塔：半径 5 格内雾霾大幅削减 —— 工厂下风向的住宅区需要它（树与公园也能净化周边）', goal: 1,
+    val: s => s.ecotowers, rG: 320, rXp: 150 },
 ];
 
 // ------------------------------------------------------------
@@ -818,6 +836,11 @@ export type EconView = {
   quakes: number; floods: number;   // 累计地震 / 洪水场次
   levees: number;                   // 防洪堤数
   waterNear: number;                // 临水领地格数（洪水触发条件）
+  // ---- v19：污染空间化 ----
+  smogTiles: number;                // 雾霾格数（浓度 ≥45）
+  smogBad: number;                  // 重污染格数（浓度 ≥75）
+  smogRes: number;                  // 重污染住宅栋数（幸福惩罚源）
+  ecotowers: number;                // 空气净化塔数
 };
 
 export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
@@ -962,6 +985,16 @@ export class Tycoon {
 
   // ---- v13：市民列传（名人册 / 生活大事记 / 市民之声）----
   citz = new CitizenRegistry();
+
+  // ---- v19：污染空间化（工业之殇 · 绿水青山）----
+  /** 污染浓度场：tileIdx → 0..100（仅保留 ≥45 的格；engine 雾霾层渲染 / 测试钩子读取） */
+  smogField = new Map<number, number>();
+  /** 净化塔计数（ensureSmog 回写，快照复用） */
+  private smogTowerN = 0;
+  /** 浓度场缓存版本（map.version×8 + 城市绿化×4 + 环保条例×2） */
+  private smogVer = -1;
+  /** 雾霾警告（一档一次，缓解后复位） */
+  private smogWarned = false;
 
   hasOrd(id: string): boolean { return this.ords.has(id); }
 
@@ -1168,6 +1201,8 @@ export class Tycoon {
   // ---------------- 状态快照（经济参数由地图实时推导） ----------------
 
   private snapOf(map: CityMap): Snap {
+    // v19：污染空间场先行（商业折扣 / 指数 / 统计都要用；版本缓存，地图或减排状态变化才重算）
+    this.ensureSmog(map);
     let cap = 0, jobs = 0, earnCom = 0, earnInd = 0, upk = 0;
     let powerSup = 0, powerDem = 0, amenitySup = 0, pollute = 0;
     let res = 0, com = 0, ind = 0, civ = 0, park = 0, buildings = 0;
@@ -1195,10 +1230,11 @@ export class Tycoon {
         resList.push({ x: o.ax + d.w / 2, y: o.ay + d.h / 2, pop: d.pop });
       } else if (d.cat === 'com') {
         com++; jobs += d.pop;
-        // 城市名片：文旅商业收入 +20%
+        // 城市名片：文旅商业收入 +20%；v19 空间污染：雾霾区生意冷清 ×0.82
         const brandB = this.has('brand') &&
           ['hotel', 'mall', 'ferris', 'aquarium', 'cinema', 'castle'].includes(o.id);
-        earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1);
+        const smogK = (this.smogField.get(map.idx(o.ax, o.ay)) ?? 0) >= SMOG_LV1 ? 0.82 : 1;
+        earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK;
         if (o.id === 'ferris') park++;
       } else if (d.cat === 'ind') {
         ind++; jobs += d.pop;
@@ -1355,8 +1391,19 @@ export class Tycoon {
     const jobIdx = Math.round(staffing * 100);
 
     // ---- v4 综合指数族 ----
+    // v19 空间污染统计：雾霾格 / 重污染格 / 重污染住宅
+    let smogBad = 0;
+    for (const c of this.smogField.values()) if (c >= SMOG_LV2) smogBad++;
+    let smogRes = 0;
+    for (const o of map.objs.values()) {
+      const dcat = defById(o.id).cat;
+      if (dcat !== 'res') continue;
+      if ((this.smogField.get(map.idx(o.ax, o.ay)) ?? 0) >= SMOG_LV2) smogRes++;
+    }
     // 环境：污染净额 → 指数化（越高越好；每净污染点扣 9 分）
-    const envIdx = Math.max(0, Math.min(100, Math.round(100 - polluteNet * 9)));
+    //   v19：再叠加空间雾霾修正（重污染格 −0.5/格 · 重污染住宅 −3/栋 —— 工业挨着住宅盖会现世报）
+    const envIdx = Math.max(0, Math.min(100, Math.round(
+      100 - polluteNet * 9 - smogBad * 0.5 - smogRes * 3)));
     // 健康：病床覆盖（每院 450 床 + 市政厅 50；公共医疗 +20%）
     const beds = (hospitals * 450 + 50) * (this.has('health') ? 1.2 : 1);
     const healthIdx = pop < 8 ? 80 : Math.max(0, Math.min(100, Math.round(100 * Math.min(1, beds / pop))));
@@ -1438,11 +1485,13 @@ export class Tycoon {
     //   健康 7 / 安全 6 / 交通 7；权重和 = 100）
     //   + 税率情绪 + 饥荒打击；v5 + 事件 / 天气情绪；v6 + 季节情绪；v10 + 法令情绪
     const famineHit = famine ? (this.has('granary') ? 12 : 25) : 0;
+    // v19：雾霾压城 —— 每栋重污染住宅 −2.5，至多 −12（种树 / 公园 / 净化塔可解）
+    const smogHap = Math.min(12, smogRes * 2.5);
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
       0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap
-      + (tramStops >= 2 ? 2 : 0) - famineHit)));   // v11 电车干线通车：出行体面 +2 幸福
+      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap)));   // v11 电车干线通车：出行体面 +2 幸福
     const happyMult = 0.6 + happiness / 125;
 
     // ---- v10 旅游：景点吸引力 × 文化/幸福 × 季节/天气 → 游客（酒店床位为接待上限）----
@@ -1499,6 +1548,8 @@ export class Tycoon {
       festN: this.festCount,                                        // v16 城市节庆
       chronN: this.chron.total,                                     // v17 城市编年史
       waterNear, levees,                                            // v18 灾害链
+      smogTiles: this.smogField.size, smogBad, smogRes,             // v19 污染空间化
+      ecotowers: this.smogTowerN,
       eventHap, eventAmenity, multCom, multInd, multFood, multPower, multTraffic, multSp,
       weather: { kind: wt.kind, t: wt.t },
       season: this.season, seasonHap,
@@ -1513,6 +1564,63 @@ export class Tycoon {
     };
     this.kobansNow = kobans;   // v12：巡逻编制回写（引擎折算 patrolCap）
     return s;
+  }
+
+  // ---------------- v19：污染空间场（工业之殇 · 绿水青山） ----------------
+
+  /** 重算污染浓度场（版本缓存：地图版本 ×8 + 城市绿化 ×4 + 环保条例 ×2 变化才重算）。
+   *  Pass A：污染源（ECON.pollute>0）以锤点为圆心曼哈顿 r≤3 扩散，工业区相邻叠加成霾带；
+   *  Pass B：净化 —— 树吸收自身格 ×0.55，绿荫建筑（公园/摩天轮/凉亭）半径 2 ×0.8，
+   *          空气净化塔半径 5 内 ×(0.42+0.08d)；连乘下限 0.03；仅保留 ≥SMOG_LV1 的格 */
+  private ensureSmog(map: CityMap): void {
+    const ver = map.version * 8 + (this.has('green') ? 4 : 0) + (this.hasOrd('ecolaw') ? 2 : 0);
+    if (ver === this.smogVer) return;
+    this.smogVer = ver;
+    const cut = (this.has('green') ? 0.7 : 1) * (this.hasOrd('ecolaw') ? 0.72 : 1);
+    const raw = new Map<number, number>();
+    const greens: Array<{ x: number; y: number; r: number }> = [];
+    let towers = 0;
+    for (const o of map.objs.values()) {
+      if (o.id === 'ecotower') {                       // v19 净化塔：半径 5 强净化
+        towers++;
+        greens.push({ x: o.ax, y: o.ay, r: 5 });
+        continue;
+      }
+      if (o.id === 'park' || o.id === 'ferris' || o.id === 'pavilion') {
+        greens.push({ x: o.ax, y: o.ay, r: 2 });       // 绿荫建筑：周边净化
+      }
+      const e = ECON[o.id];
+      if (!e?.pollute) continue;
+      const src = e.pollute * SMOG_SRC * cut;
+      for (let dy = -SMOG_R; dy <= SMOG_R; dy++) {
+        for (let dx = -SMOG_R; dx <= SMOG_R; dx++) {
+          const d = Math.abs(dx) + Math.abs(dy);
+          if (d > SMOG_R) continue;
+          const x = o.ax + dx, y = o.ay + dy;
+          if (!map.inB(x, y)) continue;
+          const i = map.idx(x, y);
+          raw.set(i, Math.min(100, (raw.get(i) ?? 0) + src * SMOG_FALL[d]));
+        }
+      }
+    }
+    const field = new Map<number, number>();
+    const n = map.n;
+    for (const [i, c] of raw) {
+      let k = 1;
+      if (map.tree[i] >= 0) k *= 0.55;
+      if (greens.length) {
+        const x = i % n, y = (i / n) | 0;
+        for (const g of greens) {
+          const d = Math.abs(x - g.x) + Math.abs(y - g.y);
+          if (d > g.r) continue;
+          k *= g.r === 5 ? 0.42 + 0.08 * d : 0.8;
+        }
+      }
+      const v = c * Math.max(0.03, k);
+      if (v >= SMOG_LV1) field.set(i, v);
+    }
+    this.smogField = field;
+    this.smogTowerN = towers;
   }
 
   // ---------------- 每帧心跳 ----------------
@@ -1571,6 +1679,12 @@ export class Tycoon {
       this.msg?.('货物短缺！商店缺货、商业收入大打折扣 —— 建工厂/木材厂扩大产能');
     } else if (s.goodsIdx >= 45) this.goodsWarned = false;
 
+    // v19 污染警告：重污染住宅出现时一档一次（缓解后复位）
+    if (s.smogRes > 0 && !this.smogWarned) {
+      this.smogWarned = true;
+      this.msg?.(`雾霾围城：${s.smogRes} 栋住宅笼罩在重污染中 —— 多种树、建公园，或进空气净化塔`);
+    } else if (s.smogRes === 0) this.smogWarned = false;
+
     // 科技点累积（教育设施 × 智慧加成）
     this.sp += s.spRaw * (0.5 + s.wisdom / 100) * (this.has('higher') ? 1.35 : 1) * dt / 60;
 
@@ -1598,6 +1712,7 @@ export class Tycoon {
       season: this.season, famine: s.famine,
       events: this.events.map(e => e.key),
       fest: this.fest ? this.fest.kind : -1,   // v16：节日心声
+      smog: s.smogRes,                         // v19：雾霾心声
     }, this.playtime);
     if (this.citz.total > citzTotalBefore) this.sfx?.('movein');
     if (this.citz.unread > mailUnreadBefore) this.sfx?.('bell');   // v15：叮——新来信
@@ -1631,6 +1746,7 @@ export class Tycoon {
     const eraUp = this.chron.survey({
       pop: this.pop, rating: s.rating, buildings: s.buildings,
       chunks: s.chunks, coins: this.coins,
+      smogRes: s.smogRes, envIdx: s.envIdx, ecotowers: s.ecotowers,   // v19 生态里程碑
     }, this.gHours);
     if (eraUp >= 1) {
       const ERAS_NAME = ['炊烟村庄', '市井小镇', '一方城市', '摩登都会'];
@@ -1902,6 +2018,11 @@ export class Tycoon {
       // ---- v18：灾害链 ----
       quakes: this.quakes, floods: this.floods,
       levees: s?.levees ?? 0, waterNear: s?.waterNear ?? 0,
+      // ---- v19：污染空间化 ----
+      smogTiles: s?.smogTiles ?? 0,
+      smogBad: s?.smogBad ?? 0,
+      smogRes: s?.smogRes ?? 0,
+      ecotowers: s?.ecotowers ?? 0,
     };
   }
 
@@ -2213,6 +2334,7 @@ export class Tycoon {
       pop: this.pop, happiness: s?.happiness ?? 60, taxRate: this.taxRate,
       season: this.season, famine: s?.famine ?? 0, events: this.events.map(e => e.key),
       fest: this.fest ? this.fest.kind : -1,   // v16：节日心声
+      smog: s?.smogRes ?? 0,                    // v19：雾霾心声
     });
   }
 

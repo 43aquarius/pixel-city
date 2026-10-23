@@ -16,6 +16,7 @@ import { genFactory, genWarehouse, genTankfarm } from './b_ind';
 import {
   genPark, genTree, genPlaza, genSchool, genHospital,
   genTemple, genStadium, genRadioTower, genMonument, genCityhall, genLibrary,
+  genEcotower,
 } from './b_civ';
 import {
   genManor, genResTower, genConvenience, genHotel, genMall, genParking,
@@ -189,6 +190,8 @@ export const CATALOG: Def[] = [
     gen: genWaterplant, desc: '双沉淀池水厂：大范围供水（半径 20 格 · 供 2200 人）' },
   { id: 'levee', name: '防洪堤', cat: 'civ', w: 1, h: 1, variants: 2, pop: 0,
     gen: genLevee, desc: '三级阶梯混凝土护岸：洪水损失 −15%/座（至多叠 3 座）· 临水城市的安全底牌' },
+  { id: 'ecotower', name: '空气净化塔', cat: 'civ', w: 1, h: 1, variants: 2, pop: 4,
+    gen: genEcotower, desc: '三层滤网盘的城市之肺：半径 5 格内雾霾大幅削减 —— 工业区的下风向首选' },
   // ---- 剧情（经营模式专属，不可直接建造）----
   { id: 'cityhall', name: '市政厅', cat: 'civ', w: 2, h: 2, variants: 1, pop: 0,
     gen: genCityhall, hidden: true, desc: '城市的心脏：金顶钟塔与旗帜' },
