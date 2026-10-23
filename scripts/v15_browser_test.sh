@@ -38,8 +38,19 @@ ok()   { echo "  ✓ $1"; PASS=$((PASS+1)); }
 bad()  { echo "  ✗ $1"; FAIL=$((FAIL+1)); }
 chk()  { if [ "$2" = "$3" ]; then ok "$1 ($2)"; else bad "$1 (got=$2 want=$3)"; fi; }
 chkge() { if [ "${2%.*}" -ge "$3" ] 2>/dev/null; then ok "$1 ($2 >= $3)"; else bad "$1 (got=$2 want>=$3)"; fi; }
+# agent-browser 0.39.0 已知问题：errors 文本输出丢消息只剩空✗、errors --clear 失效不重置缓冲。
+# 因此改用 --json 解析，并在开局重启浏览器拿干净错误缓冲。
+errcount() { agent-browser errors --json 2>/dev/null | python3 -c "import json,sys
+try: print(len(json.load(sys.stdin).get('data',{}).get('errors',[])))
+except Exception: print(0)"; }
+errtexts() { agent-browser errors --json 2>/dev/null | python3 -c "import json,sys
+try:
+ for e in json.load(sys.stdin).get('data',{}).get('errors',[]):
+  print('  ✗ '+e.get('text','').split(chr(10))[0][:150])
+except Exception: pass"; }
 
 echo "=== [1] 桌面端 1440×900 新档开局 ==="
+agent-browser close >/dev/null 2>&1; sleep 1   # 重启浏览器：清空陈旧错误缓冲（--clear 不可靠）
 agent-browser set viewport 1440 900
 agent-browser open $B
 agent-browser storage local clear >/dev/null 2>&1
@@ -98,12 +109,12 @@ F1=$(agent-browser eval "window.__pxc.tycoon.citz.roster.every(c=>c.fam===0&&c.s
 chk "F1 初始市民无家族标记" "${F1:-x}" "clean"
 WED=$(agent-browser eval "(()=>{const r=window.__pxc.tycoon.citz;for(let k=0;k<3;k++){const res=r.forceEvent('wed');if(res.ok){const a=r.roster.find(c=>c.spouse>0);if(!a)return 'W-none';const b=r.roster.find(x=>x.id===a.spouse);if(!b)return 'W-dangling';return (b.spouse===a.id&&a.fam>0&&a.fam===b.fam)?'W-ok|'+a.id+'#'+b.id:'W-broken';}}return 'W-fail';})()" 2>/dev/null | tail -1 | tr -d '"')
 case "$WED" in
-  W-ok:*) ok "F2 forceEvent('wed') 成婚（配偶互指·家族同号 #${WED#W-ok|}）";;
+  W-ok\|*) ok "F2 forceEvent('wed') 成婚（配偶互指·家族同号 #${WED#W-ok|}）";;
   *) bad "F2 成婚异常 ($WED)";;
 esac
 BORN=$(agent-browser eval "(()=>{const r=window.__pxc.tycoon.citz;const wed=r.roster.filter(c=>c.spouse>0);if(!wed.length)return 'B-nowed';const a=wed[0];const mate=r.roster.find(x=>x.id===a.spouse);const before=r.roster.length;const totalBefore=r.total;const res=r.forceEvent('born',a.id);if(!res.ok)return 'B-fail:'+res.msg;const baby=r.roster[r.roster.length-1];const pa=r.roster.find(x=>x.id===baby.pa);const ma=r.roster.find(x=>x.id===baby.ma);const okAll=baby.body===1&&baby.age===0&&baby.pa===a.id&&baby.ma===mate.id&&pa&&ma&&baby.name[0]===pa.name[0]&&baby.fam===a.fam&&baby.log.some(l=>l.text.includes('坠地'))&&r.roster.length===before+1&&r.total===totalBefore+1&&a.log.some(l=>l.text.includes('新丁'))&&mate.log.some(l=>l.text.includes('降生'));return okAll?'B-ok|'+baby.id:'B-broken:'+JSON.stringify({body:baby.body,age:baby.age,pa:baby.pa,ma:baby.ma,fam:baby.fam,n:r.roster.length,total:r.total});})()" 2>/dev/null | tail -1 | tr -d '"')
 case "$BORN" in
-  B-ok:*) ok "F3 新生儿入册（随父姓·记父母·日志 #${BORN#B-ok|}）";;
+  B-ok\|*) ok "F3 新生儿入册（随父姓·记父母·日志 #${BORN#B-ok|}）";;
   *) bad "F3 添丁异常 ($BORN)";;
 esac
 FAMC=$(agent-browser eval "(()=>{const t=window.__pxc.tycoon;const parent=t.citz.roster.find(c=>c.spouse>0);const card=t.citz.view().roster.find(x=>x.id===parent.id);if(!card||!card.fam||!card.fam.length)return 'nofam';const rels=card.fam.map(f=>f.rel);return (rels.includes('配偶')&&rels.includes('子女')&&card.fam.every(f=>f.name&&f.mood>=0&&f.mood<=100))?'ok':'broken:'+rels.join(',');})()" 2>/dev/null | tail -1 | tr -d '"')
@@ -190,13 +201,14 @@ OLD=$(agent-browser eval "(()=>{const t=window.__pxc.tycoon;t.citz.restore({tota
 chk "P2 旧档恢复不崩（家族/信箱字段缺省）" "${OLD:-x}" "ok"
 
 echo "=== [15] P3 控制台错误 + 城市截图 ==="
-ERRS=$(agent-browser errors 2>/dev/null | grep -v '✓' | grep -vE '^[[:space:]]*$' | head -5)
-if [ -z "$ERRS" ]; then ok "无页面错误"; else echo "  ⚠ 页面错误:"; echo "$ERRS"; FAIL=$((FAIL+1)); fi
+ERRN=$(errcount)
+if [ "$ERRN" = "0" ]; then ok "无页面错误"; else echo "  ⚠ 页面错误($ERRN):"; errtexts; FAIL=$((FAIL+1)); fi
 agent-browser eval "(()=>{const e=window.__pxc;e.centerAt(124,126);return 'cam';})()" >/dev/null
 agent-browser wait 1200
 agent-browser screenshot $OUT/v15_city.png >/dev/null && ok "截图 v15_city.png"
 
 echo "=== [16] 移动端 390×844（信箱 + 市民面板）==="
+MERR_BASE=$(errcount)   # 快照基线：移动段只对本段新增错误计账
 agent-browser set viewport 390 844
 agent-browser reload
 agent-browser wait --fn "window.__pxc!==undefined" --timeout 60000
@@ -213,8 +225,8 @@ agent-browser wait 600
 MOBCZ=$(agent-browser eval "document.querySelector('.pxc-citz')?'open':'closed'" 2>/dev/null | tail -1 | tr -d '"')
 chk "移动端市民面板打开" "${MOBCZ:-x}" "open"
 agent-browser screenshot $OUT/v15_mobile_citz.png >/dev/null && ok "截图 v15_mobile_citz.png"
-MERRS=$(agent-browser errors 2>/dev/null | grep -v '✓' | grep -vE '^[[:space:]]*$' | head -3)
-if [ -z "$MERRS" ]; then ok "移动端无页面错误"; else echo "  ⚠ 移动端错误:"; echo "$MERRS"; FAIL=$((FAIL+1)); fi
+MERRN=$(errcount)
+if [ "$MERRN" -le "${MERR_BASE:-0}" ]; then ok "移动端无页面错误"; else echo "  ⚠ 移动端错误($MERRN):"; errtexts; FAIL=$((FAIL+1)); fi
 
 echo ""
 echo "========== 结果: PASS=$PASS FAIL=$FAIL =========="
