@@ -193,6 +193,8 @@ export type CitzCtx = {
   season: number;
   famine: number;
   events: string[];
+  /** v16 进行中的节日（0-3；-1 = 无） */
+  fest: number;
 };
 
 const rnd = <T,>(a: T[]): T => a[(Math.random() * a.length) | 0];
@@ -218,7 +220,7 @@ export class CitizenRegistry {
   private mailTimer = 26;          // 首封信来得早些，让玩家尽快见到新玩法
   private nextLetterId = 1;
   private nextFam = 1;
-  private lastCtx: CitzCtx = { pop: 0, happiness: 60, taxRate: 8, season: 0, famine: 0, events: [] };
+  private lastCtx: CitzCtx = { pop: 0, happiness: 60, taxRate: 8, season: 0, famine: 0, events: [], fest: -1 };
   private lastT = 0;
   /** 消息回调（tycoon.msg 接线） */
   onMsg: ((s: string) => void) | null = null;
@@ -581,6 +583,27 @@ export class CitizenRegistry {
         react(pick(), `去市政厅递了意见书，附了按满手印的联名信`, -6);
         break;
       }
+      // ---- v16 城市节庆：开幕式 / 落幕 ----
+      case 'fest0': {
+        react(pick(), `在樱花祭的樱树下拍了全家福`, +8);
+        break;
+      }
+      case 'fest1': {
+        react(pick(), `在花火大会上跟着人群欢呼，许了个愿`, +8);
+        break;
+      }
+      case 'fest2': {
+        react(pick(), `丰收节上搬回了半袋新米和一坛好酒`, +7);
+        break;
+      }
+      case 'fest3': {
+        react(pick(), `暖灯节给孩子买了盏兔子灯，提了一路`, +8);
+        break;
+      }
+      case 'festend': {
+        react(pick(), `节日散场，把彩带别在了日记本里`, +3);
+        break;
+      }
       default: break;
     }
   }
@@ -603,7 +626,15 @@ export class CitizenRegistry {
     const c = rnd(this.roster);
     const seasonWord = ['春天樱花开得正好', '夏天夜市热闹得很', '秋天满街金桂飘香', '冬天呵气都成霜'][clamp(ctx.season, 0, 3)];
     let text: string;
+    // v16 节日心声：庆典进行中优先说节日的开心事（饥荒除外——俄着肚子过不好节）
+    const FEST_VOICE: string[][] = [
+      ['樱吹雪落了满肩，拍照都拍不过来', '樱花树下野餐，孩子追着花瓣跑'],
+      ['烟花在夜空炸开的瞬间，全城都在欢呼', '穿着浴衣去看花火，人山人海'],
+      ['新米煮的饭真香，锅巴都抢光了', '粮仓堆得满满当当，今年踏实了'],
+      ['长街的灯笼一盏盏亮起来，真暖', '冬夜里喝一碗热汤，提灯看灯去'],
+    ];
     if (ctx.famine) text = rnd(['粮价一天一个样，家里米缸快见底了', '菜场的白菜都要抢了，得想想办法']);
+    else if (ctx.fest >= 0 && ctx.fest <= 3) text = rnd(FEST_VOICE[ctx.fest]);
     else if (ctx.taxRate > 12) text = rnd(['税越收越狠，肉摊都少割两斤了', '这税率，攒钱的速度赶不上市政厅收的']);
     else if (ctx.taxRate <= 5) text = rnd(['低税的日子里，钱包都胖了一圈', '市政厅这个月大方，下馆子加了个鸡腿']);
     else if (ctx.happiness < 40) text = rnd(['这日子……再看看吧，不行就搬去隔壁城', '唉，晚上都睡不踏实']);

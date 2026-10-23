@@ -18,7 +18,7 @@ import { PALETTE } from '@/lib/pixelcity/palette';
 import { iconURI } from '@/lib/pixelcity/icons';
 import {
   Tycoon, ECON, costOf, unlockOf, fmtG, QUESTS, TECHS, BRANCHES, TECH_GATE, techNameOf,
-  taxMood, TAX_MIN, TAX_MAX, SEASONS,
+  taxMood, TAX_MIN, TAX_MAX, SEASONS, FESTS,
   type EconView, type HistPoint,
 } from '@/lib/pixelcity/tycoon';
 import type { CitzCard } from '@/lib/pixelcity/citizens';
@@ -35,7 +35,7 @@ const ICON_NAMES = [
   'wheat', 'book', 'flask', 'heart', 'up', 'down', 'job', 'medal',
   'sun', 'cloud', 'rain', 'snoww',
   'spr', 'sum', 'fall', 'win', 'drop', 'bridge',
-  'camera', 'box', 'fire', 'shield', 'mail',
+  'camera', 'box', 'fire', 'shield', 'mail', 'fest',
 ];
 
 type Phase = 'loading' | 'ready';
@@ -245,7 +245,7 @@ export default function PixelCity() {
   const [hover, setHover] = useState<{ tx: number; ty: number } | null>(null);
   const [fps, setFps] = useState(0);
   const [zoom, setZoom] = useState(2);
-  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail'>('none');
+  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'fest'>('none');
   const [econ, setEcon] = useState<EconView | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
@@ -529,7 +529,7 @@ export default function PixelCity() {
     }
   }, [say]);
 
-  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail') => {
+  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'fest') => {
     if (m === 'save') {
       setSlotMeta([0, 1, 2].map(i => Engine.slotMeta(i)));
     }
@@ -1150,6 +1150,16 @@ export default function PixelCity() {
                 title={`市长信箱：${econ.mail.unread > 0 ? `${econ.mail.unread} 封未读 —— 市民在等您回信` : `${econ.mail.n} 封来信，暂无未读`}`}>
                 <img src={iu('mail')} alt="" /><b>{econ.mail.n}</b><i>邮</i>
                 {econ.mail.unread > 0 && <em className="chip-dot">{econ.mail.unread}</em>}
+              </button>
+              <button className={`chip${econ.fest ? ' fest-on' : ''}`} onClick={() => openModal('fest')}
+                title={econ.fest
+                  ? `「${econ.fest.name}」进行中：还剩 ${econ.fest.left} 秒 —— ${econ.fest.desc}`
+                  : econ.festCd > 0
+                    ? `城市节庆：筹备休整中（${econ.festCd} 秒后可再办）`
+                    : econ.festLock
+                      ? `城市节庆：需市政厅 LV${econ.festLv} 解锁 —— 按季节举办樱花祭/花火大会/丰收节/暖灯节`
+                      : `城市节庆：随时可办「${FESTS[econ.season].name}」（${FESTS[econ.season].desc}）`}>
+                <img src={iu('fest')} alt="" /><b>{econ.fest ? `${econ.fest.left}s` : econ.festCount}</b><i>庆</i>
               </button>
               <div className={`chip${econ.powerDem > econ.powerSup ? ' warn' : ''}`}
                 title={`电力：供给 ${econ.powerSup}MW / 需求 ${econ.powerDem}MW${econ.powerDem > econ.powerSup ? ' —— 缺电！收入大幅打折' : ''}`}>
@@ -1858,6 +1868,65 @@ export default function PixelCity() {
         </div>
       )}
 
+      {/* v16 城市节庆模态（经营模式） */}
+      {modal === 'fest' && econ && (
+        <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
+          <div className="pxc-modal pxc-fest" role="dialog" aria-label="城市节庆">
+            <header>
+              城 市 节 庆
+              <button className="pxc-x" onClick={() => setModal('none')} aria-label="关闭">×</button>
+            </header>
+            <div className="pxc-body">
+              <div className={`fest-card k${econ.season}`}>
+                <div className="fc-head">
+                  <span className="fc-badge">{SEASONS[econ.season].name} · 当季</span>
+                  <b className="fc-name">{FESTS[econ.season].name}</b>
+                  <span className="fc-dur">{FESTS[econ.season].dur} 秒</span>
+                </div>
+                <div className="fc-desc">{FESTS[econ.season].desc}</div>
+                {econ.fest ? (
+                  <div className="fest-live">
+                    <div className="fl-bar"><i style={{ width: `${Math.max(0, Math.min(100, Math.round(econ.fest.left / Math.max(1, econ.fest.dur) * 100)))}%` }} /></div>
+                    <div className="fl-t">「{econ.fest.name}」进行中 —— 还剩 {econ.fest.left} 秒，全城同庆</div>
+                  </div>
+                ) : econ.festCd > 0 ? (
+                  <div className="fest-cd">筹备休整中 —— 约 {econ.festCd} 秒后可再办节庆</div>
+                ) : econ.festLock ? (
+                  <div className="fest-cd lock">需市政厅 LV{econ.festLv} 才能举办节庆（升级市政厅解锁）</div>
+                ) : (
+                  <button
+                    className="pxc-btn primary fest-go"
+                    disabled={econ.coins < econ.festCost}
+                    onClick={() => {
+                      const t = engineRef.current?.tycoon;
+                      if (!t) return;
+                      const r = t.startFestival();
+                      if (r === 'poor') say(`金币不够：办「${FESTS[econ.season].name}」需要 ${econ.festCost}G`);
+                      else if (r === 'lv') say(`需市政厅 LV${econ.festLv} 才能举办节庆`);
+                      else if (r === 'cd') say('筹备休整中，稍等片刻就能再办');
+                    }}
+                  >
+                    举办「{FESTS[econ.season].name}」 · {econ.festCost}G
+                  </button>
+                )}
+              </div>
+              <div className="fest-hist">
+                <span className="fh-total">累计举办 <b>{econ.festCount}</b> 场</span>
+                {FESTS.map((f, k) => (
+                  <span key={k} className={`fh-kind${econ.festKinds.includes(k) ? ' on' : ''}`}>
+                    {f.name}{econ.festKinds.includes(k) ? ' ✓' : ''}
+                  </span>
+                ))}
+              </div>
+              <div className="fest-note">
+                节日随季节轮转（每季 4 分钟）：春天樱吹雪、夏天夜花火、秋天金叶满街、冬天孔明灯升空 ——
+                办节提振幸福与市面，也是市民大事记里的高光时刻；连办四季解锁成就「四季轮庆」
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 科技研究院模态（经营模式） */}
       {modal === 'tech' && econ && (
         <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
@@ -2293,6 +2362,7 @@ export default function PixelCity() {
                     <tr><td>经营</td><td>顶部 HUD 看金币/人口/电力/幸福；点迷雾金框购地；点市政厅开财政报告；工业产货供商业、缺货打折，景点招游客消费；两座电车站开通电车干线，铁路货运站让内陆城市出口；出口市价随行就市波动，可惜售囤货低吸高抛；财政报告里可进市政法令厅颁布政策</td></tr>
                     <tr><td>市民</td><td>顶栏「民」指标开<b>市民列传</b>：人口迁入迎来有名有姓的市民（传记/性格/住所/大事记），还能「去家里看看」；观察工具点击街上的行人也能遇到他们（在册市民就是本人，脸生的则是过路人）；成婚添丁会组成<b>家族谱系</b></td></tr>
                     <tr><td>信箱</td><td>顶栏「邮」指标开<b>市长信箱</b>：市民随城市状态来信（求助/吐槽/感谢/见闻），挑一种口吻回信会影响 TA 的心情；红点亮起就是有人盼着回信，回满 8 封解锁成就「见字如面」</td></tr>
+                    <tr><td>节庆</td><td>顶栏「庆」指标开<b>城市节庆</b>：随季节举办樱花祭/花火大会/丰收节/暖灯节（市政厅 LV3 起），90 秒全城增益 —— 春天樱吹雪加密、夏天夜空花火、秋天金叶满街、冬天孔明灯升空；节日会写进市民大事记，累计 8 场解锁成就「节庆之都」、四季各办一场解锁「四季轮庆」</td></tr>
                     <tr><td>引导</td><td>首次进入经营模式自动展开新手引导横幅（修路→建房→迎市民→开业→看面板→认市民）；随时可跳过，也可在这里点「重新查看新手引导」重看</td></tr>
                     <tr><td>音效</td><td>顶栏喇叭图标：音效开关 + 主音量滑杆（本地记忆）；建造/金币/灾害警报/警笛/电车铃/成就凯旋各有专属 8-bit 音色</td></tr>
                   </tbody>
@@ -2310,7 +2380,7 @@ export default function PixelCity() {
                     <tr><td>地形</td><td>真实海拔起伏：抬升造山、降低挖谷（挖到 0 化为水域）；山坡建房自动整地（另付小额费用）；行人车辆会爬坡</td></tr>
                     <tr><td>桥梁</td><td>道路工具拖过水面自动架桥（15G/格，物流网络科技打折），桥面与岸上路面齐平，行人车辆畅通无阻</td></tr>
                     <tr><td>四季</td><td>春樱/夏绿/秋红/冬雪随时钟轮转（每季 4 分钟×1）：春季樱花瓣飘落、冬季水面封冻大地积雪；粮产/商业/用电随季节联动</td></tr>
-                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>城市卫士应急联动</b>（交番驻巡逻警车·治安+220 护盾；火灾/疫病来袭消防车救护车沿路驰援——到场喷水/接载并免余损，设施邻路是关键）· <b>市民列传</b>（人口迁入迎来有名有姓的市民：顶栏「民」指标开名人册看传记与大事记，观察工具点击街上行人打招呼——在册市民就是本人、脸生的则是过路人，成婚添丁组成家族谱系，市民之声随城市状态轮播）· <b>市长信箱</b>（顶栏「邮」指标：市民随城市状态来信——求助/吐槽/感谢/见闻，回信影响他们的心情，回满 8 封解锁成就「见字如面」）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
+                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>城市卫士应急联动</b>（交番驻巡逻警车·治安+220 护盾；火灾/疫病来袭消防车救护车沿路驰援——到场喷水/接载并免余损，设施邻路是关键）· <b>市民列传</b>（人口迁入迎来有名有姓的市民：顶栏「民」指标开名人册看传记与大事记，观察工具点击街上行人打招呼——在册市民就是本人、脸生的则是过路人，成婚添丁组成家族谱系，市民之声随城市状态轮播）· <b>市长信箱</b>（顶栏「邮」指标：市民随城市状态来信——求助/吐槽/感谢/见闻，回信影响他们的心情，回满 8 封解锁成就「见字如面」）· <b>城市节庆</b>（顶栏「庆」指标：随季节办节 —— 樱花祭/花火大会/丰收节/暖灯节，90 秒全城增益配专属街景特效）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
                     <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
                     <tr><td>引导</td><td>首次进入经营模式自动展开新手引导横幅（修路→建房→迎市民→开业→看面板→认市民）；随时可跳过，也可在这里点「重新查看新手引导」重看</td></tr>
                     <tr><td>音效</td><td>顶栏喇叭图标：音效开关 + 主音量滑杆（本地记忆偏好）；建造/金币/灾害警报/应急警笛/电车铃/季节钟声/成就凯旋等 21 种专属 8-bit 音色</td></tr>

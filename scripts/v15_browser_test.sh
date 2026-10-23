@@ -69,6 +69,8 @@ agent-browser wait 1000
 echo "=== [3] 人口脉冲 → 市民落户 + 偏置池同步 ==="
 agent-browser eval "(()=>{const t=window.__pxc.tycoon;let iv=null;iv=setInterval(()=>{t.pop=Math.min(64,t.pop+4)},250);setTimeout(()=>clearInterval(iv),2600);return 'pulsing';})()" 2>/dev/null | tail -1
 agent-browser wait 5000
+# 冻结随机生活事件：防止 F1 前偶发「成婚」把家族标记弄脏（F2/F3 走 forceEvent 不受影响）
+agent-browser eval "window.__pxc.tycoon.citz.evTimer=99999; 'frozen'" >/dev/null 2>&1
 CN=$(agent-browser eval "window.__pxc.tycoon.citz.roster.length" 2>/dev/null | tail -1 | tr -d '"')
 chkge "S2 在册市民 ≥ 5" "${CN:-0}" 5
 agent-browser wait 6000

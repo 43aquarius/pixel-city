@@ -12,7 +12,9 @@ export type SfxName =
   | 'click' | 'place' | 'paint' | 'delete' | 'error' | 'open' | 'save' | 'zoom'
   | 'coin' | 'quest' | 'level' | 'buy'
   // ---- v14 音效矩阵 ----
-  | 'alarm' | 'cheer' | 'siren' | 'bell' | 'achieve' | 'season' | 'movein' | 'tech' | 'rescue';
+  | 'alarm' | 'cheer' | 'siren' | 'bell' | 'achieve' | 'season' | 'movein' | 'tech' | 'rescue'
+  // ---- v16 城市节庆 ----
+  | 'festival';
 
 const STORE_KEY = 'pxc_sound';
 
@@ -160,6 +162,15 @@ export class Beeper {
       case 'rescue':   // 应急到场：大和弦扫弦
         this.tone(392, 0.06, 0, 0.08); this.tone(523, 0.06, 0.06, 0.08);
         this.tone(659, 0.06, 0.12, 0.08); this.tone(784, 0.15, 0.18, 0.09);
+        break;
+      // ---- v16 城市节庆 ----
+      case 'festival':  // 节日开幕：欢快五连跳琶音 + 铃铛收尾
+        this.tone(523, 0.06, 0, 0.08, 'triangle');
+        this.tone(659, 0.06, 0.065, 0.08, 'triangle');
+        this.tone(784, 0.06, 0.13, 0.08, 'triangle');
+        this.tone(1046, 0.06, 0.195, 0.08, 'triangle');
+        this.tone(1319, 0.16, 0.26, 0.09, 'triangle');
+        this.tone(2093, 0.1, 0.34, 0.05, 'triangle');
         break;
     }
   }

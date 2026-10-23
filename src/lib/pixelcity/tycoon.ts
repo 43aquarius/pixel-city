@@ -466,6 +466,11 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 100, val: s => s.citzTotal },
   { id: 'famous', name: '家喻户晓', desc: '市民列传名人册满 28 位在册市民', icon: 'person',
     goal: 28, val: s => s.citzN },
+  // ---- v16 城市节庆 ----
+  { id: 'fest8', name: '节庆之都', desc: '累计举办 8 场城市节庆（樱花祭/花火大会/丰收节/暖灯节）', icon: 'fest',
+    goal: 8, val: (_s, t) => t.festCount },
+  { id: 'fest4', name: '四季轮庆', desc: '四季节日各举办过一场（跟着季节轮转把节过全）', icon: 'fest',
+    goal: 4, val: (_s, t) => t.festKinds.size },
   // ---- v15 家书馆 ----
   { id: 'penpal8', name: '见字如面', desc: '在市长信箱回信 8 封（顶栏「邮」——市民来信有求助有感谢，回信能影响他们的心情）', icon: 'mail',
     goal: 8, val: (_s, t) => t.citz.replyCount },
@@ -521,6 +526,35 @@ export function costOf(id: string): number { return ECON[id]?.cost ?? 0; }
 export function unlockOf(id: string): number { return ECON[id]?.unlock ?? 1; }
 
 // ------------------------------------------------------------
+// v16 城市节庆：玩家主动举办的季节性节日（区别于随机事件）
+//   顶级「庆」指标进入节庆面板；随当前季节自动选定节日，
+//   花费筹备费 → 90 秒全城增益 + 专属视觉（花吹雪/花火/金叶/孔明灯）
+// ------------------------------------------------------------
+
+export type FestDef = {
+  name: string;          // 樱花祭 / 花火大会 / 丰收节 / 暖灯节
+  desc: string;          // 效果说明（面板 + 开幕消息）
+  hap: number;           // 幸福加成
+  amenity: number;       // 宜居加成（活动设施供给）
+  mult: { com?: number; food?: number; sp?: number; tour?: number };
+  dur: number;           // 时长（秒）
+};
+
+export const FESTS: FestDef[] = [
+  { name: '樱花祭', desc: '满城花吹雪：幸福 +7 · 宜居 +6 · 游客 ×1.3',
+    hap: 7, amenity: 6, mult: { tour: 1.3 }, dur: 90 },
+  { name: '花火大会', desc: '夜空烟花盛会：幸福 +5 · 游客 ×1.8 · 商业 ×1.15',
+    hap: 5, amenity: 3, mult: { tour: 1.8, com: 1.15 }, dur: 90 },
+  { name: '丰收节', desc: '晒谷扬扬庆丰年：幸福 +4 · 粮产 ×1.5 · 科技 ×1.3',
+    hap: 4, amenity: 2, mult: { food: 1.5, sp: 1.3 }, dur: 90 },
+  { name: '暖灯节', desc: '长街灯火暖冬夜：幸福 +6 · 商业 ×1.2',
+    hap: 6, amenity: 4, mult: { com: 1.2 }, dur: 90 },
+];
+
+export const FEST_LV = 3;          // 市政厅等级门槛
+export const FEST_CD = 180;        // 冷却（秒；自开幕起算 = 时长 + 180）
+
+// ------------------------------------------------------------
 // 等级
 // ------------------------------------------------------------
 
@@ -559,6 +593,8 @@ export type QS = {
   firestations: number; hospitals: number;
   // ---- v13 市民列传 ----
   citzN: number; citzTotal: number;
+  // ---- v16 城市节庆 ----
+  festN: number;
 };
 
 export type Quest = {
@@ -645,6 +681,9 @@ export const QUESTS: Quest[] = [
   // ---- v13 市民列传 ----
   { id: 'citz8', title: '城市家人', hint: '名人册在册市民达到 8 位（人口迁入会迎来新市民落户；点顶部「民」指标或用观察工具点街上的行人，认识你的市民）', goal: 8,
     val: s => s.citzN, rG: 300, rXp: 150 },
+  // ---- v16 城市节庆 ----
+  { id: 'fest1', title: '万人空巷', hint: '举办一场城市节庆（市政厅 LV3 后，顶栏「庆」指标按当前季节筹备节日：樱花祭/花火大会/丰收节/暖灯节，各有 90 秒全城增益与专属街景）', goal: 1,
+    val: s => s.festN, rG: 380, rXp: 170 },
 ];
 
 // ------------------------------------------------------------
@@ -709,6 +748,14 @@ export type EconView = {
   citz: CitzView;
   // ---- v15：市长信箱 ----
   mail: { unread: number; n: number };
+  // ---- v16：城市节庆 ----
+  fest: { name: string; desc: string; left: number; dur: number } | null;   // 进行中节日（null = 无）
+  festCd: number;        // 冷却剩余（秒）
+  festCount: number;     // 累计场次
+  festKinds: number[];   // 举办过的种类（0-3）
+  festCost: number;      // 当前筹备费
+  festLock: boolean;     // 市政厅等级不足
+  festLv: number;        // 门槛等级
 };
 
 export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
@@ -779,7 +826,8 @@ export class Tycoon {
   sfx: ((n: 'coin' | 'quest' | 'level' | 'buy' | 'error'
     // v14 音效矩阵：事件警报 / 喜讯 / 成就 / 科技 / 救援 / 迁入
     // v15：新来信铃（bell）
-    | 'alarm' | 'cheer' | 'achieve' | 'tech' | 'rescue' | 'movein' | 'bell') => void) | null = null;
+    // v16：节日开幕琶音（festival）
+    | 'alarm' | 'cheer' | 'achieve' | 'tech' | 'rescue' | 'movein' | 'bell' | 'festival') => void) | null = null;
 
   // ---- v5：天气 / 随机事件 / 成就 ----
   /** 当前天气（engine 每帧回写；纯数据不参与存档，重开随机） */
@@ -826,10 +874,43 @@ export class Tycoon {
   /** v12 交班数（engine 每帧读取折算巡逻编制） */
   kobansNow = 0;
 
+  // ---- v16：城市节庆（主动举办的季节节日）----
+  /** 进行中的节日（kind = 季节 0-3；null = 无） */
+  fest: { kind: number; left: number } | null = null;
+  /** 节日冷却剩余（秒） */
+  festCd = 0;
+  /** 累计举办场次 */
+  festCount = 0;
+  /** 举办过的节日种类（成就「四季轮庆」） */
+  festKinds = new Set<number>();
+
   // ---- v13：市民列传（名人册 / 生活大事记 / 市民之声）----
   citz = new CitizenRegistry();
 
   hasOrd(id: string): boolean { return this.ords.has(id); }
+
+  /** v16 节日筹备费（随人口规模上浮，人口越多排场越大） */
+  festCost(): number { return Math.round(80 + this.pop * 0.6); }
+
+  /** v16 举办当前季节的节日：'ok' | 'poor'（钱不够） | 'cd'（冷却中） | 'lv'（等级不足） | 'busy'（节日进行中） */
+  startFestival(): 'ok' | 'poor' | 'cd' | 'lv' | 'busy' {
+    if (this.fest) return 'busy';
+    if (this.level < FEST_LV) return 'lv';
+    if (this.festCd > 0) return 'cd';
+    const cost = this.festCost();
+    if (this.coins < cost) return 'poor';
+    this.coins -= cost;
+    const kind = Math.max(0, Math.min(3, this.season));
+    const f = FESTS[kind];
+    this.fest = { kind, left: f.dur };
+    this.festCount++;
+    this.festKinds.add(kind);
+    this.festCd = f.dur + FEST_CD;   // 开幕即起表：落幕后再等 FEST_CD 秒
+    this.sfx?.('festival');
+    this.msg?.(`✦「${f.name}」开幕！${f.desc}（历时 ${f.dur} 秒，全城同庆）`);
+    this.citz.onCityEvent('fest' + kind, this.playtime);   // 市民史册：开幕式
+    return 'ok';
+  }
 
   /** 颁布 / 废止法令（等级或条件不满足时锁定） */
   toggleOrd(id: string): 'on' | 'off' | 'lock' {
@@ -1138,6 +1219,17 @@ export class Tycoon {
     if (this.hasOrd('energy')) powerDem *= 0.88;
     if (this.hasOrd('night')) powerDem *= 1.06;
     if (this.hasOrd('organic')) foodProd *= 1.18;
+    // v16 城市节庆：季节节日增益（乘数并入本帧经济；与随机事件乘数连乘）
+    let festHap = 0, festAmenity = 0;
+    if (this.fest) {
+      const f = FESTS[this.fest.kind];
+      if (f.mult.com) multCom *= f.mult.com;
+      if (f.mult.food) multFood *= f.mult.food;
+      if (f.mult.sp) multSp *= f.mult.sp;
+      if (f.mult.tour) multTour *= f.mult.tour;
+      festHap = f.hap;
+      festAmenity = f.amenity;
+    }
     const seasonHap = sn.hap;
     foodProd *= multFood;
     earnCom *= multCom;
@@ -1156,7 +1248,7 @@ export class Tycoon {
 
     // 宜居度 v4：设施供需 + 供电（污染剥离至独立的环境指数）；v5 + 事件加成
     const livability = Math.max(0, Math.min(100, Math.round(
-      50 + 2.2 * (amenitySup + eventAmenity - amenityNeed) + (powerMult >= 1 ? 4 : -10),
+      50 + 2.2 * (amenitySup + eventAmenity + festAmenity - amenityNeed) + (powerMult >= 1 ? 4 : -10),
     )));
 
     // 粮食：产量 − 消耗 → 库存与安全指数
@@ -1248,7 +1340,7 @@ export class Tycoon {
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
-      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap
+      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap
       + (tramStops >= 2 ? 2 : 0) - famineHit)));   // v11 电车干线通车：出行体面 +2 幸福
     const happyMult = 0.6 + happiness / 125;
 
@@ -1303,6 +1395,7 @@ export class Tycoon {
       hospitals, firestations, roadsTotal, taxMoodV: mood,
       kobans, rescueFire: this.rescueFire, rescueAid: this.rescueAid,
       citzN: this.citz.roster.length, citzTotal: this.citz.total,   // v13 市民列传
+      festN: this.festCount,                                        // v16 城市节庆
       eventHap, eventAmenity, multCom, multInd, multFood, multPower, multTraffic, multSp,
       weather: { kind: wt.kind, t: wt.t },
       season: this.season, seasonHap,
@@ -1401,9 +1494,23 @@ export class Tycoon {
       pop: this.pop, happiness: s.happiness, taxRate: this.taxRate,
       season: this.season, famine: s.famine,
       events: this.events.map(e => e.key),
+      fest: this.fest ? this.fest.kind : -1,   // v16：节日心声
     }, this.playtime);
     if (this.citz.total > citzTotalBefore) this.sfx?.('movein');
     if (this.citz.unread > mailUnreadBefore) this.sfx?.('bell');   // v15：叮——新来信
+
+    // v16 城市节庆：倒计时 → 落幕结算；冷却递减
+    if (this.fest) {
+      this.fest.left -= dt;
+      if (this.fest.left <= 0) {
+        const f = FESTS[this.fest.kind];
+        this.fest = null;
+        this.citz.onCityEvent('festend', this.playtime);   // 市民史册：散场回味
+        this.msg?.(`「${f.name}」圆满落幕 —— 全城尽兴而归（累计第 ${this.festCount} 场）`);
+        this.sfx?.('cheer');
+      }
+    }
+    if (this.festCd > 0) this.festCd = Math.max(0, this.festCd - dt);
 
     // 任务链
     while (this.questIdx < QUESTS.length) {
@@ -1633,6 +1740,16 @@ export class Tycoon {
       mktTrend: this.mkt - this.mktPrev,
       expPrice: s?.expPrice ?? EXPORT_PRICE,
       exportHold: this.exportHold,
+      // ---- v16：城市节庆 ----
+      fest: this.fest
+        ? { name: FESTS[this.fest.kind].name, desc: FESTS[this.fest.kind].desc, left: Math.ceil(this.fest.left), dur: FESTS[this.fest.kind].dur }
+        : null,
+      festCd: Math.ceil(this.festCd),
+      festCount: this.festCount,
+      festKinds: [...this.festKinds],
+      festCost: this.festCost(),
+      festLock: this.level < FEST_LV,
+      festLv: FEST_LV,
     };
   }
 
@@ -1698,6 +1815,11 @@ export class Tycoon {
     this.dispatch.length = 0;
     // v13：市民列传重置
     this.citz.reset();
+    // v16：城市节庆重置
+    this.fest = null;
+    this.festCd = 0;
+    this.festCount = 0;
+    this.festKinds.clear();
     // v11 出口市场重置
     this.mkt = 1;
     this.mktPrev = 1;
@@ -1716,7 +1838,7 @@ export class Tycoon {
     const own: number[] = [];
     for (let i = 0; i < this.own.length; i++) if (this.own[i]) own.push(i);
     return JSON.stringify({
-      v: 11,
+      v: 12,
       coins: Math.round(this.coins), xp: this.xp, level: this.level,
       pop: this.pop, questIdx: this.questIdx,
       roads: this.roadsBuilt, trees: this.treesPlanted, dozed: this.dozed,
@@ -1745,6 +1867,12 @@ export class Tycoon {
       rescueFire: this.rescueFire, rescueAid: this.rescueAid,
       // v13：市民列传
       citz: this.citz.serialize(),
+      // v16：城市节庆
+      festKind: this.fest ? this.fest.kind : undefined,
+      festLeft: this.fest ? Math.round(this.fest.left) : undefined,
+      festCd: Math.round(this.festCd),
+      festCount: this.festCount,
+      festKinds: [...this.festKinds],
       hall: [this.hall.x, this.hall.y],
       own, last: Date.now(),
       map: map.serialize(),
@@ -1842,6 +1970,16 @@ export class Tycoon {
     // v13：市民列传恢复（旧档给空册）+ 人口基线对齐（防误迁入）
     this.citz.restore(d.citz);
     this.citz.baseline(this.pop);
+    // v16：城市节庆恢复（在途节日继续倒计时；旧档无记录给默认）
+    const fk = Number(d.festKind);
+    this.fest = Number.isInteger(fk) && fk >= 0 && fk <= 3 && Number(d.festLeft) > 0
+      ? { kind: fk, left: Math.min(FESTS[fk].dur, Number(d.festLeft)) } : null;
+    this.festCd = Math.max(0, Math.min(FEST_CD + 300, Number(d.festCd) || 0));
+    this.festCount = Math.max(0, Math.floor(Number(d.festCount) || 0));
+    this.festKinds.clear();
+    for (const k of (d.festKinds as number[]) ?? []) {
+      if (k >= 0 && k <= 3) this.festKinds.add(k);
+    }
     const hall = d.hall as [number, number] | undefined;
     this.hall = { x: hall?.[0] ?? 127, y: hall?.[1] ?? 127 };
     this.own.fill(0);
@@ -1894,6 +2032,7 @@ export class Tycoon {
     return this.citz.voice({
       pop: this.pop, happiness: s?.happiness ?? 60, taxRate: this.taxRate,
       season: this.season, famine: s?.famine ?? 0, events: this.events.map(e => e.key),
+      fest: this.fest ? this.fest.kind : -1,   // v16：节日心声
     });
   }
 

@@ -1892,3 +1892,76 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
   width: calc(100vw - 16px);
 }
 .pxc.m .pxc-tut .tut-text { font-size: 11.5px; }
+
+/* ---------------- v16 城市节庆 ---------------- */
+
+/* HUD 庆芯片：节日进行中亮红边 + 呼吸 */
+.chip.fest-on { border-color: #E05548; animation: festGlow 1.4s ease-in-out infinite; }
+.chip.fest-on b { color: #C25B44; }
+@keyframes festGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 85, 72, 0); }
+  50% { box-shadow: 0 0 0 3px rgba(224, 85, 72, 0.25); }
+}
+
+/* 节庆面板 */
+.pxc-fest { width: min(500px, calc(100vw - 24px)); }
+.fest-card {
+  border: 2px solid #C9C2A8; border-radius: 4px;
+  background: #FAF8EF; padding: 12px 14px;
+}
+.fest-card.k0 { border-color: #E8A4B4; background: #FCF3F5; }
+.fest-card.k1 { border-color: #4A86C8; background: #F0F4FA; }
+.fest-card.k2 { border-color: #CFB379; background: #FAF5E6; }
+.fest-card.k3 { border-color: #E05548; background: #FBF1EC; }
+.fc-head { display: flex; align-items: center; gap: 8px; }
+.fc-badge {
+  font-size: 10px; font-weight: 700; color: #55503a;
+  border: 1px solid #C9C2A8; border-radius: 2px; padding: 1px 5px;
+  background: #F2EFE3; white-space: nowrap;
+}
+.fc-name { font-size: 17px; font-weight: 800; color: #23252E; letter-spacing: 1px; }
+.fc-dur { margin-left: auto; font-size: 11px; color: #85878F; font-variant-numeric: tabular-nums; }
+.fc-desc { font-size: 12px; color: #555c66; margin-top: 7px; line-height: 1.6; }
+
+/* 进行中：进度条 */
+.fest-live { margin-top: 10px; }
+.fl-bar {
+  height: 12px; border: 1px solid #C9C2A8; border-radius: 2px;
+  background: #EFEAD8; overflow: hidden;
+}
+.fl-bar i {
+  display: block; height: 100%;
+  background: repeating-linear-gradient(90deg, #E05548 0 8px, #C25B44 8px 12px);
+  transition: width 0.4s linear;
+}
+.fl-t { font-size: 11px; color: #8a6d1a; margin-top: 5px; font-weight: 600; }
+
+/* 冷却 / 未解锁提示 */
+.fest-cd {
+  margin-top: 10px; font-size: 12px; color: #555c66;
+  background: #F2EFE3; border: 1px dashed #C9C2A8; border-radius: 3px; padding: 7px 9px;
+}
+.fest-cd.lock { color: #B03A2E; }
+
+/* 举办按钮 */
+.fest-go { margin-top: 10px; width: 100%; font-size: 14px; padding: 9px 0; }
+.fest-go:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 历史统计 */
+.fest-hist {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin-top: 10px; font-size: 11px; color: #555c66;
+}
+.fest-hist .fh-total { font-size: 12px; color: #3d434e; margin-right: 2px; }
+.fest-hist .fh-total b { color: #8a6d1a; }
+.fest-hist .fh-kind {
+  border: 1px solid #C9C2A8; border-radius: 10px; padding: 1px 8px;
+  background: #F2EFE3; color: #9a8f72;
+}
+.fest-hist .fh-kind.on { border-color: #4E9040; background: #EFF5E8; color: #3B7138; font-weight: 700; }
+.fest-note { margin-top: 10px; font-size: 11px; color: #85878f; line-height: 1.65; }
+
+/* 移动端 */
+.pxc.m .fest-card { padding: 10px 11px; }
+.pxc.m .fc-name { font-size: 15px; }
+.pxc.m .fest-hist .fh-kind { padding: 1px 6px; font-size: 10px; }

@@ -170,6 +170,17 @@ export class Engine {
   /** 春季樱花瓣粒子 */
   private petalPts: Float32Array | null = null;
 
+  // ---- v16：城市节庆视觉（由 tycoon.fest 每帧同步）----
+  /** 当前节日（-1 无 / 0 樱花祭 / 1 花火大会 / 2 丰收节 / 3 暖灯节） */
+  private festKind = -1;
+  /** 花火火箭（4 × 4：x, y, vy, 目标高度；升空到位后炸开成火花） */
+  private fwRockets: Float32Array | null = null;
+  /** 花火火花（48 × 5：x, y, vx, vy, life；径向散开 + 重力下坠） */
+  private fwSparks: Float32Array | null = null;
+  private fwSpawnT = 0;
+  /** 孔明灯（12 × 4：x, y, 摆动相位, 上升速度；暖光缓升） */
+  private lampPts: Float32Array | null = null;
+
   private listeners: Array<[EventTarget, string, EventListener]> = [];
 
   constructor(beeper: Beeper) {
@@ -541,6 +552,77 @@ export class Engine {
       if (pp[j] < -20) pp[j] += this.lw + 40;
       else if (pp[j] > this.lw + 20) pp[j] -= this.lw + 40;
     }
+
+    // v16 城市节庆粒子更新：花火火箭/火花 + 孔明灯（屏幕空间，秒制 dt）
+    if (this.festKind === 1) {
+      if (!this.fwRockets) this.fwRockets = new Float32Array(4 * 4).fill(-1);
+      if (!this.fwSparks) this.fwSparks = new Float32Array(48 * 5).fill(-1);
+      const rk = this.fwRockets, sp = this.fwSparks;
+      // 火花：径向散开 + 重力 + 衰减
+      for (let i = 0; i < 48; i++) {
+        const j = i * 5;
+        if (sp[j + 4] <= 0) continue;
+        sp[j] += sp[j + 2] * dt;
+        sp[j + 1] += sp[j + 3] * dt;
+        sp[j + 3] += 30 * dt;
+        sp[j + 4] -= dt;
+      }
+      // 火箭：约 0.7s 发射一枚，升空到位 → 炸开 12 粒火花
+      this.fwSpawnT -= dt;
+      if (this.fwSpawnT <= 0) {
+        this.fwSpawnT = 0.55 + Math.random() * 0.5;
+        for (let i = 0; i < 4; i++) {
+          if (rk[i * 4 + 2] === 0 || rk[i * 4 + 3] <= 0) {
+            const j = i * 4;
+            rk[j] = 20 + Math.random() * (this.lw - 40);
+            rk[j + 1] = this.lh + 4;
+            rk[j + 2] = -(64 + Math.random() * 30);   // vy（上升）
+            rk[j + 3] = this.lh * (0.1 + Math.random() * 0.26);   // 目标高度
+            break;
+          }
+        }
+      }
+      for (let i = 0; i < 4; i++) {
+        const j = i * 4;
+        if (rk[j + 3] <= 0) continue;                  // 空槽
+        rk[j + 1] += rk[j + 2] * dt;
+        if (rk[j + 1] <= rk[j + 3]) {
+          // 炸开：找 12 个空火花槽填径向速度
+          let filled = 0;
+          const hue = Math.random();
+          for (let k = 0; k < 48 && filled < 12; k++) {
+            const q = k * 5;
+            if (sp[q + 4] > 0) continue;
+            const ang = (filled / 12) * Math.PI * 2 + Math.random() * 0.4;
+            const spd = 16 + Math.random() * 26 + (hue < 0.2 ? 8 : 0);
+            sp[q] = rk[j]; sp[q + 1] = rk[j + 1];
+            sp[q + 2] = Math.cos(ang) * spd;
+            sp[q + 3] = Math.sin(ang) * spd - 6;
+            sp[q + 4] = 0.85 + Math.random() * 0.5;
+            filled++;
+          }
+          rk[j + 3] = 0;                               // 火箭退役
+        }
+      }
+    }
+    if (this.festKind === 3) {
+      if (!this.lampPts) {
+        this.lampPts = new Float32Array(12 * 4);
+        for (let i = 0; i < 12; i++) {
+          this.lampPts[i * 4] = Math.random() * this.lw;
+          this.lampPts[i * 4 + 1] = Math.random() * this.lh;
+          this.lampPts[i * 4 + 2] = Math.random() * 6.28;
+          this.lampPts[i * 4 + 3] = 7 + Math.random() * 7;   // 上升速度
+        }
+      }
+      const lp = this.lampPts;
+      for (let i = 0; i < 12; i++) {
+        const j = i * 4;
+        lp[j] += Math.sin(nowSec * 0.7 + lp[j + 2]) * 6 * dt;
+        lp[j + 1] -= lp[j + 3] * dt;
+        if (lp[j + 1] < -8) { lp[j + 1] = this.lh + 6; lp[j] = Math.random() * this.lw; }
+      }
+    }
   }
 
   /** 雨 / 雪粒子绘制（屏幕空间，强度 × 粒子数）；v6 + 春季樱花瓣 */
@@ -589,6 +671,82 @@ export class Engine {
             if (i % 5 === 0) ctx.fillRect(x + 1, y + 1, 1, 1);
           }
         }
+      }
+    }
+  }
+
+  /** v16 城市节庆粒子绘制（屏幕空间，最上层）：
+   *  樱花祭 = 花瓣加密双层 / 花火大会 = 火箭升空炸火花 / 丰收节 = 金叶飘落 / 暖灯节 = 孔明灯缓升 */
+  private drawFestivalParticles(ctx: CanvasRenderingContext2D): void {
+    if (this.festKind < 0) return;
+    const nowSec = performance.now() / 1000;
+    if (this.festKind === 0 || this.festKind === 2) {
+      // 花瓣 / 金叶：复用樱花瓣粒子（更新在 stepWeather），节日画双层加密
+      const pp = this.petalPts;
+      if (pp) {
+        const gold = this.festKind === 2;
+        for (let pass = 0; pass < 2; pass++) {
+          for (let i = 0; i < 42; i++) {
+            const j = i * 3;
+            const x = Math.round(pp[j] + (pass ? Math.sin(nowSec + pp[j + 2]) * 5 : 0));
+            const y = Math.round(pp[j + 1] + (pass ? 7 : 0));
+            if (gold) {
+              ctx.fillStyle = i % 3 === 0 ? '#F2D24B' : i % 3 === 1 ? '#CFB379' : '#B96A4E';
+            } else {
+              ctx.fillStyle = i % 3 === 0 ? '#F1C7D2' : i % 3 === 1 ? '#E8A4B4' : '#C97B93';
+            }
+            if (i % 4 === 0) {
+              ctx.fillRect(x, y, 2, 2);
+              ctx.fillStyle = gold ? '#F1E5C0' : '#FDEEF2';
+              ctx.fillRect(x + 1, y + 1, 1, 1);
+            } else {
+              ctx.fillRect(x, y, 1, 1);
+            }
+          }
+        }
+      }
+    } else if (this.festKind === 1 && this.fwRockets && this.fwSparks) {
+      // 花火：火箭拖尾 + 炸开火花（五色轮换 + 余辉闪烁）
+      const rk = this.fwRockets, sp = this.fwSparks;
+      for (let i = 0; i < 4; i++) {
+        const j = i * 4;
+        if (rk[j + 3] <= 0) continue;
+        const x = Math.round(rk[j]), y = Math.round(rk[j + 1]);
+        ctx.fillStyle = '#F4F2E8';
+        ctx.fillRect(x, y, 1, 3);
+        ctx.fillStyle = '#F2D24B';
+        ctx.fillRect(x, y + 3, 1, 1);
+        if (Math.floor(nowSec * 20) % 2 === 0) ctx.fillRect(x - 1, y + 1, 1, 1);
+      }
+      const PAL = ['#E05548', '#F2D24B', '#5BC8B8', '#E8A4B4', '#F4F2E8'];
+      for (let i = 0; i < 48; i++) {
+        const q = i * 5;
+        const life = sp[q + 4];
+        if (life <= 0) continue;
+        const x = Math.round(sp[q]), y = Math.round(sp[q + 1]);
+        // 余辉闪烁：后 40% 生命隔帧熄灭
+        if (life < 0.4 && Math.floor(nowSec * 24 + i) % 2 === 0) continue;
+        ctx.fillStyle = PAL[i % 5];
+        if (life > 0.55) {
+          ctx.fillRect(x - 1, y, 3, 1);
+          ctx.fillRect(x, y - 1, 1, 3);
+        } else {
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+    } else if (this.festKind === 3 && this.lampPts) {
+      // 孔明灯：暖光核 + 摇曳光晕 + 缓慢上升
+      const lp = this.lampPts;
+      for (let i = 0; i < 12; i++) {
+        const j = i * 4;
+        const x = Math.round(lp[j]), y = Math.round(lp[j + 1]);
+        const flick = Math.sin(nowSec * 3 + lp[j + 2]) > 0 ? 1 : 0;
+        ctx.fillStyle = flick ? '#E05548' : '#B96A4E';
+        ctx.fillRect(x - 1, y - 1, 4, 4);
+        ctx.fillStyle = '#F2D24B';
+        ctx.fillRect(x, y, 2, 2);
+        ctx.fillStyle = '#F1E5C0';
+        ctx.fillRect(x, y, 1, 1);
       }
     }
   }
@@ -877,8 +1035,11 @@ export class Engine {
       this.actors.onRescueArrive = (kind) => {
         this.tycoon?.resolveEvent(kind === 9 ? 'fire' : 'plague');
       };
+      // v16 城市节庆：节日视觉状态同步（粒子层驱动）
+      this.festKind = this.tycoon.fest ? this.tycoon.fest.kind : -1;
     } else {
       this.actors.patrolCap = 0;
+      this.festKind = -1;
     }
     // 经营模式：行人密度跟随实际人口（荒地开局无人，市民迁入后街巷渐热闹）
     this.actors.popNow = this.tycoon ? this.tycoon.pop : null;
@@ -1363,6 +1524,8 @@ export class Engine {
     }
     // ---- v5：雨 / 雪 屏幕粒子（最上层大气效果）----
     this.drawWeatherParticles(ctx, rainI, snowI);
+    // v16：城市节庆粒子（花吹雪加密 / 花火 / 金叶 / 孔明灯；最上层特效）
+    this.drawFestivalParticles(ctx);
 
     // ---- Pass 3：光标 + 幽灵 + 浮字 ----
     this.drawCursor(ctx);
