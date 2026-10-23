@@ -553,3 +553,56 @@ export function genEcotower(seed: number): BuildResult {
   }
   return { model: buildModel(faces, 16, 16), blinkAt: [8, 8, 18.8] as V3 };
 }
+
+// ============================================================
+// v20 万家灯火·电网时代 — 公共：变电站（1×1）
+// ============================================================
+
+/** 变电站（1×1，LV4）：格构钢塔 + 顶横担 + 三串瓷绝缘子 + 悬空母线 + 值班小屋。
+ *  自身落在任一电源 6 格内＝有效中继，再向外辐射 6 格供电。
+ *  夜景无 GLASS 大窗 —— 高压设施只留塔顶一盏红色警示灯（blinkAt）与小屋一盏值班灯 */
+export function genSubstation(seed: number): BuildResult {
+  const steel = (seed & 1) === 0 ? P.METAL : P.RFSLATE;    // 变体：横担钢色
+  const faces: Face[] = [];
+  // ---- 混凝土基座 ----
+  box(faces, 3.2, 3.2, 12.8, 12.8, 0, 1.2, {
+    right: pStone(P.SIDE), left: pStone(P.SIDE), top: pStone(P.SIDE),
+  });
+  // ---- 格构塔身（下宽上窄两段，X 交叉腹杆）----
+  box(faces, 5.0, 5.0, 11.0, 11.0, 1.2, 6.2, {
+    right: pLattice(), left: pLattice(),
+  });
+  box(faces, 6.0, 6.0, 10.0, 10.0, 6.2, 11.6, {
+    right: pLattice(), left: pLattice(),
+  });
+  // ---- 顶层横担（双横梁）----
+  box(faces, 2.6, 7.3, 13.4, 8.7, 11.6, 13.0, {
+    right: pWall(steel), left: pWall(steel), top: pWall(P.SIDE),
+  });
+  box(faces, 2.6, 7.3, 13.4, 8.7, 8.6, 9.6, {
+    right: pWall(steel), left: pWall(steel), top: () => cell(P.METAL, 0),
+  });
+  // ---- 三串悬垂瓷绝缘子（横担两端与中央，垂在横梁下）----
+  for (const ix of [3.6, 8, 12.4]) {
+    box(faces, ix - 0.4, 7.7, ix + 0.4, 8.3, 9.6, 11.4, {
+      right: pWall(P.CYAN), left: pWall(P.CYAN),
+    });
+  }
+  // ---- 悬空母线（绝缘子底连成一条，微微 sag 用两段错高横杆示意）----
+  box(faces, 3.2, 7.85, 8.2, 8.15, 9.2, 9.5, {
+    right: pWall(P.WHITE), left: pWall(P.WHITE), top: pWall(P.WHITE),
+  });
+  box(faces, 7.8, 7.85, 12.8, 8.15, 9.0, 9.3, {
+    right: pWall(P.WHITE), left: pWall(P.WHITE), top: pWall(P.WHITE),
+  });
+  // ---- 塔顶警示灯 ----
+  box(faces, 7.6, 7.6, 8.4, 8.4, 13.0, 14.0, {
+    right: pWall(P.METAL), left: pWall(P.METAL), top: () => cell(P.YELLOW, 0),
+  });
+  // ---- 值班小屋（一角：一扇 GLASS 窗夜里亮暖灯）----
+  box(faces, 10.6, 10.6, 14.2, 14.2, 0, 3.6, {
+    right: (u, v, px, py) => (u > 0.9 && u < 2.7 && v > 1 && v < 3 ? cell(P.GLASS, 0) : pWall(P.RFGRAY)(u, v, px, py)),
+    left: pWall(P.RFGRAY), top: pFlatRoof(P.RFGRAY, 2),
+  });
+  return { model: buildModel(faces, 16, 16), blinkAt: [8, 8, 14.6] as V3 };
+}

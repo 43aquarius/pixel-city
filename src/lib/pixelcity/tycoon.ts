@@ -49,6 +49,15 @@ export const SMOG_LV1 = 45;            // 轻度雾霾：可见烟雾 · 商业�
 export const SMOG_LV2 = 75;            // 重度雾霾：住宅幸福惩罚 · 市民吐槽
 /** 距离衰减：d=0..3 → 100% / 62% / 32% / 14%（工业区相邻叠加会连片成霾带） */
 export const SMOG_FALL = [1, 0.62, 0.32, 0.14];
+// ---- v20 电网空间化：万家灯火 · 电网时代 ----
+/** 各电源/中继的供电覆盖半径（切比雪夫距离，自锚点起算）。
+ *  火电厂 8 / 风力发电场 7 / 太阳能电站 7 / 市政厅 6 / 变电站(中继) 6 / 风车磨坊 5。
+ *  半径外的耗电建筑＝断电：收入归零、夜里窗灯不亮（火电厂零污染是痴心妄想，风电与阳光才是干净账） */
+export const GRID_R: Record<string, number> = {
+  power: 8, windfarm: 7, solarfarm: 7, cityhall: 6, substation: 6, windmill: 5,
+};
+/** 真电源集合（变电站只能从真电源受电中继，变电站之间不能手拉手） */
+export const GRID_SRC = ['power', 'windfarm', 'solarfarm', 'cityhall', 'windmill'];
 
 // ------------------------------------------------------------
 // 四季体系（v6）：季节由 engine 时钟驱动，经济在快照层联动
@@ -167,6 +176,8 @@ export const ECON: Record<string, EconDef> = {
   lumber: D(230, 3, { power: 6, earn: 11, pollute: 2, upk: 2.5, goodsP: 1.4 }),
   silo: D(140, 4, { power: 3, earn: 5.6, pollute: 1, upk: 1.3, food: 1.5, foodCap: 120, goodsP: 0.6 }),
   windmill: D(160, 3, { power: -15, earn: 2, upk: 0.3, food: 1 }),
+  windfarm: D(1150, 5, { power: -60, upk: 5 }),     // v20 风力发电场：清洁大电源（需「电力工程」）
+  solarfarm: D(980, 6, { power: -50, upk: 3.5 }),   // v20 太阳能电站：仅白昼发电（×dayLight）
   greenhouse: D(170, 3, { power: 4, earn: 6.5, upk: 1.2, food: 5 }),
   brewery: D(320, 4, { power: 8, earn: 10.8, pollute: 2, upk: 2.1, goodsP: 1.6 }),
   dock: D(560, 8, { power: 10, earn: 20.5, pollute: 3, upk: 3.5, goodsP: 1.2 }),
@@ -186,6 +197,7 @@ export const ECON: Record<string, EconDef> = {
   firestation: D(240, 5, { power: 3, amenity: 3, upk: 1.5 }),
   koban: D(140, 2, { power: 1, amenity: 1, upk: 0.8 }),   // v12 交番：安全护盾 + 巡逻车
   ecotower: D(720, 6, { power: 8, amenity: 2, upk: 2.4 }),  // v19 空气净化塔：半径 5 格强净化
+  substation: D(220, 4, { power: 1, upk: 0.9 }),    // v20 变电站：自身在电源 6 格内＝有效中继（再向外辐射 6 格）
   lighthouse: D(140, 8, { power: 1, amenity: 1, upk: 0.5, cul: 1 }),
   castle: D(2200, 9, { power: 4, amenity: 3, upk: 1.5, edu: 5, cul: 3 }),
   busstop: D(50, 1, { amenity: 2, upk: 0.6 }),
@@ -533,6 +545,11 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 85, val: (s, t) => (t.pop >= 120 ? s.envIdx : 0) },
   { id: 'ecotower3', name: '城市之肺', desc: '建成 3 座空气净化塔，重工业区也能呼吸顺畅', icon: 'tree',
     goal: 3, val: s => s.ecotowers },
+  // ---- v20 电网时代 ----
+  { id: 'lights95', name: '万家灯火', desc: '电网覆盖 ≥95% 且人口 ≥150 —— 夜幕落下时全城窗火通明（断电的建筑夜里一片漆黑：变电站能把电网送进新区）', icon: 'bolt',
+    goal: 95, val: (s, t) => (t.pop >= 150 ? s.gridCover : 0) },
+  { id: 'cleanp', name: '清风明月', desc: '风电与太阳能装机 ≥2 且全城无火电厂 —— 清洁能源之城（火电厂是雾霾大户：见 v19）', icon: 'bolt',
+    goal: 1, val: s => ((s.windfarms + s.solarfarms >= 2 && s.coalN === 0) ? 1 : 0) },
 ];
 
 /** 需特定科技才可建造的建筑
@@ -541,6 +558,7 @@ export const ACHIEVEMENTS: AchvDef[] = [
 export const TECH_GATE: Record<string, string> = {
   refinery: 'metal',
   tramstop: 'poweng', railhub: 'metal',
+  windfarm: 'poweng', solarfarm: 'poweng',   // v20 清洁能源：与电车同源「电力工程」
   tower: 'struct', restower: 'struct', danchi: 'struct', hiapart: 'struct',
   castle: 'struct', stadium: 'struct',
   observatory: 'higher',
@@ -660,6 +678,14 @@ export type QS = {
   waterNear: number; levees: number;
   // ---- v19 污染空间化 ----
   smogTiles: number; smogBad: number; smogRes: number; ecotowers: number;
+  // ---- v20 电网空间化 ----
+  gridCover: number;    // 电网覆盖率 %（通电耗电建筑 / 全部耗电建筑）
+  darkN: number;        // 断电耗电建筑栋数
+  powerRes: number;     // 断电住宅栋数（幸福惩罚源）
+  substations: number;  // 变电站座数（含无效中继——用户得自己发现摆错位置）
+  windfarms: number; solarfarms: number;  // 清洁能源装机座数
+  coalN: number;        // 火电厂座数（成就「清风明月」反指标）
+  cleanMW: number; solarMW: number;       // 清洁发电实时 MW / 太阳能当前出力 MW
 };
 
 export type Quest = {
@@ -758,6 +784,11 @@ export const QUESTS: Quest[] = [
   // ---- v19 生态治理 ----
   { id: 'eco1', title: '还我蓝天', hint: '建造 1 座空气净化塔：半径 5 格内雾霾大幅削减 —— 工厂下风向的住宅区需要它（树与公园也能净化周边）', goal: 1,
     val: s => s.ecotowers, rG: 320, rXp: 150 },
+  // ---- v20 电网时代 ----
+  { id: 'grid1', title: '夜幕不黑', hint: '建造 1 座变电站（需建在任一电源 6 格内才有效）：把电网再向外辐射 6 格 —— 新区再远，也不必贴着电厂盖楼', goal: 1,
+    val: s => s.substations, rG: 260, rXp: 130 },
+  { id: 'clean1', title: '清风与阳光', hint: '风力发电场与太阳能电站各建 1 座（均需「电力工程」）：清洁发电零污染 —— 注意太阳能夜间歇业，得留别的电源兜底', goal: 2,
+    val: s => (s.windfarms > 0 ? 1 : 0) + (s.solarfarms > 0 ? 1 : 0), rG: 420, rXp: 200 },
 ];
 
 // ------------------------------------------------------------
@@ -841,6 +872,16 @@ export type EconView = {
   smogBad: number;                  // 重污染格数（浓度 ≥75）
   smogRes: number;                  // 重污染住宅栋数（幸福惩罚源）
   ecotowers: number;                // 空气净化塔数
+  // ---- v20：电网空间化 ----
+  gridCover: number;                // 电网覆盖率 %
+  darkN: number;                    // 断电耗电建筑栋数
+  powerRes: number;                 // 断电住宅栋数（幸福惩罚源）
+  substations: number;              // 变电站座数
+  windfarms: number;                // 风力发电场座数
+  solarfarms: number;               // 太阳能电站座数
+  coalN: number;                    // 火电厂座数
+  cleanMW: number;                  // 清洁能源实时出力 MW
+  solarMW: number;                  // 太阳能当前出力 MW
 };
 
 export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
@@ -995,6 +1036,18 @@ export class Tycoon {
   private smogVer = -1;
   /** 雾霾警告（一档一次，缓解后复位） */
   private smogWarned = false;
+
+  // ---- v20：电网空间化（万家灯火 · 电网时代）----
+  /** 通电耗电建筑锤点集合（engine 夜灯渲染 / 测试钩子读取） */
+  gridField = new Set<number>();
+  /** 断电建筑锤点集合（夜灯熄灭 / 测试钩子读取；含无效变电站自身） */
+  darkField = new Set<number>();
+  /** 白昼照度 0-1（engine 每帧随昼夜时钟回写；太阳能出力 ＝ 装机 × 此值） */
+  dayLight = 1;
+  /** 电网场缓存版本（仅随 map.version 变化重算：摆盘即重算） */
+  private gridVer = -1;
+  /** 断电警告（一档一次，缓解后复位） */
+  private darkWarned = false;
 
   hasOrd(id: string): boolean { return this.ords.has(id); }
 
@@ -1203,6 +1256,8 @@ export class Tycoon {
   private snapOf(map: CityMap): Snap {
     // v19：污染空间场先行（商业折扣 / 指数 / 统计都要用；版本缓存，地图或减排状态变化才重算）
     this.ensureSmog(map);
+    // v20：电网覆盖场先行（断电建筑收入归零 / 夜灯熄灭的判定源；仅随摆盘重算）
+    this.ensureGrid(map);
     let cap = 0, jobs = 0, earnCom = 0, earnInd = 0, upk = 0;
     let powerSup = 0, powerDem = 0, amenitySup = 0, pollute = 0;
     let res = 0, com = 0, ind = 0, civ = 0, park = 0, buildings = 0;
@@ -1213,6 +1268,9 @@ export class Tycoon {
     let hasWaterTower = 0, waterCapT = 0;
     let busStops = 0, ferries = 0;
     let tramStops = 0, railHubs = 0;   // v11 轨道交通
+    // v20：电网时代累计器
+    let powerRes = 0, coalN = 0, windfarms = 0, solarfarms = 0, substations = 0;
+    let cleanMW = 0, solarMW = 0;
     // v10：货物 / 旅游累计器
     let goodsP = 0, goodsC = 0, goodsCapV = GOODS_BASE_CAP;
     let hotelBeds = 0, attract = 0, ports = 0;
@@ -1224,22 +1282,27 @@ export class Tycoon {
     for (const o of map.objs.values()) {
       const d = defById(o.id);
       const e = ECON[o.id];
+      // v20：本建筑是否脱离电网（耗电建筑不在任何有效源覆盖内；发电建筑永不为 dark）
+      const offGrid = this.darkField.has(map.idx(o.ax, o.ay));
       buildings++;
       if (d.cat === 'res') {
         res++; cap += d.pop;
         resList.push({ x: o.ax + d.w / 2, y: o.ay + d.h / 2, pop: d.pop });
+        if (offGrid) powerRes++;   // v20：断电住宅（幸福惩罚，夜里黑着）
       } else if (d.cat === 'com') {
         com++; jobs += d.pop;
         // 城市名片：文旅商业收入 +20%；v19 空间污染：雾霾区生意冷清 ×0.82
         const brandB = this.has('brand') &&
           ['hotel', 'mall', 'ferris', 'aquarium', 'cinema', 'castle'].includes(o.id);
         const smogK = (this.smogField.get(map.idx(o.ax, o.ay)) ?? 0) >= SMOG_LV1 ? 0.82 : 1;
-        earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK;
+        // v20 电网：断电商铺收入归零（黑暗的店谁也进不去）；未断电才计入
+        if (!offGrid) earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK;
         if (o.id === 'ferris') park++;
       } else if (d.cat === 'ind') {
         ind++; jobs += d.pop;
-        earnInd += (e?.earn ?? 0) * (this.has('metal') ? 1.2 : 1);
-        if (o.id === 'power' || o.id === 'windmill') hasPower = 1;
+        // v20 电网：断电工厂停机（收入与产货双停）
+        if (!offGrid) earnInd += (e?.earn ?? 0) * (this.has('metal') ? 1.2 : 1);
+        if (o.id === 'power' || o.id === 'windmill' || o.id === 'windfarm' || o.id === 'solarfarm') hasPower = 1;
         if (o.id === 'greenhouse') hasGreen = 1;
       } else {
         civ++;
@@ -1263,17 +1326,30 @@ export class Tycoon {
       if (o.id === 'ferry') ferries++;
       if (o.id === 'tramstop') tramStops++;      // v11
       if (o.id === 'railhub') railHubs++;
-      // v10：货物供应链 / 旅游设施
-      if (e?.goodsP) goodsP += e.goodsP;
-      if (e?.goodsC) goodsC += e.goodsC;
+      // v10：货物供应链 / 旅游设施（v20：断电商铺不上货、断电工厂不产货；仓库容量照算——货架还在那）
+      if (e?.goodsP && !offGrid) goodsP += e.goodsP;
+      if (e?.goodsC && !offGrid) goodsC += e.goodsC;
       if (e?.goodsCap) goodsCapV += e.goodsCap;
       const at = ATTRACT[o.id];
       if (at) attract += at;
       if (o.id === 'hotel') hotelBeds += 160;
       if (o.id === 'minshuku') hotelBeds += 24;
       if (o.id === 'dock' || o.id === 'ferry') ports++;
-      const pw = e?.power ?? 0;
-      if (pw < 0) powerSup += -pw; else powerDem += pw;
+      const pwRaw = e?.power ?? 0;
+      // v20 装机座数统计（与出力无关：夜里太阳能电站也在那儿立着；成就/任务随时可查）
+      if (o.id === 'power') coalN++;
+      else if (o.id === 'windfarm') windfarms++;
+      else if (o.id === 'solarfarm') solarfarms++;
+      else if (o.id === 'substation') substations++;
+      // v20：太阳能电站出力随昼夜（白昼满发、深夜归零——需其它电源兜底）
+      const pw = o.id === 'solarfarm' ? pwRaw * this.dayLight : pwRaw;
+      if (pw < 0) {
+        powerSup += -pw;
+        if (o.id !== 'power') {                                        // 清洁能源实时出力（风车/风场/太阳）
+          cleanMW += -pw;
+          if (o.id === 'solarfarm') solarMW += -pw;
+        }
+      } else if (pw > 0) powerDem += pw;
       // 公共医疗：医院宜居 +3
       amenitySup += (e?.amenity ?? 0) + (this.has('health') && o.id === 'hospital' ? 3 : 0);
       pollute += e?.pollute ?? 0;
@@ -1292,6 +1368,9 @@ export class Tycoon {
     }
     // v11 电车干线：牵引整流所用电 +16MW（两站起开通）
     if (tramStops >= 2) powerDem += 16;
+    // v20 电网覆盖率：通电耗电建筑占比（发电建筑自持不计；变电站自身也计入分母）
+    const gridN = this.gridField.size, darkN = this.darkField.size;
+    const gridCover = (gridN + darkN) > 0 ? Math.round(100 * gridN / (gridN + darkN)) : 100;
     // 科技倍率
     if (this.has('irrig')) foodProd *= 1.3;
     if (this.has('vfarm')) foodProd *= 1.5;
@@ -1487,11 +1566,13 @@ export class Tycoon {
     const famineHit = famine ? (this.has('granary') ? 12 : 25) : 0;
     // v19：雾霾压城 —— 每栋重污染住宅 −2.5，至多 −12（种树 / 公园 / 净化塔可解）
     const smogHap = Math.min(12, smogRes * 2.5);
+    // v20：暗夜压城 —— 每栋断电住宅 −2，至多 −10（拉变电站/补电源可解）
+    const powerHap = Math.min(10, powerRes * 2);
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
       0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap
-      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap)));   // v11 电车干线通车：出行体面 +2 幸福
+      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap)));   // v11 电车干线通车：出行体面 +2 幸福；v20 断电住宅扣减
     const happyMult = 0.6 + happiness / 125;
 
     // ---- v10 旅游：景点吸引力 × 文化/幸福 × 季节/天气 → 游客（酒店床位为接待上限）----
@@ -1549,6 +1630,7 @@ export class Tycoon {
       chronN: this.chron.total,                                     // v17 城市编年史
       waterNear, levees,                                            // v18 灾害链
       smogTiles: this.smogField.size, smogBad, smogRes,             // v19 污染空间化
+      gridCover, darkN, powerRes, substations, windfarms, solarfarms, coalN, cleanMW, solarMW,  // v20 电网空间化
       ecotowers: this.smogTowerN,
       eventHap, eventAmenity, multCom, multInd, multFood, multPower, multTraffic, multSp,
       weather: { kind: wt.kind, t: wt.t },
@@ -1623,6 +1705,60 @@ export class Tycoon {
     this.smogTowerN = towers;
   }
 
+  // ---------------- v20：电网覆盖场（万家灯火 · 电网时代） ----------------
+
+  /** 重算电网覆盖（版本缓存：仅 map.version 变化才重算，摆盘/拆迁即触发）。
+   *  Pass A：登记真电源（火电/风场/太阳能/市政厅/风车，各带 GRID_R 覆盖半径）与变电站；
+   *  Pass B：变电站有效中继判定 —— 自身锤点落在任一真电源半径内（变电站之间不能手拉手）；
+   *  Pass C：有效源 = 真电源 ∪ 有效变电站（后者以 R=6 再向外辐射）；
+   *          耗电建筑（ECON.power>0）锤点在任一有效源半径内 → gridField，否则 → darkField。
+   *  发电建筑自持（不参与判定）；断电变电站自身也进 darkField —— 夜里连警示灯都不亮 */
+  private ensureGrid(map: CityMap): void {
+    if (map.version === this.gridVer) return;
+    this.gridVer = map.version;
+    const srcs: Array<{ x: number; y: number; r: number }> = [];   // 真电源
+    const subs: Array<{ x: number; y: number }> = [];              // 变电站（待判中继）
+    const consumers: Array<{ x: number; y: number; i: number }> = [];
+    for (const o of map.objs.values()) {
+      if (o.id === 'substation') { subs.push({ x: o.ax, y: o.ay }); continue; }
+      const e = ECON[o.id];
+      if (!e) continue;
+      if (e.power < 0) srcs.push({ x: o.ax, y: o.ay, r: GRID_R[o.id] ?? 6 });
+      else if (e.power > 0) consumers.push({ x: o.ax, y: o.ay, i: map.idx(o.ax, o.ay) });
+    }
+    // Pass B：有效变电站 = 在任一真电源半径内（切比雪夫）
+    const live: Array<{ x: number; y: number; r: number }> = [...srcs];
+    for (const s of subs) {
+      for (const g of srcs) {
+        if (Math.max(Math.abs(s.x - g.x), Math.abs(s.y - g.y)) <= g.r) {
+          live.push({ x: s.x, y: s.y, r: GRID_R.substation });
+          break;
+        }
+      }
+    }
+    // Pass C：耗电建筑接入判定
+    const grid = new Set<number>();
+    const dark = new Set<number>();
+    for (const c of consumers) {
+      let on = false;
+      for (const g of live) {
+        if (Math.max(Math.abs(c.x - g.x), Math.abs(c.y - g.y)) <= g.r) { on = true; break; }
+      }
+      if (on) grid.add(c.i); else dark.add(c.i);
+    }
+    // 变电站自身也是耗电建筑（1MW）：按同一规则入册（无效中继必然 dark —— 自洽）
+    for (const s of subs) {
+      const i = map.idx(s.x, s.y);
+      let on = false;
+      for (const g of live) {
+        if (Math.max(Math.abs(s.x - g.x), Math.abs(s.y - g.y)) <= g.r) { on = true; break; }
+      }
+      if (on) grid.add(i); else dark.add(i);
+    }
+    this.gridField = grid;
+    this.darkField = dark;
+  }
+
   // ---------------- 每帧心跳 ----------------
 
   tick(dt: number, map: CityMap): void {
@@ -1685,6 +1821,12 @@ export class Tycoon {
       this.msg?.(`雾霾围城：${s.smogRes} 栋住宅笼罩在重污染中 —— 多种树、建公园，或进空气净化塔`);
     } else if (s.smogRes === 0) this.smogWarned = false;
 
+    // v20 断电警告：建筑脱离电网时一档一次（全覆盖后复位）
+    if (s.darkN > 0 && !this.darkWarned) {
+      this.darkWarned = true;
+      this.msg?.(`电网告急：${s.darkN} 栋建筑未接入电网 —— 收入归零、夜里窗灯不亮；在电源 6-8 格内建变电站可向外中继供电`);
+    } else if (s.darkN === 0) this.darkWarned = false;
+
     // 科技点累积（教育设施 × 智慧加成）
     this.sp += s.spRaw * (0.5 + s.wisdom / 100) * (this.has('higher') ? 1.35 : 1) * dt / 60;
 
@@ -1713,6 +1855,7 @@ export class Tycoon {
       events: this.events.map(e => e.key),
       fest: this.fest ? this.fest.kind : -1,   // v16：节日心声
       smog: s.smogRes,                         // v19：雾霾心声
+      dark: s.powerRes,                        // v20：断电住宅心声
     }, this.playtime);
     if (this.citz.total > citzTotalBefore) this.sfx?.('movein');
     if (this.citz.unread > mailUnreadBefore) this.sfx?.('bell');   // v15：叮——新来信
@@ -1747,6 +1890,7 @@ export class Tycoon {
       pop: this.pop, rating: s.rating, buildings: s.buildings,
       chunks: s.chunks, coins: this.coins,
       smogRes: s.smogRes, envIdx: s.envIdx, ecotowers: s.ecotowers,   // v19 生态里程碑
+      gridCover: s.gridCover, darkN: s.darkN, powerRes: s.powerRes,   // v20 电网里程碑
     }, this.gHours);
     if (eraUp >= 1) {
       const ERAS_NAME = ['炊烟村庄', '市井小镇', '一方城市', '摩登都会'];
@@ -2023,6 +2167,16 @@ export class Tycoon {
       smogBad: s?.smogBad ?? 0,
       smogRes: s?.smogRes ?? 0,
       ecotowers: s?.ecotowers ?? 0,
+      // ---- v20：电网空间化 ----
+      gridCover: s?.gridCover ?? 100,
+      darkN: s?.darkN ?? 0,
+      powerRes: s?.powerRes ?? 0,
+      substations: s?.substations ?? 0,
+      windfarms: s?.windfarms ?? 0,
+      solarfarms: s?.solarfarms ?? 0,
+      coalN: s?.coalN ?? 0,
+      cleanMW: s?.cleanMW ?? 0,
+      solarMW: s?.solarMW ?? 0,
     };
   }
 
@@ -2082,6 +2236,11 @@ export class Tycoon {
     this.ords.clear();
     this.tourists = 0;
     this.goodsWarned = false;
+    // v19/v20：派生场警告位复位（场本身随新图 version 重算）
+    this.smogWarned = false;
+    this.darkWarned = false;
+    this.gridVer = -1;
+    this.dayLight = 1;
     // v12：应急联动重置
     this.rescueFire = 0;
     this.rescueAid = 0;

@@ -2,11 +2,11 @@
 // b_ind.ts — 工业建筑：工厂(2×2，锯齿屋顶+烟囱) / 仓库(2×2) / 储油罐(1×1)
 // ============================================================
 
-import { box, gableRoof, prism, buildModel, type Face, type V3 } from './geo';
+import { box, gableRoof, prism, frustum, makeFace, buildModel, type Face, type V3 } from './geo';
 import {
-  pWall, pCorrugated, pShutter, pFlatRoof, pSawTooth, pWindows, pTankShell, pBands,
+  pWall, pCorrugated, pShutter, pFlatRoof, pSawTooth, pWindows, pTankShell, pBands, pStone,
 } from './patterns';
-import { RAMP } from './palette';
+import { RAMP, bayer } from './palette';
 import { mulberry32 } from './rng';
 import { chimney, acUnit, type BuildResult } from './b_util';
 
@@ -119,4 +119,108 @@ export function genTankfarm(seed: number): BuildResult {
     right: pWall(P.SIDE), left: pWall(P.SIDE), top: pWall(P.SIDE),
   });
   return { model: buildModel(faces, 16, 16) };
+}
+
+// ============================================================
+// v20 万家灯火·电网时代 — 工业：风力发电场(2×2) / 太阳能电站(2×2)
+// ============================================================
+
+/** 单台风机部件：混凝土基座 + 白塔筒 + 机舱 + 三叶片（竖面朝 +Y）。
+ *  叶角随 rot 变体错开；塔顶红灯由 windfarm 整体 blinkAt 挂最高那台 */
+function windTurbine(faces: Face[], cx: number, cy: number, h: number, rot: number): void {
+  // 混凝土基座（圆台）
+  frustum(faces, cx, cy, 3.0, 2.0, 0, 1.8, { side: pStone(P.SIDE) }, 6);
+  // 白塔筒
+  prism(faces, cx, cy, 1.15, 1.8, h - 3.2, {
+    side: (u, v, px, py) => (u % 6 < 1.2 ? cell(P.CREAM, 2) : cell(P.CREAM, 0)),
+  }, 8);
+  // 机舱（白匣 + 顶散热鳍）
+  box(faces, cx - 1.6, cy - 1.3, cx + 1.6, cy + 1.0, h - 3.2, h - 0.6, {
+    right: pWall(P.WHITE), left: pWall(P.WHITE), top: pWall(P.CREAM),
+  });
+  // 轮毂（暖黄点）
+  box(faces, cx - 0.5, cy - 1.7, cx + 0.5, cy - 0.9, h - 2.6, h - 1.2, {
+    right: pWall(P.METAL), left: pWall(P.METAL), top: () => cell(P.YELLOW, 0),
+  });
+  // 三叶片（X-Z 竖面朝 -Y；后叶翻法线 —— 与风车磨坊同款投影）
+  for (let k = 0; k < 3; k++) {
+    const th = rot + k * 2 * Math.PI / 3;
+    const c = Math.cos(th), s = Math.sin(th);
+    const front = s < 0 || (Math.abs(s) < 0.01 && c < 0) ? false : true;
+    const sg = front ? 1 : -1;
+    const zz = h - 1.9;
+    const pR = (R: number, w: number): V3 => [cx + R * c - w * s, cy - 1.8, zz + R * s + w * c];
+    faces.push(makeFace(
+      [pR(1.8, 0.45), pR(8.2, 0.95), pR(8.2, -0.95), pR(1.8, -0.45)],
+      [sg * c, 0, sg * s],
+      pWall(P.CREAM),
+      [cx, cy - 1.8, zz],
+      [c, 0, s],
+      [-s, 0, c],
+    ));
+  }
+}
+
+/** 风力发电场（2×2，LV5·需「电力工程」）：三台三叶风机错落 + 检修小屋。
+ *  清洁大电源：-60MW 零污染；夜里风场是黑原野上三盏红星星（最高塔顶 blinkAt 航空灯） */
+export function genWindfarm(seed: number): BuildResult {
+  const faces: Face[] = [];
+  const rotA = (seed & 1) === 0 ? 0.35 : 1.05;             // 变体：叶角相位
+  const rotB = rotA + 0.8, rotC = rotA + 1.9;
+  // 北高南低（北 = 小 y，深度排序自然：高的在后不遮低的）
+  windTurbine(faces, 8.5, 8.5, 20.5, rotA);
+  windTurbine(faces, 23, 12.5, 17, rotB);
+  windTurbine(faces, 15.5, 24, 14.5, rotC);
+  // 检修小屋（一扇 GLASS 窗夜里亮暖灯 —— 荒野风场的一点人烟）
+  box(faces, 25.5, 25.5, 30.5, 30.5, 0, 4.2, {
+    right: (u, v, px, py) => (u > 0.8 && u < 2.6 && v > 1 && v < 3.2 ? cell(P.GLASS, 0) : pWall(P.RFSLATE)(u, v, px, py)),
+    left: pWall(P.RFSLATE), top: pFlatRoof(P.RFGRAY, 2),
+  });
+  // 电缆沟示意（基座间细土带）
+  box(faces, 6.2, 10.5, 24.8, 11.6, 0, 0.5, {
+    top: pWall(P.DIRT), right: pWall(P.DIRT), left: pWall(P.DIRT),
+  });
+  return { model: buildModel(faces, 32, 32), blinkAt: [8.5, 8.5, 21.2] as V3 };
+}
+
+/** 太阳能电站（2×2，LV6·需「电力工程」）：3×3 斜面光伏板阵列 + 逆变器小屋。
+ *  仅白昼发电（-50MW × dayLight，夜里归零）；面板 PBLUE 非玻璃 —— 夜里整片沉暗，
+ *  只剩小屋一盏值班暖灯（GLASS）。变体：板阵反光密度 */
+export function genSolarfarm(seed: number): BuildResult {
+  const faces: Face[] = [];
+  const glint = (seed & 1) === 0 ? 0.10 : 0.22;             // 变体：白闪密度
+  // ---- 单板：斜面 makeFace（底沿 +Y 低、顶沿 -Y 高，朝南倾）+ 白框 + 双支撑腿 ----
+  const panel = (px: number, py: number): void => {
+    // 支撑腿（后缘两根）
+    box(faces, px - 2.4, py - 2.0, px - 1.6, py - 1.2, 0, 3.6, {
+      right: pWall(P.METAL), left: pWall(P.METAL),
+    });
+    box(faces, px + 1.6, py - 2.0, px + 2.4, py - 1.2, 0, 3.6, {
+      right: pWall(P.METAL), left: pWall(P.METAL),
+    });
+    // 斜面板面（PBLUE 深蓝 + 边框白 + 稀疏白闪）
+    faces.push(makeFace(
+      [[px - 3.0, py + 1.4, 2.2], [px + 3.0, py + 1.4, 2.2], [px + 3.0, py - 1.4, 5.6], [px - 3.0, py - 1.4, 5.6]],
+      [0.35, 1, 0.55],
+      (u, v, x, y) => {
+        if (u < 0.45 || u > 5.55 || v < 0.45) return cell(P.WHITE, 0);       // 白边框
+        if (bayer(x, y, glint)) return cell(P.WHITE, 0);                     // 白天反光闪点
+        const t = v / 4.8;
+        return cell(P.PBLUE, t < 0.4 ? 2 : t < 0.75 ? 1 : 0);               // 深蓝三阶
+      },
+      [px - 3.0, py + 1.4, 2.2],
+      [6, 0, 0],
+      [0, -2.8, 3.4],
+    ));
+  };
+  // 3×3 板阵
+  for (const py of [5, 12.5, 20]) {
+    for (const px of [5, 12.5, 20]) panel(px, py);
+  }
+  // 逆变器小屋（一扇 GLASS 窗夜里亮暖灯）
+  box(faces, 25.5, 25.5, 30.5, 30.5, 0, 4.6, {
+    right: (u, v, px, py) => (u > 0.8 && u < 2.6 && v > 1 && v < 3.2 ? cell(P.GLASS, 0) : pWall(P.RFGRAY)(u, v, px, py)),
+    left: pWall(P.RFGRAY), top: pFlatRoof(P.RFGRAY, 2),
+  });
+  return { model: buildModel(faces, 32, 32) };
 }

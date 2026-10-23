@@ -1172,6 +1172,7 @@ export class Engine {
     if (this.quakeT > 0) this.quakeT = Math.max(0, this.quakeT - dt / 1000);   // v18：震屏衰减
     this.actors.dayness = 1 - this.dayNight.dark;
     this.actors.winterIce = this.season === 3;   // v7：冬季冰封 → 船舶归航
+    if (this.tycoon) this.tycoon.dayLight = 1 - this.dayNight.dark;   // v20：白昼照度回写（太阳能出力）
     // v5 天气状态机（雨雪粒子 / 云影 / 色调）+ 经营联动回写
     this.stepWeather(dt / 1000);
     this.stepBlimp(dt / 1000);                   // v7：飞艇巡航
@@ -1374,6 +1375,8 @@ export class Engine {
           const my = smk ? bsy + (smk[0] + smk[1]) / 2 - smk[2] : 0;
           const lx = blk ? bsx + (blk[0] - blk[1]) : 0;
           const ly = blk ? bsy + (blk[0] + blk[1]) / 2 - blk[2] : 0;
+          // v20 万家灯火：断电建筑 —— 不冒烟、不闪灯、夜里窗火不亮（黑暗本身会说话）
+          const darkB = this.tycoon ? this.tycoon.darkField.has(m.idx(o.ax, o.ay)) : false;
           items.push({
             key: key - 0.4,
             draw: () => {
@@ -1398,8 +1401,8 @@ export class Engine {
             key,
             draw: () => {
               ctx.drawImage(sp.cv, bx, by);
-              if (sm) ctx.drawImage(sm.cv, Math.round(mx + sm.ox), Math.round(my + sm.oy));
-              if (blk && blinkOn) {
+              if (sm && !darkB) ctx.drawImage(sm.cv, Math.round(mx + sm.ox), Math.round(my + sm.oy));
+              if (blk && blinkOn && !darkB) {
                 ctx.fillStyle = PALETTE[62];
                 ctx.fillRect(Math.round(lx) - 1, Math.round(ly) - 1, 2, 2);
                 ctx.fillStyle = PALETTE[61];
@@ -1407,8 +1410,8 @@ export class Engine {
               }
             },
           });
-          // 夜光：建筑发光精灵 + 航标灯 halo
-          if (dk > 0.02) {
+          // 夜光：建筑发光精灵 + 航标灯 halo（v20：断电建筑整段跳过 —— 漆黑的窗是断电最好的报幕员）
+          if (dk > 0.02 && !darkB) {
             const ns = bs.spNight;
             const nbx = bx, nby = by;
             glowJobs.push(() => ctx.drawImage(ns.cv, nbx, nby));
