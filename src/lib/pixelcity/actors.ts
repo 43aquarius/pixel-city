@@ -1366,7 +1366,7 @@ export class ActorSystem {
   /** 巡逻车编制（engine 每帧回写：交班数 + 治安巡逻令加成，上限 3） */
   patrolCap = 0;
   /** v12 应急车到场回调（engine 接线 → tycoon.resolveEvent） */
-  onRescueArrive: ((kind: 9 | 10, tx: number, ty: number, evKey?: string) => void) | null = null;
+  onRescueArrive: ((kind: 9 | 10 | 11, tx: number, ty: number, evKey?: string) => void) | null = null;
   /** v14 音效矩阵：actor 侧事件回调（engine 接线到 Beeper；电车发车铃等） */
   onSfx: ((n: 'bell') => void) | null = null;
   /** v15 市民外观偏置池：在册市民的（衣装/体型/制服）三元组，
@@ -1870,9 +1870,10 @@ export class ActorSystem {
 
   /** v12 应急出动：消防车 / 救护车自设施邻路格驰援事故现场（无路可达返回 false）
    *  v18：evKey 随车携带事件 key，到场后精准终结对应事件（缺省回退 fire/plague 兼容旧档）
+   *  v23：kind 11 巡逻警车出警（现场处置 5.5s 后收车回局）
    *  v18 修复：事故就在设施隔壁（home===site，如消防局自身失火）时 BFS 返回 null ——
    *  此时生成「已在现场」的空路径出车，下一帧即进入处置相位 */
-  dispatchEmergency(map: CityMap, kind: 9 | 10, hx: number, hy: number, tx: number, ty: number, evKey?: string): boolean {
+  dispatchEmergency(map: CityMap, kind: 9 | 10 | 11, hx: number, hy: number, tx: number, ty: number, evKey?: string): boolean {
     this.ensureSprites();
     const home = this.adjRoad(map, hx, hy, 1);
     if (!home) return false;
@@ -1908,7 +1909,9 @@ export class ActorSystem {
       mission: { tx, ty, hx: home[0], hy: home[1], phase: 0, evKey },
     };
     this.actors.push(a);
-    if (kind === 9) this.firetrucks++; else this.ambulances++;
+    if (kind === 9) this.firetrucks++;
+    else if (kind === 10) this.ambulances++;
+    else this.patrols++;   // v23：出警巡逻车计入在勤编制（收车时同样 patrols--，账目自洽）
     return true;
   }
 
@@ -2001,7 +2004,8 @@ export class ActorSystem {
 
   private pickNext(map: CityMap, a: Actor): boolean {
     // —— v12 应急车辆：任务相位机（0 前往现场 → 1 到场处置 → 2 返程收车）——
-    if (a.kind === 9 || a.kind === 10) {
+    // v23：kind 11 仅出警巡逻车走相位机（常驻巡逻车无 mission，照旧走街区巡逻分支）
+    if (a.kind === 9 || a.kind === 10 || (a.kind === 11 && a.mission)) {
       if (a.path && a.path.length) {
         const nxt = a.path.shift()!;
         a.dx = nxt[0]; a.dy = nxt[1];
@@ -2009,10 +2013,10 @@ export class ActorSystem {
       }
       const m = a.mission!;
       if (m.phase === 0) {
-        // 抵达事故现场：掉头朝向来路 → 原地处置（消防喷水 6.5s / 急救接载 5s）
+        // 抵达事故现场：掉头朝向来路 → 原地处置（消防喷水 6.5s / 急救接载 5s / 擒贼 5.5s）
         m.phase = 1;
         a.dx = -a.dx; a.dy = -a.dy;
-        a.wait = a.kind === 9 ? 6.5 : 5.0;
+        a.wait = a.kind === 9 ? 6.5 : a.kind === 10 ? 5.0 : 5.5;
         this.onRescueArrive?.(a.kind, m.tx, m.ty, m.evKey);
         return true;
       }

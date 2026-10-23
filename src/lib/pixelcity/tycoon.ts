@@ -82,6 +82,18 @@ export const EDU_HAP_MAX = 8;
 /** 人力资本基线：平均学历 1.5（初小~高小之间）＝ hrIdx 50 —— 外来市民自带基础教育。
  *  超过基线才有工业/科研加成（只加 buff 不打折：老城不因新玩法亏钱） */
 export const HR_BASE = 50;
+// ---- v23 治安空间化：守望相助 · 平安之城 ----
+/** 各治安设施的巡防半径（切比雪夫，自锤点起算）。
+ *  交番 3 / 警察局 6 / 市政厅 3（早期聚落市政厅附设驻警点）。
+ *  半径外的商铺＝治安盲区：夜里有梁上君子光顾（失窃事件 + 收入打折）；
+ *  半径外的住宅：住得提心吊胆（幸福 −1.2/栋至多 −6） */
+export const SEC_R: Record<string, number> = {
+  koban: 3, policehq: 6, cityhall: 3,
+};
+/** 治安盲区住宅幸福惩罚上限（−1.2/栋） */
+export const SEC_HAP_MAX = 6;
+/** 治安盲区商铺收入乘数（失窃风险摊薄：夜里留灯也不敢摆露天摊） */
+export const SEC_EARN_K = 0.92;
 
 /** v21 垃圾产量（件/分）：住宅按人口、商业按营收、工业按污染规模推导；
  *  环卫设施自产归零（自家的账自家清）；市政厅/公园等 pop=0 公共设施天然零产。 */
@@ -238,6 +250,7 @@ export const ECON: Record<string, EconDef> = {
   museum: D(550, 7, { power: 6, amenity: 4, upk: 2, edu: 25, sp: 1.5, cul: 4 }),
   firestation: D(240, 5, { power: 3, amenity: 3, upk: 1.5 }),
   koban: D(140, 2, { power: 1, amenity: 1, upk: 0.8 }),   // v12 交番：安全护盾 + 巡逻车
+  policehq: D(550, 5, { power: 4, amenity: 3, upk: 2.2 }),   // v23 警察局：巡防半径 6 + 常驻 2 辆巡逻车 + 失窃出警
   ecotower: D(720, 6, { power: 8, amenity: 2, upk: 2.4 }),  // v19 空气净化塔：半径 5 格强净化
   substation: D(220, 4, { power: 1, upk: 0.9 }),    // v20 变电站：自身在电源 6 格内＝有效中继（再向外辐射 6 格）
   binshed: D(140, 2, { power: 1, amenity: 1, upk: 1.0 }),   // v21 垃圾收集站：半径 6 清运 14 件/分
@@ -351,10 +364,13 @@ type EventTpl = {
   /** 触发时的一次性结算（返回结果文案；不返回 = 纯持续事件）
    *  v12：bill 出参登记延迟余损（金币 g / 人口 p），事件结束仍无人处置则结算 */
   fire?: (t: Tycoon, s: Snap, bill?: { g: number; p: number }) => string | void;
-  /** v12 应急响应：fire→消防车 / aid→救护车（就近设施出车驰援） */
-  resp?: 'fire' | 'aid';
+  /** v12 应急响应：fire→消防车 / aid→救护车（就近设施出车驰援）
+   *  v23：police→巡逻警车（就近交班/警察局出警） */
+  resp?: 'fire' | 'aid' | 'police';
   /** 是否挑选一栋建筑作为事故现场（烟柱特效） */
   fx?: boolean;
+  /** v23 事故现场挑选器（缺省：已购领地内随机一栋；犯罪事件：治安盲区商铺） */
+  fxPick?: (map: CityMap, t: Tycoon) => { x: number; y: number } | undefined;
 };
 
 /** 事件模板池：好坏约 5:5，设施齐全可大幅减免灾害 */
@@ -512,6 +528,29 @@ const EVENT_TPLS: EventTpl[] = [
       return `临水街区一片泽国，先期损失 ${now}G${s.levees > 0 ? `（${Math.min(3, s.levees)} 座防洪堤挡住了部分洪峰）` : ' —— 防洪堤能挡住洪峰'}`;
     },
   },
+  // ---- v23 治安空间化：盗贼专挑没巡防的铺子下手 ----
+  {
+    key: 'crime', name: '店铺失窃', kind: 'bad', dur: 22, hap: -4,
+    mult: {}, fx: true, resp: 'police',
+    note: '梁上君子光顾了巡防半径外的铺子，巡逻车及时赶到可追回大部分损失',
+    w: s => (s.crimeN > 0 ? Math.min(16, 5 + s.crimeN) : 0),
+    fxPick: (map, t) => {
+      // 现场必为治安盲区商铺（crimeField 命中的商业建筑里随机一家）
+      const cands = [...map.objs.values()].filter(o =>
+        defById(o.id).cat === 'com' && t.crimeField.has(map.idx(o.ax, o.ay)));
+      if (!cands.length) return undefined;
+      const o = cands[(Math.random() * cands.length) | 0];
+      return { x: o.ax, y: o.ay };
+    },
+    fire: (t, s, bill) => {
+      // 两段结算：即时 40% 失窃损失 + 余款挂账（巡逻车到场人赃并获则追回）
+      const total = Math.round(60 + s.earnCom * 0.1 + t.pop * 0.25);
+      const now = Math.round(total * 0.4);
+      if (bill) bill.g = total - now;
+      t.coins = Math.max(0, t.coins - now);
+      return `卷帘门被撬，货款损失 ${now}G —— 巡逻车赶到可追回余款`;
+    },
+  },
 ];
 
 // ------------------------------------------------------------
@@ -603,6 +642,11 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 12, val: (_s, t) => t.citz.gradTotal },
   { id: 'scholar', name: '书香之城', desc: '人口 ≥100 且学区覆盖 ≥90% —— 满城书声（学区覆盖见城市志「文教兴学」：小学打底、大学提速）', icon: 'medal',
     goal: 90, val: (s, t) => (t.pop >= 100 ? s.eduCover : 0) },
+  // ---- v23 治安空间化 ----
+  { id: 'nightSafe', name: '夜不闭户', desc: '人口 ≥100 且巡防覆盖 ≥95% —— 深夜的巷子也有人巡（巡防半径：交班 3 格 · 警察局 6 格；市政厅自带驻警点）', icon: 'shield',
+    goal: 95, val: (s, t) => (t.pop >= 100 ? s.secCover : 0) },
+  { id: 'sleuth', name: '神探手记', desc: '巡逻车及时破案 5 起（店铺失窃时就近出警：设施务必邻路且路网连通现场 —— 人赃并获追回余款）', icon: 'shield',
+    goal: 5, val: s => s.rescuePolice },
 ];
 
 /** 需特定科技才可建造的建筑
@@ -757,6 +801,14 @@ export type QS = {
   primaries: number;    // 小学座数
   universities: number; // 大学城座数
   gradTotal: number;    // 累计升学人次（成就口径，随市民档保存）
+  // ---- v23 治安空间化 ----
+  secCover: number;     // 巡防覆盖率 %（覆盖内商铺+住宅 / 全部商铺+住宅）
+  secIn: number;        // 巡防内建筑栋数（商铺+住宅）
+  secOut: number;       // 盲区建筑栋数（商铺+住宅）
+  crimeN: number;       // 盲区商铺数（失窃事件的目标池与权重源）
+  secMissRes: number;   // 盲区住宅栋数（幸福惩罚源：住得提心吊胆）
+  policehqN: number;    // 警察局座数
+  rescuePolice: number; // 巡逻车破案数（成就口径）
 };
 
 export type Quest = {
@@ -866,6 +918,9 @@ export const QUESTS: Quest[] = [
   // ---- v22 教育空间化 ----
   { id: 'edu1', title: '有教无类', hint: '建造 1 座教育设施（小学/学校/图书馆）：半径内住宅自动划入学区 —— 学区外的孩子上学要翻山，市民会念叨；学区内市民还会随时间升学深造', goal: 1,
     val: s => s.primaries + s.hasSchool + s.hasLib, rG: 260, rXp: 130 },
+  // ---- v23 治安空间化 ----
+  { id: 'sec1', title: '守望相助', hint: '建造 1 座警察局（巡防半径 6 格，交班仅 3 格）：半径内商铺与住宅自动纳入巡防 —— 盲区商铺夜里会遭梁上君子光顾，巡逻车还会就近出警追回失窃货款', goal: 1,
+    val: s => s.policehqN, rG: 300, rXp: 150 },
 ];
 
 // ------------------------------------------------------------
@@ -976,6 +1031,14 @@ export type EconView = {
   primaries: number;                // 小学座数
   universities: number;             // 大学城座数
   gradTotal: number;                // 累计升学人次
+  // ---- v23：治安空间化 ----
+  secCover: number;                 // 巡防覆盖率 %
+  secIn: number;                    // 巡防内建筑栋数（商铺+住宅）
+  secOut: number;                   // 盲区建筑栋数（商铺+住宅）
+  crimeN: number;                   // 盲区商铺数（失窃目标池）
+  secMissRes: number;               // 盲区住宅栋数（幸福惩罚源）
+  policehqN: number;                // 警察局座数
+  rescuePolice: number;             // 巡逻车破案数
 };
 
 export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
@@ -1090,8 +1153,8 @@ export class Tycoon {
   /** 消防成功扑救 / 急救成功处置次数（成就） */
   rescueFire = 0;
   rescueAid = 0;
-  /** 出动请求队列（engine 每帧消费：9 消防车 / 10 救护车；hx,hy=设施格 tx,ty=事故格） */
-  dispatch: Array<{ kind: 9 | 10; hx: number; hy: number; tx: number; ty: number; key: string }> = [];
+  /** 出动请求队列（engine 每帧消费：9 消防车 / 10 救护车 / 11 巡逻警车；hx,hy=设施格 tx,ty=事故格） */
+  dispatch: Array<{ kind: 9 | 10 | 11; hx: number; hy: number; tx: number; ty: number; key: string }> = [];
   /** v12 交班数（engine 每帧读取折算巡逻编制） */
   kobansNow = 0;
 
@@ -1164,6 +1227,22 @@ export class Tycoon {
   private eduVer = -1;
   /** 学区外警告（一档一次，覆盖后复位） */
   private eduWarned = false;
+
+  // ---- v23：治安空间化（守望相助 · 平安之城）----
+  /** 巡防内建筑锤点集合（商铺+住宅；engine 巡防渲染判定） */
+  secField = new Set<number>();
+  /** 治安盲区建筑锤点集合（商铺+住宅；犯罪现场挑选池 / 幸福与收入惩罚源） */
+  crimeField = new Set<number>();
+  /** 盲区中商铺锤点集合（失窃事件目标池；引擎红点警示） */
+  crimeComField = new Set<number>();
+  /** 巡防场缓存版本（仅随 map.version 变化重算：摆盘即重算） */
+  private secVer = -1;
+  /** 盲区警告（一档一次，覆盖后复位） */
+  private secWarned = false;
+  /** v23 巡逻车破案数（成就口径，随档保存） */
+  rescuePolice = 0;
+  /** v23 警察局数（engine 每帧读取折算巡逻编制） */
+  policehqNow = 0;
 
   hasOrd(id: string): boolean { return this.ords.has(id); }
 
@@ -1378,6 +1457,8 @@ export class Tycoon {
     this.ensureSweep(map);
     // v22：学区覆盖场先行（学区房判定 / 幸福惩罚 / 人力资本；仅随摆盘重算）
     this.ensureEdu(map);
+    // v23：巡防覆盖场先行（盲区商铺折扣 / 犯罪目标池 / 幸福惩罚；仅随摆盘重算）
+    this.ensureSec(map);
     let cap = 0, jobs = 0, earnCom = 0, earnInd = 0, upk = 0;
     let powerSup = 0, powerDem = 0, amenitySup = 0, pollute = 0;
     let res = 0, com = 0, ind = 0, civ = 0, park = 0, buildings = 0;
@@ -1395,6 +1476,8 @@ export class Tycoon {
     let sweeps = 0, recycles = 0, incins = 0;
     // v22：教育累计器
     let primaries = 0, universities = 0, eduIn = 0, eduOut = 0;
+    // v23：治安累计器
+    let secIn = 0, secOut = 0, crimeN = 0, secMissRes = 0, policehqN = 0;
     // v10：货物 / 旅游累计器
     let goodsP = 0, goodsC = 0, goodsCapV = GOODS_BASE_CAP;
     let hotelBeds = 0, attract = 0, ports = 0;
@@ -1415,6 +1498,9 @@ export class Tycoon {
         if (offGrid) powerRes++;   // v20：断电住宅（幸福惩罚，夜里黑着）
         // v22：学区房判定（学区内 → 书声琅琅；学区外 → 上学翻山）
         if (this.eduField.has(map.idx(o.ax, o.ay))) eduIn++; else eduOut++;
+        // v23：巡防判定（盲区住宅 → 住得提心吊胆）
+        if (this.secField.has(map.idx(o.ax, o.ay))) secIn++;
+        else { secOut++; secMissRes++; }
       } else if (d.cat === 'com') {
         com++; jobs += d.pop;
         // 城市名片：文旅商业收入 +20%；v19 空间污染：雾霾区生意冷清 ×0.82
@@ -1423,8 +1509,12 @@ export class Tycoon {
         const smogK = (this.smogField.get(map.idx(o.ax, o.ay)) ?? 0) >= SMOG_LV1 ? 0.82 : 1;
         // v21 环卫：垃圾堆门的店没客流（堆积建筑商业收入 ×0.88）
         const wasteK = this.wasteField.has(map.idx(o.ax, o.ay)) ? 0.88 : 1;
+        // v23 治安：盲区商铺夜里遭贼（失窃风险摊薄收入 ×0.92）
+        const secK = this.secField.has(map.idx(o.ax, o.ay)) ? 1 : SEC_EARN_K;
         // v20 电网：断电商铺收入归零（黑暗的店谁也进不去）；未断电才计入
-        if (!offGrid) earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK * wasteK;
+        if (!offGrid) earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK * wasteK * secK;
+        // v23 巡防判定（覆盖 → 安心做买卖；盲区 → 失窃目标池）
+        if (this.secField.has(map.idx(o.ax, o.ay))) secIn++; else { secOut++; crimeN++; }
         if (o.id === 'ferris') park++;
       } else if (d.cat === 'ind') {
         ind++; jobs += d.pop;
@@ -1440,6 +1530,7 @@ export class Tycoon {
         if (o.id === 'hospital') { hasHospital = 1; hospitals++; }
         if (o.id === 'firestation') firestations++;
         if (o.id === 'koban') kobans++;                     // v12
+        if (o.id === 'policehq') policehqN++;               // v23 警察局
         if (o.id === 'levee') levees++;                     // v18 防洪堤
       }
       // v6 水务设施：登记覆盖圆心（半径含足迹）
@@ -1724,11 +1815,13 @@ export class Tycoon {
     const wasteHap = Math.min(10, Math.round(wasteRes * 1.8));
     // v22：望学兴叹 —— 每栋学区外住宅 −1.6，至多 −8（建小学/学校/大学可解）
     const eduHap = Math.min(EDU_HAP_MAX, Math.round(eduOut * 1.6));
+    // v23：提心吊胆 —— 每栋盲区住宅 −1.2，至多 −6（建交班/警察局可解）
+    const secHap = Math.min(SEC_HAP_MAX, Math.round(secMissRes * 1.2));
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
       0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap
-      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外扣减
+      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区扣减
     const happyMult = 0.6 + happiness / 125;
 
     // ---- v10 旅游：景点吸引力 × 文化/幸福 × 季节/天气 → 游客（酒店床位为接待上限）----
@@ -1792,6 +1885,9 @@ export class Tycoon {
       eduCover: (eduIn + eduOut) > 0 ? Math.round(100 * eduIn / (eduIn + eduOut)) : 100,
       eduIn, eduOut, hrIdx, primaries, universities,                                // v22 教育空间化
       gradTotal: this.citz.gradTotal,                                               // v22 累计升学
+      secCover: (secIn + secOut) > 0 ? Math.round(100 * secIn / (secIn + secOut)) : 100,
+      secIn, secOut, crimeN, secMissRes, policehqN,                                 // v23 治安空间化
+      rescuePolice: this.rescuePolice,                                              // v23 巡逻车破案
       ecotowers: this.smogTowerN,
       eventHap, eventAmenity, multCom, multInd, multFood, multPower, multTraffic, multSp,
       weather: { kind: wt.kind, t: wt.t },
@@ -1806,6 +1902,7 @@ export class Tycoon {
       multTour, multExp, expPrice, ordCost, ordHap, migMult,
     };
     this.kobansNow = kobans;   // v12：巡逻编制回写（引擎折算 patrolCap）
+    this.policehqNow = policehqN;   // v23：警察局编制回写（引擎折算 patrolCap）
     return s;
   }
 
@@ -2017,6 +2114,43 @@ export class Tycoon {
     this.eduMissField = outside;
   }
 
+  // ---------------- v23：巡防覆盖场（守望相助 · 平安之城） ----------------
+
+  /** 重算巡防覆盖（版本缓存：仅 map.version 变化才重算，摆盘/拆迁即触发）。
+   *  Pass A：登记治安设施（SEC_R 半径表：交番 3 / 警察局 6 / 市政厅 3 附设驻警）；
+   *  Pass B：商铺与住宅锤点落在任一设施半径内（切比雪夫）→ secField（安心做买卖/住得踏实），
+   *          否则 → crimeField（治安盲区：商铺进失窃目标池 crimeComField · 住宅记幸福惩罚）。
+   *  工业仓库重货难搬不在贼的菜单上 —— 巡防只看商铺与住宅 */
+  private ensureSec(map: CityMap): void {
+    if (map.version === this.secVer) return;
+    this.secVer = map.version;
+    const facs: Array<{ x: number; y: number; r: number }> = [];
+    for (const o of map.objs.values()) {
+      const r = SEC_R[o.id];
+      if (r !== undefined) facs.push({ x: o.ax, y: o.ay, r });
+    }
+    const inside = new Set<number>();
+    const miss = new Set<number>();
+    const missCom = new Set<number>();
+    for (const o of map.objs.values()) {
+      const cat = defById(o.id).cat;
+      if (cat !== 'com' && cat !== 'res') continue;
+      const i = map.idx(o.ax, o.ay);
+      let hit = false;
+      for (const f of facs) {
+        if (Math.max(Math.abs(o.ax - f.x), Math.abs(o.ay - f.y)) <= f.r) { hit = true; break; }
+      }
+      if (hit) inside.add(i);
+      else {
+        miss.add(i);
+        if (cat === 'com') missCom.add(i);
+      }
+    }
+    this.secField = inside;
+    this.crimeField = miss;
+    this.crimeComField = missCom;
+  }
+
   // ---------------- 每帧心跳 ----------------
 
   tick(dt: number, map: CityMap): void {
@@ -2097,6 +2231,12 @@ export class Tycoon {
       this.msg?.(`望学兴叹：${s.eduOut} 栋住宅的孩子上学要翻山越岭 —— 建小学/学校把周边划入学区，大学城半径最大（8 格）`);
     } else if (s.eduOut === 0) this.eduWarned = false;
 
+    // v23 治安警告：治安盲区出现时一档一次（覆盖后复位）
+    if (s.crimeN > 0 && !this.secWarned) {
+      this.secWarned = true;
+      this.msg?.(`治安盲区：${s.crimeN} 家商铺不在巡防半径内 —— 夜里容易遭梁上君子光顾；建交班（半径 3）或警察局（半径 6）护住商街`);
+    } else if (s.crimeN === 0) this.secWarned = false;
+
     // 科技点累积（教育设施 × 智慧加成）
     this.sp += s.spRaw * (0.5 + s.wisdom / 100) * (this.has('higher') ? 1.35 : 1) * dt / 60;
 
@@ -2128,6 +2268,7 @@ export class Tycoon {
       dark: s.powerRes,                        // v20：断电住宅心声
       waste: s.wasteRes,                       // v21：垃圾堆积心声
       eduOut: s.eduOut,                        // v22：学区外住宅心声
+      crime: s.crimeN,                         // v23：盲区商铺心声（街坊议论失窃）
       inEdu: (x, y) => this.eduField.has(map.idx(x, y)),   // v22：升学判定（学区内市民会随时间求学深造）
     }, this.playtime);
     if (this.citz.total > citzTotalBefore) this.sfx?.('movein');
@@ -2166,6 +2307,7 @@ export class Tycoon {
       gridCover: s.gridCover, darkN: s.darkN, powerRes: s.powerRes,   // v20 电网里程碑
       wasteN: s.wasteN, recycles: s.recycles, sweepCover: s.sweepCover,   // v21 环卫里程碑
       eduOut: s.eduOut, eduCover: s.eduCover, universities: s.universities,   // v22 文教里程碑
+      crimeN: s.crimeN, secCover: s.secCover, policehqN: s.policehqN,   // v23 治安里程碑
     }, this.gHours);
     if (eraUp >= 1) {
       const ERAS_NAME = ['炊烟村庄', '市井小镇', '一方城市', '摩登都会'];
@@ -2261,28 +2403,35 @@ export class Tycoon {
     }
     if (pick.key === 'flood') this.floods++;   // v18 灾害计数（成就）
 
-    // 事故现场：从已购领地内挑一栋建筑
+    // 事故现场：自定义挑选器优先（v23 犯罪：盲区商铺）；缺省：已购领地内挑一栋建筑
     let fx: { x: number; y: number } | undefined;
     if (pick.fx) {
-      const cands = [...map.objs.values()].filter(o =>
-        o.id !== 'cityhall' && this.ownedAt(o.ax, o.ay));
-      if (cands.length) {
-        const o = cands[(Math.random() * cands.length) | 0];
-        fx = { x: o.ax, y: o.ay };
+      if (pick.fxPick) {
+        fx = pick.fxPick(map, this);
+      } else {
+        const cands = [...map.objs.values()].filter(o =>
+          o.id !== 'cityhall' && this.ownedAt(o.ax, o.ay));
+        if (cands.length) {
+          const o = cands[(Math.random() * cands.length) | 0];
+          fx = { x: o.ax, y: o.ay };
+        }
       }
     }
 
     // v12 应急联动：就近设施请求出动（消防局→消防车 / 医院→救护车）
+    // v23：police→巡逻警车（就近交班/警察局出警）
     if (pick.resp && fx) {
-      const fid = pick.resp === 'fire' ? 'firestation' : 'hospital';
+      const fids = pick.resp === 'fire' ? ['firestation']
+        : pick.resp === 'aid' ? ['hospital']
+          : ['policehq', 'koban'];
       let best: { ax: number; ay: number } | null = null, bd = 1e9;
       for (const o of map.objs.values()) {
-        if (o.id !== fid) continue;
+        if (!fids.includes(o.id)) continue;
         const d = Math.abs(o.ax - fx.x) + Math.abs(o.ay - fx.y);
         if (d < bd) { bd = d; best = o; }
       }
       if (best) this.dispatch.push({
-        kind: pick.resp === 'fire' ? 9 : 10,
+        kind: pick.resp === 'fire' ? 9 : pick.resp === 'aid' ? 10 : 11,
         hx: best.ax, hy: best.ay, tx: fx.x, ty: fx.y, key: pick.key,
       });
     }
@@ -2469,6 +2618,14 @@ export class Tycoon {
       primaries: s?.primaries ?? 0,
       universities: s?.universities ?? 0,
       gradTotal: this.citz.gradTotal,
+      // ---- v23：治安空间化 ----
+      secCover: s?.secCover ?? 100,
+      secIn: s?.secIn ?? 0,
+      secOut: s?.secOut ?? 0,
+      crimeN: s?.crimeN ?? 0,
+      secMissRes: s?.secMissRes ?? 0,
+      policehqN: s?.policehqN ?? 0,
+      rescuePolice: this.rescuePolice,
     };
   }
 
@@ -2538,6 +2695,10 @@ export class Tycoon {
     // v22：学区场同样复位
     this.eduWarned = false;
     this.eduVer = -1;
+    // v23：巡防场同样复位
+    this.secWarned = false;
+    this.secVer = -1;
+    this.rescuePolice = 0;
     this.dayLight = 1;
     // v12：应急联动重置
     this.rescueFire = 0;
@@ -2600,6 +2761,7 @@ export class Tycoon {
       exportHold: this.exportHold,
       // v12：应急出动计数
       rescueFire: this.rescueFire, rescueAid: this.rescueAid,
+      rescuePolice: this.rescuePolice,   // v23：巡逻车破案计数
       // v18：灾害链计数（地震 / 洪水场次）
       quakes: this.quakes, floods: this.floods,
       // v13：市民列传
@@ -2706,6 +2868,7 @@ export class Tycoon {
     // v12：应急联动恢复（旧档默认 0；在途出动车辆不保留）
     this.rescueFire = Math.max(0, Math.floor(Number(d.rescueFire) || 0));
     this.rescueAid = Math.max(0, Math.floor(Number(d.rescueAid) || 0));
+    this.rescuePolice = Math.max(0, Math.floor(Number(d.rescuePolice) || 0));   // v23（老档归零）
     // v18：灾害链计数（老档无字段则归零）
     this.quakes = Math.max(0, Math.floor(Number(d.quakes) || 0));
     this.floods = Math.max(0, Math.floor(Number(d.floods) || 0));
@@ -2795,6 +2958,7 @@ export class Tycoon {
       dark: s?.powerRes ?? 0,                   // v20：断电住宅心声
       waste: s?.wasteRes ?? 0,                  // v21：垃圾堆积心声
       eduOut: s?.eduOut ?? 0,                   // v22：学区外住宅心声
+      crime: s?.crimeN ?? 0,                    // v23：盲区商铺心声
     });
   }
 
@@ -2837,14 +3001,16 @@ export class Tycoon {
     ev.left = Math.min(ev.left, 3.5);
     if (key === 'fire') this.rescueFire++;
     if (key === 'plague') this.rescueAid++;
-    // v18：天灾驰援的英雄仍是消防员（抽水排涝 / 搜救排险）
-    this.citz.onRescue(key === 'plague' ? 'plague' : 'fire', this.playtime);   // v13：英雄入册
-    // v17：编年史 —— 救险入册（v18 扩充天灾条目）
+    if (key === 'crime') this.rescuePolice++;   // v23：巡逻车破案计数
+    // v18：天灾驰援的英雄仍是消防员（抽水排涝 / 搜救排险）；v23：擒贼的是警官
+    this.citz.onRescue(key === 'plague' ? 'plague' : key === 'crime' ? 'police' : 'fire', this.playtime);   // v13：英雄入册
+    // v17：编年史 —— 救险入册（v18 扩充天灾条目；v23 擒贼条目）
     const CHRON_RESCUE: Record<string, { icon: string; title: string; text: string }> = {
       fire: { icon: 'fire', title: '烈火英雄', text: `消防车队鸣笛赶到，架梯引水扑灭烈焰${saveG > 0 ? `、挽回 ${saveG}G 损失` : ''} —— 围观市民夹道鼓掌。` },
       plague: { icon: 'heart', title: '妙手回春', text: `救护车及时赶到疫区，白衣天使接管了病床${saveP > 0 ? `，${saveP} 位市民免于病退` : ''}。` },
       quake: { icon: 'land', title: '力挽狂澜', text: `消防车队顶着余震赶到灾区，撑梁加固、搜救排险${saveG > 0 ? `、挽回 ${saveG}G 损失` : ''} —— 市政厅的灯彻夜未熄。` },
       flood: { icon: 'drop', title: '中流砥柱', text: `消防车在齐腰的洪水中架泵排涝、转移受困市民${saveG > 0 ? `、挽回 ${saveG}G 损失` : ''} —— 大堤上人头攒动。` },
+      crime: { icon: 'shield', title: '神速擒贼', text: `巡逻车警笛未落人赃并获${saveG > 0 ? `，失窃的 ${saveG}G 货款如数追回` : ''} —— 商户们心里的大石头落了地。` },
     };
     const cr = CHRON_RESCUE[key];
     if (cr) {

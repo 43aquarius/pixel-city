@@ -418,6 +418,68 @@ export function genKoban(seed: number): BuildResult {
   return { model: buildModel(faces, 16, 16) };
 }
 
+/** 警察局（2×2，v23 治安空间化）：米白主楼 + 藏青双坡顶 + 车库卷闸门（巡逻车驶出）+
+ *  门楣蓝白灯箱 + 旗杆 + 侧墙警徽 —— 巡防半径 6 格的治安中枢 */
+export function genPoliceHQ(seed: number): BuildResult {
+  const faces: Face[] = [];
+  const wall = (seed & 1) === 0 ? P.CREAM : P.PBLUE;   // 变体：主墙色（米白 / 青白）
+  const h = 14.5;
+  // ---- 主楼（北侧：两层米白墙 + 大窗，夜里办案灯长明）----
+  box(faces, 3, 2.6, 29, 13.4, 0, h, {
+    right: pWindows(wall, { seed, lit: 0.42, floorH: 7.2, gapX: 4.6, winW: 2.2, winH: 2.6 }),
+    left: pWindows(wall, { seed: seed ^ 5, lit: 0.42, floorH: 7.2, gapX: 4.6, winW: 2.2, winH: 2.6 }),
+  });
+  gableRoof(faces, 2.4, 2.0, 29.6, 14.0, h - 0.4, h + 6.5, 'x', {
+    front: pShingle(P.RFSLATE), back: pShingle(P.RFSLATE), endX: pWall(wall),
+  });
+  // ---- 门楣灯箱（+Y 正脸藏青横箱 + 白字意象，夜间灯箱亮）----
+  box(faces, 9, 13.4, 23, 14.4, 8.6, 11.4, {
+    left: pWall(P.PBLUE), right: pWall(P.SIDE), top: pFlatRoof(P.PBLUE, 2),
+  });
+  box(faces, 11, 14.4, 17, 14.9, 9.2, 10.6, {
+    left: () => cell(P.WHITE, 0), right: pWall(P.SIDE), top: pWall(P.SIDE),
+  });
+  box(faces, 18.5, 14.4, 21, 14.9, 9.2, 10.6, {
+    left: () => cell(P.WHITE, 0), right: pWall(P.SIDE), top: pWall(P.SIDE),
+  });
+  // ---- 双开车库卷闸门（+Y 面，藏青横条门 + 出车坡道）----
+  for (const gx of [5.2, 13.2]) {
+    box(faces, gx, 13.4, gx + 6.6, 14.8, 0, 7.2, {
+      left: (u, v, px, py) => ((v * 1.6) | 0) % 2 === 0 ? cell(P.PBLUE, 1) : cell(P.PBLUE, 0),
+      right: pWall(P.SIDE), top: pWall(P.PBLUE),
+    });
+  }
+  box(faces, 4, 14.8, 21.5, 16.2, 0, 0.5, {
+    top: () => cell(P.ASPH, 1), right: pWall(P.ASPH), left: pWall(P.ASPH),
+  });
+  // ---- 侧墙警徽（+X 面红底 + 白色圆点 + 金圈）----
+  box(faces, 28.9, 18, 29.3, 21.4, 8.6, 11.6, {
+    right: pWall(P.RED), left: pWall(P.SIDE), top: pWall(P.SIDE),
+  });
+  box(faces, 28.9, 18.9, 29.4, 20.5, 9.3, 10.8, {
+    right: () => cell(P.WHITE, 0), left: pWall(P.SIDE), top: pWall(P.SIDE),
+  });
+  box(faces, 28.8, 18.6, 29.0, 20.8, 9.0, 11.2, {
+    right: pWall(P.YELLOW), left: pWall(P.SIDE), top: pWall(P.SIDE),
+  });
+  // ---- 东侧停车坪（沥青地 + 巡逻车位划线意象）----
+  box(faces, 21, 15.5, 29.5, 29.5, 0, 0.4, {
+    right: pWall(P.ASPH), left: pWall(P.ASPH), top: () => cell(P.ASPH, 1),
+  });
+  box(faces, 22.5, 18.5, 28, 18.9, 0.4, 0.55, {
+    top: () => cell(P.WHITE, 0),
+  });
+  // ---- 旗杆 + 檐顶警灯 ----
+  flagPole(faces, 26, 27.5, 16, P.RED);
+  box(faces, 15.6, 8.2, 16.4, 9.0, h + 5.4, h + 6.6, {
+    right: pWall(P.METAL), left: pWall(P.METAL),
+  });
+  box(faces, 15.2, 7.8, 16.8, 9.4, h + 6.6, h + 8.2, {
+    right: pWall(P.NEONC), left: pWall(P.NEONC), top: () => cell(P.NEONC, 0),
+  });
+  return { model: buildModel(faces, 32, 32) };
+}
+
 /** 消防局（1×1）：红色卷闸门 ×2 + 晾塔 + 旗杆 */
 export function genFireStation(seed: number): BuildResult {
   const r = mulberry32(seed);

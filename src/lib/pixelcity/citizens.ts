@@ -208,6 +208,8 @@ export type CitzCtx = {
   waste: number;
   /** v22 学区外住宅栋数（望学心声） */
   eduOut: number;
+  /** v23 盲区商铺数（治安心声：街坊议论失窃） */
+  crime: number;
   /** v22 学区判定回调（tycoon 闭包捕获 eduField：升学事件只举学区内市民） */
   inEdu?: (x: number, y: number) => boolean;
 };
@@ -237,7 +239,7 @@ export class CitizenRegistry {
   private nextFam = 1;
   /** v22 累计升学人次（成就口径） */
   gradTotal = 0;
-  private lastCtx: CitzCtx = { pop: 0, happiness: 60, taxRate: 8, season: 0, famine: 0, events: [], fest: -1, smog: 0, dark: 0, waste: 0, eduOut: 0 };
+  private lastCtx: CitzCtx = { pop: 0, happiness: 60, taxRate: 8, season: 0, famine: 0, events: [], fest: -1, smog: 0, dark: 0, waste: 0, eduOut: 0, crime: 0 };
   private lastT = 0;
   /** 消息回调（tycoon.msg 接线） */
   onMsg: ((s: string) => void) | null = null;
@@ -624,6 +626,11 @@ export class CitizenRegistry {
         react(pick(), `去市政厅递了意见书，附了按满手印的联名信`, -6);
         break;
       }
+      // ---- v23 治安：店铺失窃 ----
+      case 'crime': {
+        react(pick(), `亲眼看见蒙面人从隔壁铺子后窗翻出来，报了警`, -7);
+        break;
+      }
       // ---- v16 城市节庆：开幕式 / 落幕 ----
       case 'fest0': {
         react(pick(), `在樱花祭的樱树下拍了全家福`, +8);
@@ -649,13 +656,17 @@ export class CitizenRegistry {
     }
   }
 
-  /** 应急处置成功（消防/急救）：市民点赞 */
-  onRescue(kind: 'fire' | 'plague', t: number): void {
+  /** 应急处置成功（消防/急救/擒贼）：市民点赞
+   *  v23：police → 警官英雄（制服 role 1）入册 */
+  onRescue(kind: 'fire' | 'plague' | 'police', t: number): void {
     if (!this.roster.length) return;
-    const hero = this.roster.find(c => c.role === (kind === 'fire' ? 7 : 6));
+    const heroRole = kind === 'fire' ? 7 : kind === 'police' ? 1 : 6;
+    const hero = this.roster.find(c => c.role === heroRole);
     if (hero) this.pushLog(hero, t, kind === 'fire'
       ? `参与扑救大火，被评为本周城市之星`
-      : `连夜出诊处置疫情，居民送来了锦旗`);
+      : kind === 'police'
+        ? `连夜出警人赃并获，商户们送来了锦旗`
+        : `连夜出诊处置疫情，居民送来了锦旗`);
     for (const c of this.roster) c.mood = clamp(c.mood + 4, 5, 100);
   }
 
@@ -702,6 +713,13 @@ export class CitizenRegistry {
       '咱这片的娃想读书，得寄宿到城那头的亲戚家',
       '联名信都递了三回了，就盼着家门口有所学堂',
       '听说城里在办学，可咱巷子连个小学的影子都没有',
+    ]);
+    // v23 治安心声：商铺遭贼的街区（优先级在望学之后：误了孩子不可忍，丢了货款也心疼）
+    else if (ctx.crime > 0) text = rnd([
+      '听说商街那头又有铺子遭了贼，卷帘门都撬开了',
+      '夜里巷子黑得渗人，打着手电都不敢走快',
+      '派出所说咱这片不在巡防线上，让大伙儿自求多福',
+      '隔壁街装了交番之后太平多了，咱这儿啥时候轮上',
     ]);
     else if (ctx.taxRate > 12) text = rnd(['税越收越狠，肉摊都少割两斤了', '这税率，攒钱的速度赶不上市政厅收的']);
     else if (ctx.taxRate <= 5) text = rnd(['低税的日子里，钱包都胖了一圈', '市政厅这个月大方，下馆子加了个鸡腿']);

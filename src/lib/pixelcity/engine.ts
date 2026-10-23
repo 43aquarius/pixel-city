@@ -871,6 +871,25 @@ export class Engine {
       ctx.fillText(label, Math.round(sx), Math.round(sy - 48));
       ctx.textAlign = 'left';
     }
+    // v23：犯罪现场 —— 红色惊叹号闪烁 + 事件标签（与火灾同款标签框，警示色换红）
+    for (const ev of eco.events) {
+      if (!ev.fx || ev.key !== 'crime') continue;
+      const sx = this.w2sx(ev.fx.x, ev.fx.y);
+      const sy = this.w2sy(ev.fx.x, ev.fx.y) + this.hOfs(ev.fx.x, ev.fx.y);
+      const fl = Math.floor(now / 160) % 2 === 0;
+      ctx.fillStyle = fl ? '#E05548' : '#8B2A20';
+      ctx.fillRect(Math.round(sx - 1), Math.round(sy - 40), 3, 5);      // 惊叹号竖笔
+      ctx.fillRect(Math.round(sx - 1), Math.round(sy - 33), 3, 2);      // 点
+      ctx.font = 'bold 8px monospace';
+      ctx.textAlign = 'center';
+      const label = `${ev.name}!`;
+      const w = ctx.measureText(label).width + 6;
+      ctx.fillStyle = 'rgba(11,15,36,0.92)';
+      ctx.fillRect(Math.round(sx - w / 2), Math.round(sy - 56), Math.round(w), 11);
+      ctx.fillStyle = fl ? '#F4F2E8' : '#F2B8B0';
+      ctx.fillText(label, Math.round(sx), Math.round(sy - 48));
+      ctx.textAlign = 'left';
+    }
   }
 
   /** v18 地震震屏：amp px 振幅，约 4.5 秒随机抖动后衰减归零 */
@@ -1031,6 +1050,40 @@ export class Engine {
           const fp = t / 240 + (tx + ty * 3 + f * 2) * 1.7;
           const fr = 3 + f * 2;
           ctx.fillRect(Math.round(sx + Math.cos(fp) * fr), Math.round(sy - 2 + Math.sin(fp * 1.6) * 2), 1, 1);
+        }
+      }
+    }
+  }
+
+  /** v23：治安盲区层 —— 巡防半径外的商铺与住宅铺冷蓝阴影菱形（巷子黑得渗人的意象）+
+ *  盲区商铺顶上红色警示点缓慢明灭（贼惦记的地方）。画在事件特效之下、学区层之下：
+ *  盲区是环境底色，学光是氛围，实体特效最上 */
+  private drawSecOverlay(ctx: CanvasRenderingContext2D, t: number): void {
+    const eco = this.tycoon;
+    if (!eco || eco.crimeField.size === 0) return;
+    const n = this.map.n;
+    for (const i of eco.crimeField) {
+      const tx = i % n, ty = (i / n) | 0;
+      const sx = this.w2sx(tx, ty);
+      const sy = this.w2sy(tx, ty) + this.hOfs(tx, ty);
+      if (sx < -40 || sx > this.lw + 40 || sy < -56 || sy > this.lh + 40) continue;
+      // 冷蓝阴影（贴地菱形 —— 巡逻灯照不到的角落）
+      ctx.fillStyle = 'rgba(34,44,78,0.26)';
+      ctx.beginPath();
+      ctx.moveTo(sx - 18, sy + 2);
+      ctx.lineTo(sx, sy + 11);
+      ctx.lineTo(sx + 18, sy + 2);
+      ctx.lineTo(sx, sy - 7);
+      ctx.closePath();
+      ctx.fill();
+      // 盲区商铺：红色警示点缓闪（楼顶上空 —— 贼惦记的地方）
+      if (eco.crimeComField.has(i)) {
+        const a = 0.45 + 0.55 * Math.sin(t / 900 + (tx * 3 + ty * 5) * 0.7);
+        if (a > 0.06) {
+          ctx.fillStyle = `rgba(224,85,72,${a.toFixed(3)})`;
+          ctx.fillRect(Math.round(sx - 1), Math.round(sy - 46), 3, 3);
+          ctx.fillStyle = `rgba(224,85,72,${(a * 0.4).toFixed(3)})`;
+          ctx.fillRect(Math.round(sx - 2), Math.round(sy - 47), 5, 5);
         }
       }
     }
@@ -1324,12 +1377,12 @@ export class Engine {
         if (this.actors.dispatchEmergency(this.map, q.kind, q.hx, q.hy, q.tx, q.ty, q.key)) dispatchedN++;
       }
       if (dispatchedN > 0) this.beeper.play('siren');   // v14：应急出动警笛
-      // v12 巡逻编制：交班常驻 + 治安巡逻令 +1（上限 3 辆）
-      this.actors.patrolCap = Math.min(3,
-        this.tycoon.kobansNow + (this.tycoon.hasOrd('patrol') ? 1 : 0));
-      // v12 到场回调 → 提前终结事件 + 豁免余损（v18：按事件 key 精准终结）
+      // v12 巡逻编制：交班常驻 + 治安巡逻令 +1；v23 警察局常驻两辆（上限 4 辆）
+      this.actors.patrolCap = Math.min(4,
+        this.tycoon.kobansNow + this.tycoon.policehqNow * 2 + (this.tycoon.hasOrd('patrol') ? 1 : 0));
+      // v12 到场回调 → 提前终结事件 + 豁免余损（v18：按事件 key 精准终结；v23：巡逻车擒贼）
       this.actors.onRescueArrive = (kind, _tx, _ty, evKey) => {
-        this.tycoon?.resolveEvent(evKey ?? (kind === 9 ? 'fire' : 'plague'));
+        this.tycoon?.resolveEvent(evKey ?? (kind === 9 ? 'fire' : kind === 10 ? 'plague' : 'crime'));
       };
       // v16 城市节庆：节日视觉状态同步（粒子层驱动）
       this.festKind = this.tycoon.fest ? this.tycoon.fest.kind : -1;
@@ -1779,6 +1832,8 @@ export class Engine {
 
     // ---- v5：事件事故特效（火灾烟柱 / 火点，覆盖在建筑之上）----
     this.drawEventFx(ctx, t);
+    // ---- v23：治安盲区层（盲区冷影 + 商铺红点警示；最底氛围层）----
+    this.drawSecOverlay(ctx, t);
     // ---- v22：学区层（学区内住宅金光罩 + 书页飘飞；垃圾之下）----
     this.drawEduOverlay(ctx, t);
     // ---- v21：垃圾堆积层（清运不到的巷口垃圾成堆；雾霾之下）----

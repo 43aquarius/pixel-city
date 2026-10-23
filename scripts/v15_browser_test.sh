@@ -114,7 +114,7 @@ case "$WED" in
   W-ok\|*) ok "F2 forceEvent('wed') 成婚（配偶互指·家族同号 #${WED#W-ok|}）";;
   *) bad "F2 成婚异常 ($WED)";;
 esac
-BORN=$(agent-browser eval "(()=>{const r=window.__pxc.tycoon.citz;const wed=r.roster.filter(c=>c.spouse>0);if(!wed.length)return 'B-nowed';const a=wed[0];const mate=r.roster.find(x=>x.id===a.spouse);const before=r.roster.length;const totalBefore=r.total;const res=r.forceEvent('born',a.id);if(!res.ok)return 'B-fail:'+res.msg;const baby=r.roster[r.roster.length-1];const pa=r.roster.find(x=>x.id===baby.pa);const ma=r.roster.find(x=>x.id===baby.ma);const okAll=baby.body===1&&baby.age===0&&baby.pa===a.id&&baby.ma===mate.id&&pa&&ma&&baby.name[0]===pa.name[0]&&baby.fam===a.fam&&baby.log.some(l=>l.text.includes('坠地'))&&r.roster.length===before+1&&r.total===totalBefore+1&&a.log.some(l=>l.text.includes('新丁'))&&mate.log.some(l=>l.text.includes('降生'));return okAll?'B-ok|'+baby.id:'B-broken:'+JSON.stringify({body:baby.body,age:baby.age,pa:baby.pa,ma:baby.ma,fam:baby.fam,n:r.roster.length,total:r.total});})()" 2>/dev/null | tail -1 | tr -d '"')
+BORN=$(agent-browser eval "(()=>{const r=window.__pxc.tycoon.citz;const wed=r.roster.filter(c=>c.spouse>0);if(!wed.length)return 'B-nowed';const w0=wed[0];const a=w0.gender===0?w0:r.roster.find(x=>x.id===w0.spouse);const mate=r.roster.find(x=>x.id===a.spouse);const before=r.roster.length;const totalBefore=r.total;const res=r.forceEvent('born',a.id);if(!res.ok)return 'B-fail:'+res.msg;const baby=r.roster[r.roster.length-1];const pa=r.roster.find(x=>x.id===baby.pa);const ma=r.roster.find(x=>x.id===baby.ma);const okAll=baby.body===1&&baby.age===0&&baby.pa===a.id&&baby.ma===mate.id&&pa&&ma&&baby.name[0]===pa.name[0]&&baby.fam===a.fam&&baby.log.some(l=>l.text.includes('坠地'))&&r.roster.length===before+1&&r.total===totalBefore+1&&a.log.some(l=>l.text.includes('新丁'))&&mate.log.some(l=>l.text.includes('降生'));return okAll?'B-ok|'+baby.id:'B-broken:'+JSON.stringify({body:baby.body,age:baby.age,pa:baby.pa,ma:baby.ma,fam:baby.fam,n:r.roster.length,total:r.total});})()" 2>/dev/null | tail -1 | tr -d '"')
 case "$BORN" in
   B-ok\|*) ok "F3 新生儿入册（随父姓·记父母·日志 #${BORN#B-ok|}）";;
   *) bad "F3 添丁异常 ($BORN)";;
@@ -147,10 +147,10 @@ TAXL=$(agent-browser eval "(()=>{const t=window.__pxc.tycoon;t.taxRate=15;return
 agent-browser wait 1200
 TAXSUB=$(agent-browser eval "(()=>{const t=window.__pxc.tycoon;const L=t.citz.forceLetter();t.taxRate=9;return L&&L.subject.includes('税')?'yes':'no:'+L.subject;})()" 2>/dev/null | tail -1 | tr -d '"')
 chk "M3 高税状态 → 税单吐槽信" "${TAXSUB:-x}" "yes"
-UN=$(agent-browser eval "window.__pxc.tycoon.citz.unread" 2>/dev/null | tail -1 | tr -d '"')
+UN=$(agent-browser eval "(()=>{const t=window.__pxc.tycoon;t.citz.mailTimer=999999;return t.citz.unread;})()" 2>/dev/null | tail -1 | tr -d '"')
 chkge "M3 未读 ≥2 封" "${UN:-0}" 2
 MRK=$(agent-browser eval "(()=>{const t=window.__pxc.tycoon;const first=t.citz.letters[0];t.markLetterRead(first.id);return t.citz.unread;})()" 2>/dev/null | tail -1 | tr -d '"')
-chk "M4 markRead 一封 → 未读减一" "${MRK:-x}" "$((UN-1))"
+chk "M4 markRead 一封 → 未读减一（冻结送信计时防竞态）" "${MRK:-x}" "$((UN-1))"
 
 echo "=== [10] M5/M6 回信 ==="
 RPLY=$(agent-browser eval "(()=>{const t=window.__pxc.tycoon;const L=t.citz.letters.find(x=>x.replied<0);const from=t.citz.roster.find(c=>c.id===L.from);const m0=Math.round(from.mood);const r=t.replyLetter(L.id,0);const m1=Math.round(from.mood);return (r.ok&&r.reply&&L.replied===0&&t.citz.replyCount===1&&m1!==m0&&from.log.some(l=>l.text.includes('市长的回信')))?'ok|m'+m0+'→'+m1:'broken:'+JSON.stringify(r);})()" 2>/dev/null | tail -1 | tr -d '"')

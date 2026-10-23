@@ -1669,6 +1669,16 @@ export default function PixelCity() {
                             : ''}`
                       } · 人力资本 ${econ.hrIdx}（累计升学 ${econ.gradTotal} 人次）</td>
                     </tr>
+                    <tr className={econ.crimeN > 0 ? 'bad' : (econ.policehqN > 0 ? 'g' : '')}>
+                      <td>平安守夜</td>
+                      <td>{
+                        econ.crimeN > 0
+                          ? `巡防覆盖 ${econ.secCover}%（盲区商铺 ${econ.crimeN} 家 · 夜里有梁上君子${econ.secMissRes > 0 ? ` · 盲区住宅 ${econ.secMissRes} 栋 · 幸福 −${Math.min(6, Math.round(econ.secMissRes * 1.2))}` : ''}）`
+                          : `巡防覆盖 ${econ.secCover}%${econ.policehqN > 0
+                            ? `（警察局 ${econ.policehqN} 座）`
+                            : ''}`
+                      } · 破案 {econ.rescuePolice} 起</td>
+                    </tr>
                     <tr className={econ.healthIdx < 55 ? 'bad' : ''}>
                       <td>健康指数</td><td>{econ.healthIdx} / 100（医院 {econ.hospitals} 座）</td>
                     </tr>

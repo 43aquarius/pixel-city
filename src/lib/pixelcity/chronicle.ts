@@ -104,6 +104,7 @@ export const EV_ICON: Record<string, string> = {
   boom: 'people', harvest: 'wheat', expo: 'flask', festival: 'fest', invest: 'coin',
   tourseason: 'people', badreview: 'star', bullmkt: 'coin', tradewar: 'box',
   quake: 'land', flood: 'drop',   // v18 灾害链
+  crime: 'shield',                // v23 治安
 };
 
 // ------------------------------------------------------------
@@ -139,6 +140,7 @@ export class Chronicle {
     pw: new Set<number>(),                                                   // v20 电网（1 暗夜之城 / 2 华灯初上 / 3 重见光明）
     gs: new Set<number>(),                                                   // v21 环卫（1 垃圾围城 / 2 循环之城）
     edu: new Set<number>(),                                                  // v22 文教（1 望学兴叹 / 2 有教无类）
+    sec: new Set<number>(),                                                  // v23 治安（1 盗贼横行 / 2 夜不闭户）
   };
 
   /** 游戏小时 → 开埠第 N 天 */
@@ -163,7 +165,8 @@ export class Chronicle {
       smogRes?: number; envIdx?: number; ecotowers?: number;
       gridCover?: number; darkN?: number; powerRes?: number;
       wasteN?: number; recycles?: number; sweepCover?: number;
-      eduOut?: number; eduCover?: number; universities?: number }, gHours: number): number {
+      eduOut?: number; eduCover?: number; universities?: number;
+      crimeN?: number; secCover?: number; policehqN?: number }, gHours: number): number {
     let eraUp = -1;
     // 纪元跃迁（只升不重记；人口回落后再升回不重复入册）
     const e = eraOfPop(ctx.pop);
@@ -264,6 +267,18 @@ export class Chronicle {
       this.write('mile', 'good', 'book', '有教无类',
         `大学城的钟声悠悠荡开，学区覆盖率回到 ${eduCover}%。再远的孩子也能就近入学，琅琅书声成了这座城新的背景音。`, gHours);
     }
+    // ---- v23 治安里程碑：盗贼横行 → 夜不闭户（一对救赎叙事；先失窃后巡防才成对入册）----
+    const crimeN = ctx.crimeN ?? 0, secCover = ctx.secCover ?? 100, hqN = ctx.policehqN ?? 0;
+    if (crimeN >= 3 && !this.miles.sec.has(1)) {
+      this.miles.sec.add(1);
+      this.write('mile', 'bad', 'shield', '盗贼横行',
+        `${crimeN} 家商铺开在巡防灯照不到的地方，隔三差五就有卷帘门被撬。商户们凑钱订了块牌匾送到市政厅：「请给我们一盏灯」。`, gHours);
+    }
+    if (this.miles.sec.has(1) && !this.miles.sec.has(2) && secCover >= 95 && hqN >= 1) {
+      this.miles.sec.add(2);
+      this.write('mile', 'good', 'shield', '夜不闭户',
+        `警察局的巡逻灯彻夜扫过街角，巡防覆盖率回到 ${secCover}%。商铺敢把货摆到深夜，巷子里遛狗的人也多了起来。`, gHours);
+    }
     return eraUp;
   }
 
@@ -284,7 +299,7 @@ export class Chronicle {
     this.nextId = 1;
     this.miles = {
       pop: new Set(), rate: new Set(), bld: new Set(), land: new Set(), coin: new Set(), eco: new Set(),
-      pw: new Set(), gs: new Set(), edu: new Set(),
+      pw: new Set(), gs: new Set(), edu: new Set(), sec: new Set(),
     };
   }
 
@@ -294,7 +309,7 @@ export class Chronicle {
       m: {
         pop: [...this.miles.pop], rate: [...this.miles.rate], bld: [...this.miles.bld],
         land: [...this.miles.land], coin: [...this.miles.coin], eco: [...this.miles.eco],
-        pw: [...this.miles.pw], gs: [...this.miles.gs], edu: [...this.miles.edu],
+        pw: [...this.miles.pw], gs: [...this.miles.gs], edu: [...this.miles.edu], sec: [...this.miles.sec],
       },
     });
   }
@@ -307,7 +322,7 @@ export class Chronicle {
       const d = JSON.parse(raw) as {
         e?: unknown; tot?: unknown; era?: unknown; maxEra?: unknown; nid?: unknown; m?: {
           pop?: unknown; rate?: unknown; bld?: unknown; land?: unknown; coin?: unknown;
-          eco?: unknown; pw?: unknown; gs?: unknown; edu?: unknown;
+          eco?: unknown; pw?: unknown; gs?: unknown; edu?: unknown; sec?: unknown;
         };
       };
       if (!Array.isArray(d.e)) return false;
@@ -338,7 +353,7 @@ export class Chronicle {
       this.miles = {
         pop: new Set(L(d.m?.pop)), rate: new Set(L(d.m?.rate)), bld: new Set(L(d.m?.bld)),
         land: new Set(L(d.m?.land)), coin: new Set(L(d.m?.coin)), eco: new Set(L(d.m?.eco)),
-        pw: new Set(L(d.m?.pw)), gs: new Set(L(d.m?.gs)), edu: new Set(L(d.m?.edu)),
+        pw: new Set(L(d.m?.pw)), gs: new Set(L(d.m?.gs)), edu: new Set(L(d.m?.edu)), sec: new Set(L(d.m?.sec)),
       };
       return true;
     } catch {

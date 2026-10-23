@@ -21,7 +21,7 @@ import {
 import {
   genManor, genResTower, genConvenience, genHotel, genMall, genParking,
   genRefinery, genPower, genChurch, genMuseum, genFireStation, genKoban,
-  genLighthouse, genCastle,
+  genLighthouse, genCastle, genPoliceHQ,
 } from './b_extra';
 import {
   genMachiya, genDanchi, genIzakaya, genCinema, genMarket,
@@ -176,7 +176,9 @@ export const CATALOG: Def[] = [
   { id: 'firestation', name: '消防局', cat: 'civ', w: 1, h: 1, variants: 2, pop: 25,
     gen: genFireStation, desc: '红色卷闸门与瞭望塔：火灾损失降至 35%，消防车可出动扑救（需道路连通）' },
   { id: 'koban', name: '交番', cat: 'civ', w: 1, h: 1, variants: 1, pop: 8,
-    gen: genKoban, desc: '警务岗亭：安全护盾 +220 人 · 常驻一辆巡逻警车（治安巡逻令再 +1 辆）' },
+    gen: genKoban, desc: '警务岗亭：巡防半径 3 格 + 安全护盾 +220 人 · 常驻一辆巡逻警车（治安巡逻令再 +1 辆）' },
+  { id: 'policehq', name: '警察局', cat: 'civ', w: 2, h: 2, variants: 2, pop: 30,
+    gen: genPoliceHQ, desc: '藏青屋顶的治安中枢：巡防半径 6 格（交番仅 3）+ 常驻两辆巡逻警车 + 失窃就近出警追回货款' },
   { id: 'lighthouse', name: '灯塔', cat: 'civ', w: 1, h: 1, variants: 1, pop: 2,
     gen: genLighthouse, desc: '红白环纹塔身，顶端闪光' },
   { id: 'castle', name: '城堡', cat: 'civ', w: 2, h: 2, variants: 1, pop: 20,
