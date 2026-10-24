@@ -1672,6 +1672,8 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 .fam-card span { font-size: 9.5px; color: #6a6552; }
 .fam-card.off { cursor: default; opacity: 0.55; background: #EBE7D6; }
 .fam-card.off:hover { border-color: #C9C2A8; background: #EBE7D6; }
+/* v26 故人卡：灰阶 + 虚线边，与「已迁居」作区分 */
+.fam-card.off.passed { filter: grayscale(1); border-style: dashed; font-style: italic; }
 
 /* 市长信箱模态 */
 .pxc-mail { width: min(560px, 92vw); }

@@ -2194,6 +2194,10 @@ export default function PixelCity() {
                     <tr><td>劳动人口</td><td>{econ.workers} 人（62%）—— 就业率 {econ.employIdx}%</td></tr>
                     <tr><td>学龄人口</td><td>{Math.round(econ.pop * 0.2)} 人（20%）—— 教育容量 {econ.eduCap}</td></tr>
                     <tr><td>银发人口</td><td>{Math.round(econ.pop * 0.18)} 人（18%）—— 健康指数 {econ.healthIdx}</td></tr>
+                    <tr className={econ.citzPassed > 0 || econ.citzGrown > 0 ? 'g' : ''}>
+                      <td>生民列传</td>
+                      <td>{`在册 ${econ.citz.n} · 长者 ${econ.citzElders} · 本城出生 ${econ.citzBorn} · 长大成人 ${econ.citzGrown} · 含笑而归 ${econ.citzPassed}`}</td>
+                    </tr>
                     <tr><td>粮仓</td><td>{econ.food} / {econ.foodCap}（净额 {rincS(econ.foodNet)}/分）</td></tr>
                     <tr className={econ.waterIdx < 40 ? 'bad' : ''}><td>供水</td><td>覆盖率 {econ.waterIdx}%（总容量 {econ.waterCapT} 人{econ.hasWaterTower ? '' : ' —— 尚无水务设施'}）</td></tr>
                     <tr className={econ.busStops > 0 ? 'g' : ''}><td>公交</td><td>{econ.busStops >= 2 ? `巴士环线运转中（${econ.busStops} 座车站 · 交通 +${econ.busBonus}）` : econ.busStops === 1 ? '仅 1 座车站 —— 再建一座即开通环线' : '无 —— 两座邻路巴士站开通公交'}</td></tr>
@@ -2344,9 +2348,9 @@ export default function PixelCity() {
                                 <span>{f.rel} · 心情 {f.mood}</span>
                               </button>
                             ) : (
-                              <span key={`${f.rel}-${f.id}`} className="fam-card off">
+                              <span key={`${f.rel}-${f.id}`} className={`fam-card off${f.gone === 'passed' ? ' passed' : ''}`}>
                                 <b>{f.rel}</b>
-                                <span>已迁居别城</span>
+                                <span>{f.note ?? '已迁居别城'}</span>
                               </span>
                             ))}
                           </div>

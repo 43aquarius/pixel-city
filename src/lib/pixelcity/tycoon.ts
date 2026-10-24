@@ -696,6 +696,13 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 95, val: (s, t) => (t.pop >= 100 ? s.fireCover : 0) },
   { id: 'blaze5', name: '烈火雄心', desc: '消防车及时扑灭 5 场火灾（起火偏爱消防盲区且会蔓延：设施务必邻路且路网连通现场 —— 到场即架枪，余损全免）', icon: 'fire',
     goal: 5, val: s => s.rescueFire },
+  // ---- v26 生民列传：含饴弄孙·四季人生 ----
+  { id: 'grown6', name: '长大成人', desc: '累计 6 位市民长大成人（本城出生的孩子到了年纪行完成人礼：按学历择业安身，制服与速写随人生更新 —— 名人册里等他们长大）', icon: 'people',
+    goal: 6, val: (_s, t) => t.citz.grownN },
+  { id: 'born8', name: '生生不息', desc: '本城出生 8 位市民（成家的市民会添丁：新生儿入册随父姓，从襁褓婴儿一路读书长大，下一代接着读）', icon: 'heart',
+    goal: 8, val: (_s, t) => t.citz.bornN },
+  { id: 'pass90', name: '含笑而归', desc: '送一位享年 90+ 的长者安详离世（高龄长者会在睡梦中安然远行，讣告入编年史 —— 家有一老，如有一宝；送别是城市的功课）', icon: 'book',
+    goal: 1, val: (_s, t) => t.citz.passed90N },
 ];
 
 /** 需特定科技才可建造的建筑
@@ -979,6 +986,9 @@ export const QUESTS: Quest[] = [
   // ---- v24 消防空间化 ----
   { id: 'fire1', title: '有备无患', hint: '建造 1 座消防栓（半径 2 格消防覆盖）：消防局的廉价延伸，把街区拐角补进水网 —— 盲区建筑一旦起火，火势蔓延更快、损失更重', goal: 1,
     val: s => s.hydrants, rG: 180, rXp: 90 },
+  // ---- v26 生民列传 ----
+  { id: 'grown1', title: '长大成人', hint: '一位市民长大成人（本城出生/迁入的孩子到了年纪会行完成人礼：按学历择业安身 —— 名人册里等他长大）', goal: 1,
+    val: s => s.citzGrown, rG: 240, rXp: 120 },
 ];
 
 // ------------------------------------------------------------
@@ -1089,6 +1099,11 @@ export type EconView = {
   primaries: number;                // 小学座数
   universities: number;             // 大学城座数
   gradTotal: number;                // 累计升学人次
+  // ---- v26 生民列传 ----
+  citzElders: number;               // 在册长者数（body=2）
+  citzBorn: number;                 // 累计本城出生数
+  citzGrown: number;                // 累计长大成人人次
+  citzPassed: number;               // 累计安详离世数
   // ---- v23：治安空间化 ----
   secCover: number;                 // 巡防覆盖率 %
   // ---- v24 消防空间化 ----
@@ -1962,6 +1977,8 @@ export class Tycoon {
       hospitals, firestations, roadsTotal, taxMoodV: mood,
       kobans, rescueFire: this.rescueFire, rescueAid: this.rescueAid,
       citzN: this.citz.roster.length, citzTotal: this.citz.total,   // v13 市民列传
+      citzElders: this.citz.roster.reduce((n, c) => n + (c.body === 2 ? 1 : 0), 0),   // v26 在册长者
+      citzBorn: this.citz.bornN, citzGrown: this.citz.grownN, citzPassed: this.citz.passedN,   // v26 生民计数
       festN: this.festCount,                                        // v16 城市节庆
       chronN: this.chron.total,                                     // v17 城市编年史
       waterNear, levees,                                            // v18 灾害链
@@ -2378,6 +2395,11 @@ export class Tycoon {
 
     // v13 市民列传：人口联动迁入/搬离 + 心情漂移 + 生活大事记
     this.citz.onMsg = this.msg;
+    // v26 高寿离世 → 编年史「寿星安眠」（仅 90+ 配载入城市史册，免刷屏）
+    this.citz.onPass = (name, age) => {
+      if (age >= 90) this.chron.write('event', 'info', 'person', '寿星安眠',
+        `${name} 享年 ${age} 岁，在儿孙环绕中含笑而逝。出殡那日，半条街的街坊都放下手里的活计，来送这位老街坊最后一程。`, this.gHours);
+    };
     const citzTotalBefore = this.citz.total;   // v14：新市民落户音
     const mailUnreadBefore = this.citz.unread; // v15：新来信音
     this.citz.tick(dt, map, {
@@ -2798,6 +2820,11 @@ export class Tycoon {
       primaries: s?.primaries ?? 0,
       universities: s?.universities ?? 0,
       gradTotal: this.citz.gradTotal,
+      // ---- v26 生民列传 ----
+      citzElders: this.citz.roster.reduce((n, c) => n + (c.body === 2 ? 1 : 0), 0),
+      citzBorn: this.citz.bornN,
+      citzGrown: this.citz.grownN,
+      citzPassed: this.citz.passedN,
       // ---- v23：治安空间化 ----
       secCover: s?.secCover ?? 100,
       // ---- v24 消防空间化 ----

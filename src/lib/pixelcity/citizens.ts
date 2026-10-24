@@ -135,6 +135,8 @@ export type Citizen = {
   pa: number;           // v15 父亲 id（0 = 未知；本城出生者必知）
   ma: number;           // v15 母亲 id
   edu: number;          // v22 学历 0-3（蒙童/初小/高小/大学；学区内容随时间升学）
+  /** v26 成人礼岁数缓存（本城出生 15-16 / 迁入儿童 16-18；懒生成） */
+  growAge?: number;
   bio: string;
   log: Array<{ t: number; text: string }>;
 };
@@ -142,6 +144,10 @@ export type Citizen = {
 /** v15 家人卡片（详情页「一家人」区块用） */
 export type FamCard = {
   id: number; name: string; rel: string; mood: number; here: boolean;
+  /** v26 离位原因：moved=迁居别城（名人册滑窗挤出） / passed=已故（安详离世） */
+  gone?: 'moved' | 'passed';
+  /** v26 离位说明文案（详情页 fam-card off 展示） */
+  note?: string;
 };
 
 /** v15 市长信箱：市民来信 */
@@ -243,6 +249,20 @@ export class CitizenRegistry {
   private nextFam = 1;
   /** v22 累计升学人次（成就口径） */
   gradTotal = 0;
+  /** v26 累计本城出生数（成就口径：生生不息） */
+  bornN = 0;
+  /** v26 累计长大成人人次（成就口径：长大成人） */
+  grownN = 0;
+  /** v26 累计安详离世数（城市志「生民列传」行） */
+  passedN = 0;
+  /** v26 享年 90+ 离世数（成就口径：含笑而归） */
+  passed90N = 0;
+  /** v26 已故市民 id 登记簿（famOf 区分「已故」与「迁居」；随档保存） */
+  passedIds = new Set<number>();
+  /** v26 生日巡检计时（45-60s 全册扫描） */
+  private bdayTimer = 40;
+  /** v26 高寿离世回调（tycoon 接线 → 编年史「寿星安眠」） */
+  onPass: ((name: string, age: number) => void) | null = null;
   private lastCtx: CitzCtx = { pop: 0, happiness: 60, taxRate: 8, season: 0, famine: 0, events: [], fest: -1, smog: 0, dark: 0, waste: 0, eduOut: 0, crime: 0, fireOut: 0 };
   private lastT = 0;
   /** 消息回调（tycoon.msg 接线） */
@@ -260,6 +280,12 @@ export class CitizenRegistry {
     this.nextLetterId = 1;
     this.nextFam = 1;
     this.gradTotal = 0;
+    this.bornN = 0;
+    this.grownN = 0;
+    this.passedN = 0;
+    this.passed90N = 0;
+    this.passedIds = new Set();
+    this.bdayTimer = 40;
   }
 
   /** 存档恢复后对齐人口基线（避免读档误触发「迁入」） */
@@ -368,6 +394,15 @@ export class CitizenRegistry {
       if (this.roster.length) this.lifeEvent(map, t);
     }
 
+    // v26 生日巡检：全册扫描，每位 25% 概率过一岁（整十岁写史册；阶段流转与离世判定挂此后）
+    this.bdayTimer -= dt;
+    if (this.bdayTimer <= 0) {
+      this.bdayTimer = 45 + Math.random() * 15;
+      for (const c of [...this.roster]) {
+        if (Math.random() < 0.25) this.birthday(c, map, t);
+      }
+    }
+
     // v15 市长信箱：每 40-70 秒一封新信（先挤掉最旧的已读；全未读则暂不送信）
     this.lastCtx = ctx;
     this.lastT = t;
@@ -459,6 +494,189 @@ export class CitizenRegistry {
     if (c.log.length > LOG_MAX) c.log.splice(0, c.log.length - LOG_MAX);
   }
 
+  // ---------------- v26 生命周期：含饴弄孙·四季人生 ----------------
+
+  /** 成人礼岁数（懒生成：本城出生 15-16 / 迁入儿童 16-18） */
+  private growAgeOf(c: Citizen): number {
+    if (!c.growAge || c.growAge < 15) {
+      c.growAge = c.origin === '本城出生' ? 15 + (Math.random() * 2 | 0) : 16 + (Math.random() * 3 | 0);
+    }
+    return c.growAge;
+  }
+
+  /** 过一岁：age++ → 阶段流转 → 耆耋离世判定 → 整十岁入史册 */
+  private birthday(c: Citizen, map: CityMap, t: number): void {
+    c.age = Math.min(120, c.age + 1);
+    this.stage(c, map, t);
+    // 耄耋安眠：82 岁起每岁 8%，95 岁必然（在册太少时保护不住不动）
+    if (c.body === 2 && c.age >= 82 && (c.age >= 95 || Math.random() < 0.08)) {
+      if (this.passAway(c, t)) return;
+    }
+    // 整十岁写史册（普通岁静默，免刷爆滑窗）
+    if (c.age % 10 === 0) {
+      this.pushLog(c, t, c.age >= 60
+        ? `过了${c.age}岁大寿，社区送了一块寿桃糕`
+        : `${c.age} 岁生日那天吃了碗长寿面，巷口的小伙伴都来了`);
+    }
+  }
+
+  /** 阶段流转（生日后判定；while 循环支持一次跨多段，如 +25 岁直推）。
+   *  返回流转序列（toddler/school/adult/elder），供测试断言 */
+  private stage(c: Citizen, map: CityMap | null, t: number): string[] {
+    const ev: string[] = [];
+    for (;;) {
+      if (c.body === 1) {
+        if (c.job === '襁褓婴儿' && c.age >= 3) {
+          c.job = '垂髫小儿';
+          this.pushLog(c, t, '褪了襁褓，满巷子疯跑，见了电车要追着数车厢');
+          this.updateBio(c);
+          ev.push('toddler');
+          continue;
+        }
+        if ((c.job === '襁褓婴儿' || c.job === '垂髫小儿') && c.age >= 7) {
+          c.job = '小学学生';
+          const inEdu = c.homeAt && this.lastCtx.inEdu && this.lastCtx.inEdu(c.homeAt[0], c.homeAt[1]);
+          this.pushLog(c, t, inEdu
+            ? '背上书包进了街口的小学，作业本得了三朵小红花'
+            : '上学要翻半座城，天不亮就出门，书包里揋着烤红薯');
+          this.updateBio(c);
+          ev.push('school');
+          continue;
+        }
+        if (c.age >= this.growAgeOf(c)) {
+          this.riteOfAge(c, map, t);
+          ev.push('adult');
+          continue;
+        }
+      } else if (c.body === 0 && c.age >= 60) {
+        this.elderOfAge(c, t);
+        ev.push('elder');
+        continue;
+      }
+      break;
+    }
+    return ev;
+  }
+
+  /** 成人礼：body 1→0、按学历择业（大学 → 白领池优先）、制服/速写重写 */
+  private riteOfAge(c: Citizen, map: CityMap | null, t: number): void {
+    c.body = 0;
+    // 择业：在册可工作建筑中抽（大学学历优先白领岗；无岗则自由职业）
+    const EDU_JOBS = ['office', 'tower', 'electown', 'library', 'school', 'observatory'];
+    let pool = map ? [...map.objs.values()].filter(o => o.id in JOBS && o.id !== 'cityhall') : [];
+    if (c.edu >= 3) {
+      const hi = pool.filter(o => EDU_JOBS.includes(o.id));
+      if (hi.length) pool = hi;
+    }
+    const w = pool.length ? rnd(pool) : null;
+    if (w) {
+      c.workKey = keyOf(w, (map as CityMap).n);
+      c.workAt = [w.ax, w.ay];
+      c.job = JOBS[w.id];
+      c.workName = c.job;
+      c.role = JOB_ROLE[w.id] !== undefined ? JOB_ROLE[w.id] : 0;
+    } else {
+      c.job = rnd(['自由职业者', '夜市摊主', '手艺人', '网约司机']);
+      c.workKey = -1;
+      c.workName = c.job;
+      c.workAt = null;
+      c.role = 0;
+    }
+    this.pushLog(c, t, '行完成人礼，巷口的婶婶们都来道贺，灶上炖了一锅红烧肉');
+    this.pushLog(c, t, w
+      ? `在「${c.job}」谋得第一份生计，领了半个月工钱`
+      : '先在街坊的铺子里帮工，攒着本事等机会');
+    c.mood = clamp(c.mood + 8, 5, 100);
+    this.grownN++;
+    this.updateBio(c);
+    this.onMsg?.(`${c.name} 长大成人${w ? `，在${c.job}安身` : ''} —— 名人册添了新的一笔`);
+  }
+
+  /** 花甲：body 0→2、退休清职、制服归零（警/医/消制服换回便服） */
+  private elderOfAge(c: Citizen, t: number): void {
+    c.body = 2;
+    if (c.workKey >= 0) {
+      this.pushLog(c, t, '办了退休手续，把用了半辈子的工具箱送给了徒弟');
+      c.workKey = -1;
+      c.workAt = null;
+    }
+    c.job = '退休长者';
+    c.workName = '退休';
+    if (c.role === 1 || c.role === 6 || c.role === 7) c.role = 0;
+    this.pushLog(c, t, '步入花甲，如今是巷口棋摊的常客，蒲扇一摘就是半下午');
+    c.mood = clamp(c.mood + 5, 5, 100);
+    this.updateBio(c);
+  }
+
+  /** 安详离世：移册 + 登记故人簿 + 配偶/子女史册 + 喖告。返回 false = 在册太少受保护 */
+  private passAway(c: Citizen, t: number): boolean {
+    if (this.roster.length <= 6) return false;
+    const i = this.roster.findIndex(x => x.id === c.id);
+    if (i < 0) return false;
+    this.roster.splice(i, 1);
+    this.passedIds.add(c.id);
+    this.passedN++;
+    if (c.age >= 90) this.passed90N++;
+    // 在世配偶：丧偶之痛写入史册
+    if (c.spouse) {
+      const s = this.roster.find(x => x.id === c.spouse);
+      if (s) {
+        this.pushLog(s, t, '老伴先走了一步，家里静了许多，巷口的老槐树都跟着没了精神');
+        s.mood = clamp(s.mood - 15, 5, 100);
+      }
+    }
+    // 子女至多两位：写先人追思
+    const kids = this.roster.filter(x => x.pa === c.id || x.ma === c.id).slice(0, 2);
+    for (const k of kids) {
+      this.pushLog(k, t, c.gender === 0
+        ? '父亲走了，把那块旧怀表留给了我'
+        : '母亲走了，针线簸箩还摆在窗台上');
+      k.mood = clamp(k.mood - 10, 5, 100);
+    }
+    this.onMsg?.(`${c.name} 在睡梦中安然离世，享年 ${c.age} 岁 —— 街坊们送了一程`);
+    this.onPass?.(c.name, c.age);
+    return true;
+  }
+
+  /** v26 速写重写：随生命阶段更新（垂髫/学生/成人已婚/成人未婚/长者） */
+  private updateBio(c: Citizen): void {
+    if (c.body === 1) {
+      if (c.job === '襁褓婴儿') return;   // 保留出生时的第一代措辞
+      if (c.job === '垂髫小儿') {
+        c.bio = '在巷子里疯跑长大的娃，口袋里常年揣着玻璃弹珠，街坊都认得这个小捣蛋。';
+        return;
+      }
+      c.bio = '背着书包上学堂的孩子，放学路上总在道口数电车车厢，作业本得了三朵小红花。';
+      return;
+    }
+    if (c.body === 2) {
+      const s = c.spouse ? this.roster.find(x => x.id === c.spouse) : undefined;
+      c.bio = s
+        ? `${c.age} 岁的${c.trait}长者，与${s.name}相守到白头，${c.hobby}是一辈子的心头好，巷口棋摊上总缺不了这位老街坊。`
+        : `${c.age} 岁的${c.trait}长者，${c.hobby}是一辈子的心头好，巷口棋摊上总缺不了这位老街坊。`;
+      return;
+    }
+    // 成人：本城长大与迁入措辞区分；已婚者提配偶；大学者提学历
+    const born = c.origin === '本城出生';
+    const s = c.spouse ? this.roster.find(x => x.id === c.spouse) : undefined;
+    c.bio = s
+      ? `${c.age} 岁的${c.trait}${c.gender === 0 ? '小伙' : '姑娘'}，${born ? '在这座城里出生长大' : `从${c.origin}迁来`}，与${s.name}相守度日，${c.hobby}是心头好。`
+      : `${c.age} 岁的${c.trait}${c.gender === 0 ? '小伙' : '姑娘'}，${born ? '在这座城里出生长大' : `从${c.origin}迁来`}${c.edu >= 3 ? '，还是巷子里第一个大学生' : ''}，${c.hobby}是心头好。`;
+  }
+
+  /** v26 传记第四段「评」：街坊口碑收束语（心情三档 × 长者/有家加成） */
+  private comment(c: Citizen): string {
+    if (c.body === 1) return '是全巷子街坊的心尖尖';
+    let s: string;
+    if (c.mood >= 75) s = c.gender === 0 ? '提起他，街坊没有不竖大拇指的' : '提起她，街坊没有不竖大拇指的';
+    else if (c.mood >= 50) s = '日子过得平顺，跟谁家都处得和睦';
+    else s = '这阵子眉头不大舒展，街坊看在眼里、记在心里';
+    const kids = this.roster.filter(x => x.pa === c.id || x.ma === c.id).length;
+    if (c.spouse && kids > 0 && c.mood >= 50) s += '，一家子日子过得热气腾腾';
+    if (c.body === 2) s += c.mood >= 50 ? '，是巷口公认的老福星' : '，街坊都盼着他打起精神';
+    return s;
+  }
+
   // ---------------- v15 家族谱系 ----------------
 
   /** 成婚：在册找单身成人（异性优先）结为夫妇；找不到则按旧文案外市成婚 */
@@ -476,6 +694,8 @@ export class CitizenRegistry {
       this.pushLog(mate, t, `与${c.name}在市政厅前拍了结婚照，巷口的狸花猫都来凑热闹`);
       c.mood = clamp(c.mood + 14, 5, 100);
       mate.mood = clamp(mate.mood + 14, 5, 100);
+      this.updateBio(c);
+      this.updateBio(mate);
       this.onMsg?.(`喜结连理：${c.name} 与 ${mate.name} 成婚，街坊同贺`);
       return true;
     }
@@ -532,11 +752,11 @@ export class CitizenRegistry {
     c.log.push({ t: Math.round(t), text: `在${c.homeName.split(' · ')[0]}呱呱坠地，是本城土生土长的小市民` });
     this.roster.push(c);
     this.total++;
+    this.bornN++;   // v26 本城出生计数（成就：生生不息）
     if (this.roster.length > ROSTER_MAX) this.roster.shift();
     return c;
   }
-
-  /** 家人卡片：配偶 / 子女 / 父母（不在册 → here:false 已迁居） */
+  /** 家人卡片：配偶 / 子女 / 父母（v26 不在册 → 区分「已迁居」与「已故」） */
   private famOf(c: Citizen): FamCard[] {
     const out: FamCard[] = [];
     const byId = (id: number): Citizen | undefined => this.roster.find(x => x.id === id);
@@ -544,7 +764,9 @@ export class CitizenRegistry {
       const s = byId(c.spouse);
       out.push(s
         ? { id: s.id, name: s.name, rel: '配偶', mood: Math.round(s.mood), here: true }
-        : { id: c.spouse, name: '故人', rel: '配偶', mood: 0, here: false });
+        : this.passedIds.has(c.spouse)
+          ? { id: c.spouse, name: '故人', rel: '故人', mood: 0, here: false, gone: 'passed', note: '已故 · 相守到老' }
+          : { id: c.spouse, name: '外城', rel: '配偶', mood: 0, here: false, gone: 'moved', note: '已迁居别城' });
     }
     for (const x of this.roster) {
       if (x.pa === c.id || x.ma === c.id) {
@@ -555,13 +777,17 @@ export class CitizenRegistry {
       const p = byId(c.pa);
       out.push(p
         ? { id: p.id, name: p.name, rel: '父亲', mood: Math.round(p.mood), here: true }
-        : { id: c.pa, name: '', rel: '父亲', mood: 0, here: false });
+        : this.passedIds.has(c.pa)
+          ? { id: c.pa, name: '', rel: '先父', mood: 0, here: false, gone: 'passed', note: '已故 · 恩情常在' }
+          : { id: c.pa, name: '', rel: '父亲', mood: 0, here: false, gone: 'moved', note: '已迁居别城' });
     }
     if (c.ma) {
       const m = byId(c.ma);
       out.push(m
         ? { id: m.id, name: m.name, rel: '母亲', mood: Math.round(m.mood), here: true }
-        : { id: c.ma, name: '', rel: '母亲', mood: 0, here: false });
+        : this.passedIds.has(c.ma)
+          ? { id: c.ma, name: '', rel: '先母', mood: 0, here: false, gone: 'passed', note: '已故 · 恩情常在' }
+          : { id: c.ma, name: '', rel: '母亲', mood: 0, here: false, gone: 'moved', note: '已迁居别城' });
     }
     return out;
   }
@@ -889,7 +1115,8 @@ export class CitizenRegistry {
     } else {
       trail = '生平记事：迁来不久，日子还在慢慢铺开。';
     }
-    return root + fam + trail;
+    // v26 第四段「评」：街坊口碑收束语 —— 根/家/迹/评，有头有尾才成文章
+    return root + fam + trail + `街坊口碑：${this.comment(c)}。`;
   }
 
   private cardOf(c: Citizen): CitzCard {
@@ -1082,18 +1309,52 @@ export class CitizenRegistry {
     return L;
   }
 
-  /** 测试钩子：强制触发指定生活事件（wed=成婚 born=添丁；id=-1 随机成人） */
-  forceEvent(kind: 'wed' | 'born', id = -1): { ok: boolean; msg: string } {
+  /** 测试钩子：强制触发指定生活事件（wed=成婚 born=添丁；id=-1 随机成人）
+   *  v26 扩展：adult=成人礼 retire=花甲 pass=安详离世（map 可选：成人礼择业用） */
+  forceEvent(kind: 'wed' | 'born' | 'adult' | 'retire' | 'pass', id = -1, map: CityMap | null = null): { ok: boolean; msg: string } {
     const pool = this.roster.filter(c => c.body === 0);
     if (!pool.length) return { ok: false, msg: 'no-adult' };
-    const c = id >= 0 ? pool.find(x => x.id === id) : rnd(pool);
-    if (!c) return { ok: false, msg: 'not-found' };
+    const c = id >= 0 ? this.roster.find(x => x.id === id) : undefined;
+    if (id >= 0 && !c) return { ok: false, msg: 'not-found' };
     const t = this.lastT;
     if (kind === 'wed') {
-      if (c.spouse) return { ok: false, msg: 'already-married' };
-      return this.marry(c, t) ? { ok: true, msg: 'married' } : { ok: false, msg: 'no-mate' };
+      const w = (c && c.body === 0) ? c : rnd(pool);
+      if (w.spouse) return { ok: false, msg: 'already-married' };
+      return this.marry(w, t) ? { ok: true, msg: 'married' } : { ok: false, msg: 'no-mate' };
     }
-    return this.born(c, t) ? { ok: true, msg: 'born' } : { ok: false, msg: 'no-spouse' };
+    if (kind === 'born') {
+      const b = (c && c.body === 0) ? c : rnd(pool);
+      return this.born(b, t) ? { ok: true, msg: 'born' } : { ok: false, msg: 'no-spouse' };
+    }
+    // v26 生命阶段直驱（确定性触发：测试/演示用）
+    if (!c) return { ok: false, msg: 'not-found' };
+    if (kind === 'adult') {
+      if (c.body !== 1) return { ok: false, msg: 'not-child' };
+      this.riteOfAge(c, map, t);
+      return { ok: true, msg: 'adult' };
+    }
+    if (kind === 'retire') {
+      if (c.body !== 0) return { ok: false, msg: 'not-adult' };
+      this.elderOfAge(c, t);
+      return { ok: true, msg: 'elder' };
+    }
+    if (kind === 'pass') {
+      if (c.body !== 2) return { ok: false, msg: 'not-elder' };
+      return this.passAway(c, t) ? { ok: true, msg: 'passed' } : { ok: false, msg: 'protected' };
+    }
+    return { ok: false, msg: 'bad-kind' };
+  }
+
+  /** v26 测试钩子：直推年龄（一次跨多段：stage while 循环顺序流转；95 岁必然离世） */
+  forceGrow(id: number, years: number, map: CityMap | null = null): { ok: boolean; events: string[] } {
+    const c = this.roster.find(x => x.id === id);
+    if (!c || years <= 0) return { ok: false, events: [] };
+    c.age = Math.min(120, c.age + years);
+    const ev = this.stage(c, map, this.lastT);
+    if (c.body === 2 && c.age >= 95) {
+      if (this.passAway(c, this.lastT)) ev.push('passed');
+    }
+    return { ok: true, events: ev };
   }
 
   /** v22 人力资本指数：在册市民平均学历 → 0-100（空册兑底 50 = 外来人口基线：
@@ -1139,6 +1400,8 @@ export class CitizenRegistry {
       replyCount: this.replyCount,
       nextLid: this.nextLetterId,
       gradTotal: this.gradTotal,   // v22 累计升学人次
+      bn: this.bornN, gn: this.grownN, pn: this.passedN, p9: this.passed90N,   // v26 生民计数
+      pid: [...this.passedIds],    // v26 已故市民登记簿
       letters: this.letters.map(l => ({
         id: l.id, from: l.from, fn: l.fromName,
         look: l.look, body: l.body, role: l.role,
@@ -1157,6 +1420,7 @@ export class CitizenRegistry {
         mood: Math.round(c.mood), since: Math.round(c.since), bio: c.bio,
         fam: c.fam, sp: c.spouse, pa: c.pa, ma: c.ma,
         ed: c.edu,   // v22 学历
+        ga: c.growAge ?? 0,   // v26 成人礼岁数
         log: c.log.map(l => [Math.round(l.t), l.text]),
       })),
     };
@@ -1167,6 +1431,7 @@ export class CitizenRegistry {
     const o = d as {
       total?: number; nextId?: number; nextFam?: number;
       replyCount?: number; nextLid?: number; gradTotal?: number;
+      bn?: unknown; gn?: unknown; pn?: unknown; p9?: unknown; pid?: unknown;   // v26
       letters?: Array<Record<string, unknown>>;
       roster?: Array<Record<string, unknown>>;
     } | null;
@@ -1177,6 +1442,12 @@ export class CitizenRegistry {
     this.replyCount = Math.max(0, Math.floor(Number(o.replyCount) || 0));
     this.nextLetterId = Math.max(1, Math.floor(Number(o.nextLid) || 1));
     this.gradTotal = Math.max(0, Math.floor(Number(o.gradTotal) || 0));   // v22（旧档无记录归零）
+    this.bornN = Math.max(0, Math.floor(Number(o.bn) || 0));       // v26（旧档无记录归零）
+    this.grownN = Math.max(0, Math.floor(Number(o.gn) || 0));
+    this.passedN = Math.max(0, Math.floor(Number(o.pn) || 0));
+    this.passed90N = Math.max(0, Math.floor(Number(o.p9) || 0));
+    this.passedIds = new Set(Array.isArray(o.pid)
+      ? o.pid.filter((n): n is number => Number.isFinite(n)).map(Number) : []);
     // v15 信箱恢复（旧档无 letters 字段 → 空箱）
     if (Array.isArray(o.letters)) {
       for (const r of o.letters.slice(0, 8)) {
@@ -1238,6 +1509,7 @@ export class CitizenRegistry {
         pa: Math.max(0, Math.floor(Number(r.pa) || 0)),
         ma: Math.max(0, Math.floor(Number(r.ma) || 0)),
         edu: Math.max(0, Math.min(3, Math.floor(Number(r.ed ?? (Number(r.body) === 1 ? 0 : 1))))),   // v22 学历（旧档按体型补默认）
+        growAge: Math.max(0, Math.floor(Number(r.ga) || 0)) || undefined,   // v26 成人礼岁数（0 = 未生成，懒重建）
         bio: String(r.bio ?? ''),
         log: log.slice(-LOG_MAX),
       });
