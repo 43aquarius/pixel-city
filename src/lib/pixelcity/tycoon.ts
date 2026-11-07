@@ -107,6 +107,14 @@ export const FIRE_R: Record<string, number> = {
 export const FIRE_HAP_MAX = 5;
 /** 消防盲区商铺收入乘数（火险保费摊薄） */
 export const FIRE_EARN_K = 0.95;
+// ---- v31 都会名片：文化街区 ----
+/** 大剧院的文化商圈半径（切比雪夫，自锤点起算）。
+ *  半径内的商铺＝文化街区：看戏吃饭一条龙（收入 ×1.08）—— 剧院不孤立，商圈共生 */
+export const CULT_R: Record<string, number> = {
+  opera: 6,
+};
+/** 文化街区商铺收入乘数（只 buff 不打折：没有剧院的老商圈照旧营生） */
+export const CULT_EARN_K = 1.08;
 /** 火灾起火热势（火头初燃） */
 export const FIRE_HEAT0 = 0.35;
 /** 火势增速/秒：水网覆盖区（消防栓水压压制）与盲区 */
@@ -285,6 +293,9 @@ export const ECON: Record<string, EconDef> = {
   torii: D(115, 5, { amenity: 2, upk: 1, cul: 1.5 }),
   pavilion: D(75, 2, { amenity: 2, upk: 1, cul: 1 }),
   aquarium: D(880, 8, { power: 10, amenity: 4, upk: 2, edu: 10, sp: 0.5, cul: 3 }),
+  // ---- v31 都会名片：地标双塔 ----
+  opera: D(1800, 7, { power: 14, amenity: 6, upk: 4, cul: 6 }),   // 半径 6 文化街区 + 全市幸福 +2（首座落成入编年史）
+  expo: D(2400, 8, { power: 16, amenity: 5, upk: 5, cul: 4, sp: 1 }),   // 节庆引擎：历时+30% 冷却−20% 节庆期游客+30%
   cellmast: D(120, 7, { power: 2, upk: 0.25 }),
   // ---- 水务（v6：供水覆盖指数）----
   watertower: D(130, 2, { power: 2, amenity: 1, upk: 0.75, waterR: 9, waterCap: 260 }),
@@ -660,6 +671,11 @@ export const ACHIEVEMENTS: AchvDef[] = [
   // ---- v30 书信合集 ----
   { id: 'anth11', name: '鱼雁往还', desc: '集齐全部 11 种市民来信主题（书信合集里翻翻看：民生灾警颂声见闻，城里的每样心事都会写来）', icon: 'mail',
     goal: 11, val: (_s, t) => t.citz.anthSubjects() },
+  // ---- v31 都会名片 ----
+  { id: 'opera10', name: '华灯初上', desc: '大剧院商圈内聚集 10 家商铺（半径 6 格文化街区成形：看戏吃饭一条龙，散场的人流就是生意）', icon: 'fest',
+    goal: 10, val: s => s.cultShops },
+  { id: 'fest12', name: '万商云集', desc: '会展中心在城时累计举办 12 场节庆（展馆加场、冷却更短，节庆期游客再 +30%）', icon: 'fest',
+    goal: 12, val: (s, t) => (s.expos > 0 ? t.festCount : 0) },
   // ---- v17 城市编年史 ----
   { id: 'chron60', name: '汗青永续', desc: '编年史累计记下 60 笔城市纪事（开埠/时代跃迁/事件/科技/节庆/法令/里程碑皆入册）', icon: 'book',
     goal: 60, val: (_s, t) => t.chron.total },
@@ -721,6 +737,8 @@ export const TECH_GATE: Record<string, string> = {
   observatory: 'higher',
   university: 'higher',   // v22 大学城：与天文台同源「高等教育」
   aquarium: 'brand',
+  opera: 'brand',         // v31 大剧院：文旅地标同源「城市名片」
+  expo: 'struct',         // v31 会展中心：大跨度拱棚需「建筑工程学」
   dock: 'logistic',
   brewery: 'metal',
 };
@@ -834,6 +852,8 @@ export type QS = {
   chronN: number;
   // ---- v18 灾害链 ----
   waterNear: number; levees: number;
+  // ---- v31 都会名片 ----
+  operas: number; expos: number; cultShops: number;
   // ---- v19 污染空间化 ----
   smogTiles: number; smogBad: number; smogRes: number; ecotowers: number;
   // ---- v20 电网空间化 ----
@@ -1352,6 +1372,15 @@ export class Tycoon {
   /** 学区外警告（一档一次，覆盖后复位） */
   private eduWarned = false;
 
+  // ---- v31：文化街区（都会名片 · 大剧院商圈）----
+  /** 文化街区内的商铺锤点集合（首座大剧院落成即生效） */
+  cultShopField = new Set<number>();
+  /** 文化街区场缓存版本（仅随 map.version 变化重算：摆盘即重算） */
+  private cultVer = -1;
+  /** 大剧院 / 会展中心首落成纪事旗（0→1 时写编年史，只写一次） */
+  private operaSeen = false;
+  private expoSeen = false;
+
   // ---- v23：治安空间化（守望相助 · 平安之城）----
   /** 巡防内建筑锤点集合（商铺+住宅；engine 巡防渲染判定） */
   secField = new Set<number>();
@@ -1390,12 +1419,14 @@ export class Tycoon {
     this.coins -= cost;
     const kind = Math.max(0, Math.min(3, this.season));
     const f = FESTS[kind];
-    this.fest = { kind, left: f.dur };
+    const hasExpo = (this.snap?.expos ?? 0) > 0;   // v31 会展中心在城
+    const dur = Math.round(f.dur * (hasExpo ? 1.3 : 1));   // v31：展馆厅堂加场，节庆历时 +30%
+    this.fest = { kind, left: dur };
     this.festCount++;
     this.festKinds.add(kind);
-    this.festCd = f.dur + FEST_CD;   // 开幕即起表：落幕后再等 FEST_CD 秒
+    this.festCd = Math.round((dur + FEST_CD) * (hasExpo ? 0.8 : 1));   // 开幕即起表：落幕后再等 FEST_CD 秒（v31 会展动线配套：冷却 −20%）
     this.sfx?.('festival');
-    this.msg?.(`✦「${f.name}」开幕！${f.desc}（历时 ${f.dur} 秒，全城同庆）`);
+    this.msg?.(`✦「${f.name}」开幕！${f.desc}（历时 ${dur} 秒，全城同庆${hasExpo ? ' · 会展中心加场' : ''}）`);
     this.citz.onCityEvent('fest' + kind, this.playtime);   // 市民史册：开幕式
     // v17：编年史 —— 节庆盛典入册
     this.chron.write('fest', 'good', 'fest', `「${f.name}」开幕`,
@@ -1592,12 +1623,15 @@ export class Tycoon {
     this.ensureSec(map);
     // v24：消防覆盖场先行（盲区商铺折扣 / 起火偏爱现场 / 幸福惩罚；仅随摆盘重算）
     this.ensureFire(map);
+    // v31：文化街区覆盖场先行（大剧院商圈商铺收入加成 / 统计判定源；仅随摆盘重算）
+    this.ensureCult(map);
     let cap = 0, jobs = 0, earnCom = 0, earnInd = 0, upk = 0;
     let powerSup = 0, powerDem = 0, amenitySup = 0, pollute = 0;
     let res = 0, com = 0, ind = 0, civ = 0, park = 0, buildings = 0;
     let hasPower = 0, hasSchool = 0, hasHospital = 0, hasTower = 0;
     let hasLib = 0, hasGreen = 0, foodProd = 0, foodCap = FOOD_BASE_CAP, eduCap = 0, spRaw = 0, culSup = 0;
     let hospitals = 0, firestations = 0, kobans = 0;   // v12：交班计数
+    let operas = 0, expos = 0;                        // v31：地标双塔计数
     let levees = 0;                                     // v18：防洪堤计数
     let hasWaterTower = 0, waterCapT = 0;
     let busStops = 0, ferries = 0;
@@ -1651,8 +1685,10 @@ export class Tycoon {
         const secK = this.secField.has(map.idx(o.ax, o.ay)) ? 1 : SEC_EARN_K;
         // v24 消防：盲区商铺火险保费摊薄（收入 ×0.95）
         const fireK = this.fireField.has(map.idx(o.ax, o.ay)) ? 1 : FIRE_EARN_K;
+        // v31 文化街区：大剧院半径内的商铺看戏吃饭一条龙（收入 ×1.08）
+        const cultK = this.cultShopField.has(map.idx(o.ax, o.ay)) ? CULT_EARN_K : 1;
         // v20 电网：断电商铺收入归零（黑暗的店谁也进不去）；未断电才计入
-        if (!offGrid) earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK * wasteK * secK * fireK;
+        if (!offGrid) earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK * wasteK * secK * fireK * cultK;
         // v23 巡防判定（覆盖 → 安心做买卖；盲区 → 失窃目标池）
         if (this.secField.has(map.idx(o.ax, o.ay))) secIn++; else { secOut++; crimeN++; }
         // v24 消防判定（覆盖 → 水枪够得着；盲区 → 起火偏爱现场）
@@ -1677,6 +1713,8 @@ export class Tycoon {
         if (o.id === 'koban') kobans++;                     // v12
         if (o.id === 'policehq') policehqN++;               // v23 警察局
         if (o.id === 'levee') levees++;                     // v18 防洪堤
+        if (o.id === 'opera') operas++;                     // v31 大剧院
+        if (o.id === 'expo') expos++;                       // v31 会展中心
       }
       // v6 水务设施：登记覆盖圆心（半径含足迹）
       if (e?.waterR) {
@@ -1801,6 +1839,7 @@ export class Tycoon {
       if (f.mult.food) multFood *= f.mult.food;
       if (f.mult.sp) multSp *= f.mult.sp;
       if (f.mult.tour) multTour *= f.mult.tour;
+      if (expos > 0) multTour *= 1.3;   // v31 会展中心：节庆期游客再 +30%（本地计数已在建筑扫描中累计）
       festHap = f.hap;
       festAmenity = f.amenity;
     }
@@ -1968,7 +2007,8 @@ export class Tycoon {
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
       0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap + this.docHap
-      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区扣减；v29 朱批民心增益
+      + (operas > 0 ? 2 : 0)
+      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区扣减；v29 朱批民心增益；v31 大剧院全市幸福 +2
     const happyMult = 0.6 + happiness / 125;
 
     // ---- v10 旅游：景点吸引力 × 文化/幸福 × 季节/天气 → 游客（酒店床位为接待上限）----
@@ -2039,6 +2079,7 @@ export class Tycoon {
       rescuePolice: this.rescuePolice,                                              // v23 巡逻车破案
       fireCover: (fireIn + fireOut) > 0 ? Math.round(100 * fireIn / (fireIn + fireOut)) : 100,
       fireIn, fireOut, fireMissRes, hydrants,                                       // v24 消防空间化
+      operas, expos, cultShops: this.cultShopField.size,                             // v31 都会名片
       ecotowers: this.smogTowerN,
       eventHap, eventAmenity, multCom, multInd, multFood, multPower, multTraffic, multSp,
       weather: { kind: wt.kind, t: wt.t },
@@ -2263,6 +2304,32 @@ export class Tycoon {
     }
     this.eduField = inside;
     this.eduMissField = outside;
+  }
+
+  // ---------------- v31：文化街区覆盖场（都会名片） ----------------
+
+  /** 重算文化街区（版本缓存：仅 map.version 变化才重算，摆盘/拆迁即触发）。
+   *  Pass A：登记大剧院（CULT_R 半径表：半径 6）;
+   *  Pass B：商铺锤点落在任一剧院半径内（切比雪夫）→ cultShopField（收入 ×1.08）。
+   *  只 buff 不打折：没有剧院的老商圈照旧营生 */
+  private ensureCult(map: CityMap): void {
+    if (map.version === this.cultVer) return;
+    this.cultVer = map.version;
+    const facs: Array<{ x: number; y: number; r: number }> = [];
+    for (const o of map.objs.values()) {
+      const r = CULT_R[o.id];
+      if (r !== undefined) facs.push({ x: o.ax, y: o.ay, r });
+    }
+    const shops = new Set<number>();
+    if (facs.length) {
+      for (const o of map.objs.values()) {
+        if (defById(o.id).cat !== 'com') continue;
+        for (const f of facs) {
+          if (Math.max(Math.abs(o.ax - f.x), Math.abs(o.ay - f.y)) <= f.r) { shops.add(map.idx(o.ax, o.ay)); break; }
+        }
+      }
+    }
+    this.cultShopField = shops;
   }
 
   // ---------------- v23：巡防覆盖场（守望相助 · 平安之城） ----------------
@@ -2596,6 +2663,22 @@ export class Tycoon {
 
     // ---- v28：城事回望（一季一篇；季节每 12 游戏时更替，回望恰在换季整点落笔）----
     if (this.gHours >= this.revNext) this.writeReview(s);
+
+    // ---- v31：都会名片落成纪事（首座入册，与编年史「里程碑」相承）----
+    if (s.operas > 0 && !this.operaSeen) {
+      this.operaSeen = true;
+      this.chron.write('mile', 'good', 'fest', '大剧院落成',
+        '金穹顶在夕阳下亮了起来。首演之夜座无虚席，散场的人流涌进街角的商铺与食肆 —— 这座城从此有了自己的舞台。', this.gHours);
+      this.msg?.('大剧院落成 —— 半径 6 格商圈成为文化街区（商铺收入 +8% · 全市幸福 +2）');
+      this.sfx?.('achieve');
+    }
+    if (s.expos > 0 && !this.expoSeen) {
+      this.expoSeen = true;
+      this.chron.write('mile', 'good', 'fest', '会展中心开馆',
+        '玻璃拱棚下万国旗一齐升起。各地客商的展台连夜布展，节庆与博览会从此有了主场。', this.gHours);
+      this.msg?.('会展中心开馆 —— 节庆历时 +30% · 冷却 −20% · 节庆期游客 +30%');
+      this.sfx?.('achieve');
+    }
 
     // ---- v29：市长公署 —— 每日清晨八点公文送抵（一次一份，批完再等明晨）----
     if (this.docHapLeft > 0) {

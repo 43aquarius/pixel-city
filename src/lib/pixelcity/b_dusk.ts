@@ -9,7 +9,7 @@
 // ============================================================
 
 import {
-  box, gableRoof, hipRoof, frustum, cone, prism, makeFace,
+  box, gableRoof, hipRoof, frustum, cone, prism, pyramid, makeFace,
   buildModel, type Face, type V3,
 } from './geo';
 import {
@@ -549,4 +549,141 @@ export function genCellmast(seed: number): BuildResult {
     top: pWall(P.SIDE), right: pWall(P.SIDE), left: pWall(P.SIDE),
   });
   return { model: buildModel(faces, 16, 16), blinkAt };
+}
+
+// ============================================================
+// v31 都会名片：大剧院 / 会展中心（3×3 地标双塔）
+//   大剧院 —— 金穹顶 + 柱廊山花 + 红毯大台阶（文化街区核心）
+//   会展中心 —— 玻璃拱棚展馆 + 万国旗广场（节庆引擎）
+// ============================================================
+
+/** 大剧院（3×3）：金穹顶与柱廊山花的都会名片 */
+export function genOpera(seed: number): BuildResult {
+  const r = mulberry32(seed);
+  const lit = 0.4 + r() * 0.2;
+  const faces: Face[] = [];
+  // 石砌台基（三步大台阶沿 +Y 展开到门前广场）
+  box(faces, 2, 2, 46, 30, 0, 2, {
+    right: pStone(P.SIDE), left: pStone(P.SIDE), top: pWall(P.TAN),
+  });
+  // 主体：奶油石墙 + 两排高拱窗（幕布般的开闭）
+  box(faces, 6, 6, 42, 26, 2, 15, {
+    right: pWindows(P.CREAM, { seed, lit, floorH: 6.5, gapX: 4.4, winH: 3.8, winW: 2.8 }),
+    left: pWindows(P.CREAM, { seed: seed ^ 5, lit, floorH: 6.5, gapX: 4.4, winH: 3.8, winW: 2.8 }),
+  });
+  roofDeck(faces, 6, 6, 42, 26, 15, P.TAN, pWall(P.CREAM));
+  // 金色叠层穹顶（中央舞台上方：青灰鼓座 → 金光鼓身 → 鎏金顶饰）
+  frustum(faces, 24, 15, 8.6, 7.4, 15, 19.5, { side: pWall(P.SIDE), top: pWall(P.SIDE) }, 10);
+  frustum(faces, 24, 15, 7.4, 4.8, 19.5, 24.2, {
+    side: (u, v, px, py) => (bayer(px, py, 0.2) ? cell(P.YELLOW, 0) : cell(P.TAN, 1)),
+    top: () => cell(P.YELLOW, 0),
+  }, 10);
+  box(faces, 23.1, 14.1, 24.9, 15.9, 24.2, 26.8, {
+    right: pWall(P.METAL), left: pWall(P.METAL), top: () => cell(P.LAMP, 0),
+  });
+  // 柱廊门廊（+Y 正面：六根白石柱 + 檐口 + 三角山花）
+  for (const cx of [8.5, 15, 21.5, 26.5, 33, 39.5]) {
+    box(faces, cx - 1.1, 26.5, cx + 1.1, 28.2, 2, 12.5, {
+      right: pStone(P.WHITE), left: pStone(P.WHITE), top: pWall(P.WHITE),
+    });
+    box(faces, cx - 1.5, 28, cx + 1.5, 28.6, 2, 3.2, {
+      right: pStone(P.CREAM), left: pStone(P.CREAM),
+    });
+  }
+  box(faces, 6, 28.2, 42, 30.4, 12.5, 15, {
+    right: pStone(P.CREAM), left: pStone(P.CREAM), top: pStone(P.CREAM),
+  });
+  pyramid(faces, 5.4, 28, 42.6, 32.4, 15, 19.5, pShingle(P.RFTEAL));
+  // 山花浮雕带（三角楣内一圈金色饰线）
+  box(faces, 9, 30.2, 39, 31.2, 15, 16, {
+    right: pWall(P.YELLOW), left: pWall(P.YELLOW),
+  });
+  // 两翼侧厅（青灰双坡 + 竖长窗）
+  box(faces, 2, 8, 6, 24, 2, 9, {
+    right: pWindows(P.CREAM, { seed: seed ^ 11, lit, floorH: 3.5, gapX: 2.6, winH: 2.2, winW: 1.4 }),
+    left: pWindows(P.CREAM, { seed: seed ^ 13, lit, floorH: 3.5, gapX: 2.6, winH: 2.2, winW: 1.4 }),
+  });
+  gableRoof(faces, 1.4, 7.4, 6.6, 24.6, 9, 12.4, 'y', {
+    front: pShingle(P.RFSLATE), back: pShingle(P.RFSLATE), endY: pWall(P.CREAM),
+  });
+  box(faces, 42, 8, 46, 24, 2, 9, {
+    right: pWindows(P.CREAM, { seed: seed ^ 17, lit, floorH: 3.5, gapX: 2.6, winH: 2.2, winW: 1.4 }),
+    left: pWindows(P.CREAM, { seed: seed ^ 19, lit, floorH: 3.5, gapX: 2.6, winH: 2.2, winW: 1.4 }),
+  });
+  gableRoof(faces, 41.4, 7.4, 46.6, 24.6, 9, 12.4, 'y', {
+    front: pShingle(P.RFSLATE), back: pShingle(P.RFSLATE), endY: pWall(P.CREAM),
+  });
+  // 门前红毯大台阶（三步放下，直抵广场）
+  box(faces, 16, 30, 32, 34, 0, 1.6, { top: pWall(P.RED), right: pWall(P.SIDE), left: pWall(P.SIDE) });
+  box(faces, 14.5, 34, 33.5, 37.5, 0, 1.0, { top: pWall(P.RED), right: pWall(P.SIDE), left: pWall(P.SIDE) });
+  box(faces, 13, 37.5, 35, 40.5, 0, 0.5, { top: pWall(P.RED), right: pWall(P.SIDE), left: pWall(P.SIDE) });
+  // 石狮灯座 ×2（幕布两侧，夜光暖灯）
+  for (const [lx, ly] of [[12.4, 33.4], [35.6, 33.4]] as const) {
+    box(faces, lx - 1.6, ly - 1.6, lx + 1.6, ly + 1.6, 0, 2.6, {
+      right: pStone(P.SIDE), left: pStone(P.SIDE), top: () => cell(P.LAMP, 0),
+    });
+  }
+  return { model: buildModel(faces, 48, 48) };
+}
+
+/** 会展中心（3×3）：玻璃拱棚主展馆 + 入口圆鼓 + 万国旗广场 */
+export function genExpo(seed: number): BuildResult {
+  const r = mulberry32(seed);
+  const lit = 0.3 + r() * 0.15;
+  const faces: Face[] = [];
+  // 石板广场（全幅浅台）
+  box(faces, 2, 2, 46, 46, 0, 0.6, {
+    right: pStone(P.SIDE), left: pStone(P.SIDE),
+    top: (u, v, px, py) => (bayer(px, py, 0.12) ? cell(P.SIDE, 1) : cell(P.SIDE, 0)),
+  });
+  // 主展馆： Cream 石墙 + 玻璃山形拱棚（温室般通透，夜里整片亮）
+  box(faces, 8, 8, 40, 32, 0.6, 10, {
+    right: pGlassCurtain(seed, P.GLASS),
+    left: pGlassCurtain(seed ^ 5, P.GLASS),
+  });
+  gableRoof(faces, 7.4, 7.4, 40.6, 32.6, 10, 17.5, 'y', {
+    front: (u, v, px, py) => (bayer(px, py, 0.16) ? cell(P.GLASS, 2) : cell(P.GLASS, 1)),
+    back: (u, v, px, py) => (bayer(px, py, 0.16) ? cell(P.GLASS, 2) : cell(P.GLASS, 1)),
+    endY: pWall(P.CREAM),
+  });
+  // 棚脊灯带（夜光：主馆轮廓一眼可辨）
+  box(faces, 23.2, 7.8, 24.8, 33, 17.2, 18.2, {
+    right: () => cell(P.LAMP, 0), left: () => cell(P.LAMP, 0),
+    top: () => cell(P.LAMP, 0),
+  });
+  // 入口圆鼓（+Y 正面：玻璃圆厅 + 霓虹环带）
+  prism(faces, 24, 36.5, 5.4, 0.6, 12, {
+    side: (u, v, px, py) =>
+      v > 8.2 && v < 9.6 ? cell(P.NEONC, 0)
+        : bayer(px, py, 0.2) ? cell(P.GLASS, 2) : cell(P.GLASS, 1),
+    top: pWall(P.WHITE),
+  }, 10);
+  // 连桥（圆鼓 → 主馆：玻璃廊）
+  box(faces, 21.6, 31.6, 26.4, 33.6, 0.6, 6.5, {
+    right: pGlassCurtain(seed ^ 9, P.GLASS), left: pGlassCurtain(seed ^ 12, P.GLASS),
+    top: pWall(P.WHITE),
+  });
+  // 两翼展馆（平顶 + 空调外机 + 主题横幅色块）
+  for (const [wx0, wx1] of [[3.5, 12.5], [35.5, 44.5]] as const) {
+    box(faces, wx0, 38.5, wx1, 44.5, 0.6, 7.5, {
+      right: pWindows(P.CREAM, { seed: seed ^ (wx0 < 12 ? 21 : 25), lit, floorH: 3.4, gapX: 3.2, winH: 2.2, winW: 2 }),
+      left: pWindows(P.CREAM, { seed: seed ^ (wx0 < 12 ? 23 : 27), lit, floorH: 3.4, gapX: 3.2, winH: 2.2, winW: 2 }),
+      top: pFlatRoof(P.METAL, 4),
+    });
+    acUnit(faces, wx0 + 3, 41.5, 7.5, 2.4);
+    box(faces, wx0 + 1.2, 44.5, wx1 - 1.2, 45.1, 3.2, 6.2, {
+      right: (wx0 < 12 ? pWall(P.NEONR) : pWall(P.PBLUE)),
+      left: (wx0 < 12 ? pWall(P.NEONR) : pWall(P.PBLUE)),
+    });
+  }
+  // 万国旗广场（四角旗杆：红 / 青 / 黄 / 白旗）
+  flagPole(faces, 6.5, 6.5, 13, P.RED);
+  flagPole(faces, 41.5, 6.5, 13, P.CYAN);
+  flagPole(faces, 17, 44, 12, P.YELLOW);
+  flagPole(faces, 31, 44, 12, P.WHITE);
+  // 中央花坛（圆池 + 指南针式铺装）
+  frustum(faces, 24, 24, 4.2, 3.4, 0.6, 2.2, {
+    side: pStone(P.SIDE), top: () => cell(P.PBLUE, 0),
+  }, 8);
+  return { model: buildModel(faces, 48, 48) };
 }

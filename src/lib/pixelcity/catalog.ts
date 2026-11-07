@@ -32,6 +32,7 @@ import {
   genHiapart, genNagaya, genMinshuku, genElectown, genFerris,
   genBakery, genGas, genFerry, genWindmill, genGreenhouse,
   genBrewery, genPavilion, genAquarium, genCellmast,
+  genOpera, genExpo,
 } from './b_dusk';
 import { genWatertower, genWaterplant, genLevee } from './b_water';
 import { genBinshed, genRecycle, genIncin } from './b_waste';
@@ -213,6 +214,11 @@ export const CATALOG: Def[] = [
     gen: genSubstation, desc: '格构钢塔中继：建在任一电源 6 格内＝有效，再向外辐射 6 格供电 —— 新区不必贴着电厂盖楼' },
   { id: 'binshed', name: '垃圾收集站', cat: 'civ', w: 1, h: 1, variants: 2, pop: 3,
     gen: genBinshed, desc: '翻盖垃圾箱排与清运车棚：半径 6 格内建筑垃圾自动清运（14 件/分）—— 超量会堆积，多建几座分担' },
+  // ---- v31 都会名片：地标双塔 ----
+  { id: 'opera', name: '大剧院', cat: 'civ', w: 3, h: 3, variants: 1, pop: 60,
+    gen: genOpera, desc: '金穹顶与柱廊山花的都会名片：半径 6 格商圈商铺收入 +8%（文化街区）· 全市幸福 +2（需「城市名片」）' },
+  { id: 'expo', name: '会展中心', cat: 'civ', w: 3, h: 3, variants: 1, pop: 40,
+    gen: genExpo, desc: '玻璃拱棚展馆与万国旗广场：节庆历时 +30% · 冷却 −20% · 节庆期游客再 +30%（需「建筑工程学」）' },
   // ---- 剧情（经营模式专属，不可直接建造）----
   { id: 'cityhall', name: '市政厅', cat: 'civ', w: 2, h: 2, variants: 1, pop: 0,
     gen: genCityhall, hidden: true, desc: '城市的心脏：金顶钟塔与旗帜' },
@@ -225,8 +231,8 @@ export function defById(id: string): Def {
 /** v10 旅游系统：景点吸引力分（tycoon 旅游人数 / actors 游客漫步共用）
  *  数值 = 景点档位：5 地标级 / 4 大型 / 3 中型 / 2 小型 / 1 点缀 / 0.5 市井 */
 export const ATTRACT: Record<string, number> = {
-  ferris: 5, aquarium: 5, castle: 5,
-  museum: 4, stadium: 4,
+  ferris: 5, aquarium: 5, castle: 5, opera: 5,
+  museum: 4, stadium: 4, expo: 4,
   temple: 3, observatory: 3,
   church: 2, monument: 2, lighthouse: 2, torii: 2,
   cinema: 1.5, clocktower: 1,
