@@ -125,6 +125,38 @@ export const WF_EARN_K_MARINA = 1.10;
 export const WF_HAP_MAX = 6;
 /** 游船码头的水岸氛围外推半径（码头周围 3 格也算滨水带） */
 export const MARINA_R = 3;
+// ---- v33 经济周期：市况荣枯 ----
+/** 景气指数摆动区间（100 = 长期均值；繁荣 ≥120 · 复苏 108-119 · 平稳 90-107 · 衰退 <90）。
+ *  像出口市价一样的随机游走，但走得更慢、更偏：相位自带惯性（繁荣助涨、衰退助跌），
+ *  均值回归温和拉回 —— 城市的生意有起有落，编年史会记下每一场起落。 */
+export const CYC_MIN = 60;
+export const CYC_MAX = 140;
+export const CYC_STEP = 5;              // 指数步进间隔（秒）
+/** 均值回归系数（每步向 100 收敛的比例）与噪声幅度 */
+export const CYC_MEAN_K = 0.014;
+export const CYC_NOISE = 3.2;
+/** 相位惯性（每步漂移：衰退助跌 / 平稳走平 / 复苏微升 / 繁荣助涨 —— 好年景自己会滚雪球） */
+export const CYC_BIAS = [-0.30, 0, 0.12, 0.30];
+/** 相位乘数斜率（每偏离均值 1 点的影响）：商业最敏感，工业最钝（出口市价另有专人负责） */
+export const CYC_COM_K = 0.006;         // 繁荣 135 → 商业 ×1.21 · 衰退 70 → ×0.82
+export const CYC_TOUR_K = 0.004;        // 繁荣 → 游客 ×1.14 · 衰退 → ×0.88
+export const CYC_IND_K = 0.003;         // 繁荣 → 工业 ×1.105 · 衰退 → ×0.91
+export const CYC_MIG_K = 0.005;         // 繁荣 → 迁入 ×1.175 · 衰退 → ×0.85（市道差，新市民观望）
+/** 相位幸福（荣枯与民心相关：衰退 −2 · 平稳 0 · 复苏 +1 · 繁荣 +3） */
+export const CYC_HAP = [-2, 0, 1, 3];
+/** 相位纪事最小间隔（游戏小时）：防指数在阈值附近抖动刷屏 */
+export const CYC_CHRON_GAP = 4;
+/** 相位定义（名称 / 编年史标题 / 一句话说明 —— 财政报告与编年史共用） */
+export const CYC_PHASES = [
+  { name: '衰退', title: '市道萧条', tone: 'bad' as const, note: '市况低迷：铺子门可罗雀，游客止步，新市民观望不前' },
+  { name: '平稳', title: '市况回稳', tone: 'info' as const, note: '市况如常：街市人来人往，账房先生的算盘不紧不慢' },
+  { name: '复苏', title: '百业复振', tone: 'good' as const, note: '市况回暖：临街的铺面重新亮起幌子，码头的货又开始排号' },
+  { name: '繁荣', title: '百业竞荣', tone: 'big' as const, note: '市况鼎盛：商铺连夜赶工备货，游客挤满了街市与码头' },
+] as const;
+/** 相位分类器（景气指数 → 相位序号 0衰退/1平稳/2复苏/3繁荣） */
+export function cycPhaseOf(idx: number): number {
+  return idx >= 120 ? 3 : idx >= 108 ? 2 : idx >= 90 ? 1 : 0;
+}
 /** 火灾起火热势（火头初燃） */
 export const FIRE_HEAT0 = 0.35;
 /** 火势增速/秒：水网覆盖区（消防栓水压压制）与盲区 */
@@ -694,6 +726,11 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 20, val: s => s.wfN },
   { id: 'tour80w', name: '碧波揽客', desc: '滨水建筑 ≥ 12 栋时游客达到 80（水岸风景线与游船码头把游客留在河边）', icon: 'drop',
     goal: 80, val: s => (s.wfN >= 12 ? s.tourists : 0) },
+  // ---- v33 经济周期 ----
+  { id: 'cycboth', name: '荣枯兼济', desc: '历经一段繁荣与一段衰退（景气指数 ≥120 为繁荣、<90 为衰退 —— 编年史会记下每一场市况起落）', icon: 'coin',
+    goal: 1, val: (_s, t) => (t.cycBoomN >= 1 && t.cycRecN >= 1 ? 1 : 0) },
+  { id: 'cyc5', name: '穿越荣枯', desc: '累计历经 5 段繁荣/衰退行情（平准均输可熨平波动，但穿越周期才是真本事 —— 大灾大喜也会震动市况）', icon: 'coin',
+    goal: 5, val: (_s, t) => t.cycBoomN + t.cycRecN },
   // ---- v17 城市编年史 ----
   { id: 'chron60', name: '汗青永续', desc: '编年史累计记下 60 笔城市纪事（开埠/时代跃迁/事件/科技/节庆/法令/里程碑皆入册）', icon: 'book',
     goal: 60, val: (_s, t) => t.chron.total },
@@ -770,7 +807,7 @@ export type OrdDef = {
   cost: number;              // 每分钟行政开支（G；0 = 零成本）
   lv: number;                // 所需市政厅等级
   reqNote?: string;          // 额外条件说明（不满足时锁定）
-  req?: (s: Snap) => boolean;
+  req?: (s: Snap, t: Tycoon) => boolean;
 };
 
 export const ORDS: OrdDef[] = [
@@ -791,6 +828,9 @@ export const ORDS: OrdDef[] = [
     desc: '商业收入 +15%（发券刺激消费，行政开支不菲）' },
   { id: 'ecolaw', name: '环保条例', lv: 6, cost: 0,
     desc: '工业污染 −28%，工业收入 −7%（企业治污代价）' },
+  { id: 'stabil', name: '平准均输', lv: 6, cost: 2.0,
+    desc: '熨平市况：繁荣/衰退的商业与游客乘数减半（荣枯对市道的冲击收窄一半），行政开支 2.0G/分',
+    reqNote: '需研究「金融枢纽」', req: (_s, t) => t.has('finhub') },
 ];
 
 export function costOf(id: string): number { return ECON[id]?.cost ?? 0; }
@@ -920,6 +960,8 @@ export type QS = {
   citzBorn: number;     // 累计本城出生数
   citzGrown: number;    // 累计长大成人人次
   citzPassed: number;   // 累计安详离世数
+  // ---- v33 经济周期 ----
+  cycSegN: number;      // 累计历经繁荣/衰退段数（任务口径）
 };
 
 export type Quest = {
@@ -1038,6 +1080,9 @@ export const QUESTS: Quest[] = [
   // ---- v26 生民列传 ----
   { id: 'grown1', title: '长大成人', hint: '一位市民长大成人（本城出生/迁入的孩子到了年纪会行完成人礼：按学历择业安身 —— 名人册里等他长大）', goal: 1,
     val: s => s.citzGrown, rG: 240, rXp: 120 },
+  // ---- v33 经济周期 ----
+  { id: 'cyc1', title: '市况荣枯', hint: '历经一段繁荣或衰退行情（景气指数随时间起落：繁荣时商业游客双旺，衰退时市道冷清 —— 大灾大喜都会震动市况，金融枢纽科技解锁「平准均输」法令可熨平波动；财政报告里有行情条）', goal: 1,
+    val: s => s.cycSegN, rG: 260, rXp: 120 },
 ];
 
 // ------------------------------------------------------------
@@ -1129,6 +1174,19 @@ export type EconView = {
   quakes: number; floods: number;   // 累计地震 / 洪水场次
   levees: number;                   // 防洪堤数
   waterNear: number;                // 临水领地格数（洪水触发条件）
+  // ---- v33：经济周期 ----
+  cycIdx: number;         // 景气指数（60..140）
+  cycPhase: number;       // 相位 0衰退/1平稳/2复苏/3繁荣
+  cycHap: number;         // 相位幸福加成
+  cycComK: number;        // 市况商业乘数（0.82..1.21；平准减半）
+  cycTourK: number;       // 市况游客乘数
+  cycIndK: number;        // 市况工业乘数
+  cycMigK: number;        // 市况迁入乘数
+  cycBoomN: number;       // 累计繁荣段数
+  cycRecN: number;        // 累计衰退段数
+  cycBoomT: number;       // 累计繁荣时长（秒）
+  cycRecT: number;        // 累计衰退时长（秒）
+  cycSegN: number;        // 累计历经荣枯段数
   // ---- v19：污染空间化 ----
   smogTiles: number;                // 雾霾格数（浓度 ≥45）
   smogBad: number;                  // 重污染格数（浓度 ≥75）
@@ -1219,6 +1277,18 @@ type Snap = QS & {
   exportRate: number; ports: number;
   tourists: number; tourIdx: number; beds: number; attract: number;
   multTour: number; ordCost: number; ordHap: number; migMult: number;
+  // ---- v33：经济周期 ----
+  cycIdx: number;         // 景气指数（60..140）
+  cycPhase: number;       // 相位 0衰退/1平稳/2复苏/3繁荣
+  cycHap: number;         // 相位幸福加成（CYC_HAP[phase]）
+  cycComK: number;        // 市况商业乘数（0.82..1.21；平准减半）
+  cycTourK: number;       // 市况游客乘数
+  cycIndK: number;        // 市况工业乘数
+  cycMigK: number;        // 市况迁入乘数
+  cycBoomN: number;       // 累计繁荣段数
+  cycRecN: number;        // 累计衰退段数
+  cycBoomT: number;       // 累计繁荣时长（秒）
+  cycRecT: number;        // 累计衰退时长（秒）
 };
 
 export class Tycoon {
@@ -1281,6 +1351,22 @@ export class Tycoon {
   /** 当前游客人数（快照回写；引擎同步给行人系统） */
   tourists = 0;
   private goodsWarned = false;
+
+  // ---- v33：经济周期（市况荣枯）----
+  /** 景气指数（60..140；100 = 长期均值；随机游走 + 均值回归 + 相位惯性） */
+  cycIdx = 100;
+  /** 指数步进倒计时（秒） */
+  private cycTimer = CYC_STEP;
+  /** 当前相位 0衰退/1平稳/2复苏/3繁荣 */
+  cycPhase = 1;
+  /** 上次纪事相位与时刻（游戏小时；防阈值抖动刷屏） */
+  private cycPrevPhase = 1;
+  private cycChronAt = -999;
+  /** 累计历经繁荣/衰退段数与时长（秒）—— 成就与城市志口径 */
+  cycBoomN = 0;
+  cycRecN = 0;
+  cycBoomT = 0;
+  cycRecT = 0;
 
   // ---- v11：出口市场（随行就市 / 惜售囤货）----
   /** 出口市价系数（0.55..1.55；1 = 基准价；随机游走 + 均值回归） */
@@ -1475,7 +1561,7 @@ export class Tycoon {
     if (!this.ords.has(id)) {
       if (this.level < o.lv) return 'lock';
       const s = this.snap;
-      if (o.req && (!s || !o.req(s))) return 'lock';
+      if (o.req && (!s || !o.req(s, this))) return 'lock';
       this.ords.add(id);
       this.sfx?.('level');
       this.msg?.(`颁布「${o.name}」：${o.desc}${o.cost > 0 ? `（行政开支 ${o.cost}G/分）` : ''}`);
@@ -1886,14 +1972,23 @@ export class Tycoon {
       festAmenity = f.amenity;
     }
     const seasonHap = sn.hap;
+    // ---- v33 经济周期：景气指数 → 相位乘数（商业/游客/工业/迁入）+ 相位幸福 ----
+    //   平准均输法令：荣枯冲击减半（乘数斜率 ×0.5，繁荣增益与衰退惩罚同时收窄）
+    const cycDamp = this.hasOrd('stabil') ? 0.5 : 1;
+    const cycDev = this.cycIdx - 100;
+    const cycComK = 1 + cycDev * CYC_COM_K * cycDamp;
+    const cycTourK = 1 + cycDev * CYC_TOUR_K * cycDamp;
+    const cycIndK = 1 + cycDev * CYC_IND_K * cycDamp;
+    const cycMigK = 1 + cycDev * CYC_MIG_K;
+    const cycHap = CYC_HAP[Math.max(0, Math.min(3, this.cycPhase))];
     // v22 人力资本：在册市民平均学历 → hrIdx（空册兑底 50）；超过基线才有加成
     //   （只 buff 不打折：老城不因新玩法亏钱，大学城工业/科研至多 +16%/+20%）
     const hrIdx = this.citz.hrIdx();
     const hrK = 1 + 0.0032 * Math.max(0, hrIdx - HR_BASE);   // 工业熟练工乘数
     const hrS = 1 + 0.004 * Math.max(0, hrIdx - HR_BASE);    // 科研乘数
     foodProd *= multFood;
-    earnCom *= multCom;
-    earnInd *= multInd * hrK;
+    earnCom *= multCom * cycComK;            // v33：市况乘数并入商业（繁荣双旺 / 衰退双冷）
+    earnInd *= multInd * hrK * cycIndK;      // v33：工业对景气最钝（出口市价另有专人负责）
     spRaw *= multSp * hrS;
     // v10 法令：夜间经济 / 消费券 / 环保条例
     if (this.hasOrd('night')) earnCom *= 1.10;
@@ -2027,7 +2122,7 @@ export class Tycoon {
     for (const o of ORDS) if (this.ords.has(o.id)) ordCost += o.cost;
     const ordHap = (this.hasOrd('energy') ? -2 : 0) + (this.hasOrd('night') ? 1 : 0) +
       (this.hasOrd('patrol') ? 1 : 0) + (this.hasOrd('welcome') ? -1 : 0);
-    const migMult = (this.hasOrd('welcome') ? 1.28 : 1) * (this.hasOrd('transit') ? 1.12 : 1);
+    const migMult = (this.hasOrd('welcome') ? 1.28 : 1) * (this.hasOrd('transit') ? 1.12 : 1) * cycMigK;   // v33：市道差，新市民观望
 
     // 幸福 v8：九维加权（宜居 24 / 粮食 15 / 就业 12 / 供水 11 / 文化 9 / 环境 9 /
     //   健康 7 / 安全 6 / 交通 7；权重和 = 100）
@@ -2048,10 +2143,10 @@ export class Tycoon {
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
-      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap + this.docHap
+      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap + this.docHap + cycHap
       + (operas > 0 ? 2 : 0)
       + Math.min(WF_HAP_MAX, wfRes)
-      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区扣减；v29 朱批民心增益；v31 大剧院全市幸福 +2；v32 滨水住宅每栋 +1
+      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区扣减；v29 朱批民心增益；v31 大剧院全市幸福 +2；v32 滨水住宅每栋 +1；v33 市况荣枯 ±2/0/+1/+3
     const happyMult = 0.6 + happiness / 125;
 
     // ---- v10 旅游：景点吸引力 × 文化/幸福 × 季节/天气 → 游客（酒店床位为接待上限）----
@@ -2060,7 +2155,7 @@ export class Tycoon {
     const appeal = attract * (0.6 + 0.4 * cultureIdx / 100) * (0.5 + 0.5 * happiness / 100);
     const capVisit = hotelBeds * 2 + 30;
     const tourists = attract < 1 ? 0
-      : Math.min(capVisit, appeal * seasonTourK * weatherTourK * multTour);
+      : Math.min(capVisit, appeal * seasonTourK * weatherTourK * multTour * cycTourK);   // v33：市况荣枯也牵动游客的出行计划
     const tourIdx = Math.max(0, Math.min(100, Math.round(attract * 2.4)));
 
     // ---- v10 货物供应链：工业产货 → 零售上货 → 港口外销 ----
@@ -2124,6 +2219,12 @@ export class Tycoon {
       fireIn, fireOut, fireMissRes, hydrants,                                       // v24 消防空间化
       operas, expos, cultShops: this.cultShopField.size,                             // v31 都会名片
       wfN: this.wfField.size, wfRes, marinas,                                        // v32 滨水都市
+      // ---- v33 经济周期 ----
+      cycIdx: Math.round(this.cycIdx), cycPhase: this.cycPhase, cycHap,
+      cycComK, cycTourK, cycIndK, cycMigK,
+      cycBoomN: this.cycBoomN, cycRecN: this.cycRecN,
+      cycBoomT: Math.round(this.cycBoomT), cycRecT: Math.round(this.cycRecT),
+      cycSegN: this.cycBoomN + this.cycRecN,
       ecotowers: this.smogTowerN,
       eventHap, eventAmenity, multCom, multInd, multFood, multPower, multTraffic, multSp,
       weather: { kind: wt.kind, t: wt.t },
@@ -2583,6 +2684,55 @@ export class Tycoon {
     this.revNext = Math.max(this.revNext + 12, Math.ceil((this.gHours + 0.001) / 12) * 12);
   }
 
+  // ---------------- v33：经济周期（市况荣枯） ----------------
+
+  /** 指数步进：随机游走 + 均值回归 + 相位惯性。
+   *  惯性让好年景滚雪球、衰退越陷越深（模拟真实荣枯的持续性），
+   *  均值回归温和拉回 100，噪声扰动让每段行情长短不一。 */
+  private stepCycle(dt: number): void {
+    // 相位时长累计（秒）：衰退/繁荣的账本
+    if (this.cycPhase === 0) this.cycRecT += dt;
+    else if (this.cycPhase === 3) this.cycBoomT += dt;
+    this.cycTimer -= dt;
+    if (this.cycTimer > 0) return;
+    this.cycTimer = CYC_STEP;
+    const bias = CYC_BIAS[Math.max(0, Math.min(3, this.cycPhase))];
+    const mean = (100 - this.cycIdx) * CYC_MEAN_K;
+    const noise = (Math.random() - 0.5) * CYC_NOISE;
+    this.cycIdx = Math.max(CYC_MIN, Math.min(CYC_MAX, this.cycIdx + bias + mean + noise));
+    this.cycReclass();
+  }
+
+  /** 相位重分类：跨相位即记账（段数 + 编年史 + 消息） */
+  private cycReclass(): void {
+    const ph = cycPhaseOf(this.cycIdx);
+    if (ph === this.cycPhase) return;
+    this.cycPhase = ph;
+    if (ph === 3) this.cycBoomN++;
+    if (ph === 0) this.cycRecN++;
+    const P = CYC_PHASES[ph];
+    // 编年史：荣枯起落入册（间隔 ≥ CYC_CHRON_GAP 游戏小时，防阈值抖动刷屏）
+    if (ph !== this.cycPrevPhase && this.gHours - this.cycChronAt >= CYC_CHRON_GAP) {
+      this.cycPrevPhase = ph;
+      this.cycChronAt = this.gHours;
+      this.chron.write('event', P.tone, 'coin', P.title,
+        `景气指数 ${Math.round(this.cycIdx)} —— ${P.note}`, this.gHours);
+    }
+    this.msg?.(`${ph === 0 || ph === 3 ? (ph === 0 ? '⚠' : '✦') : '·'} 市况${P.name}（景气 ${Math.round(this.cycIdx)}）：${P.note}`);
+  }
+
+  /** 事件冲击：大灾大喜震动市况（rollEvent 按事件键调用） */
+  private cycShock(v: number): void {
+    this.cycIdx = Math.max(CYC_MIN, Math.min(CYC_MAX, this.cycIdx + v));
+    this.cycReclass();
+  }
+
+  /** 沙盒/调试：直接设定景气指数（测试与市政沙盒用；立即重分类记账） */
+  cycSet(idx: number): void {
+    this.cycIdx = Math.max(CYC_MIN, Math.min(CYC_MAX, idx));
+    this.cycReclass();
+  }
+
   // ---------------- 每帧心跳 ----------------
 
   tick(dt: number, map: CityMap): void {
@@ -2612,6 +2762,8 @@ export class Tycoon {
       this.mkt = Math.max(EXPORT_MKT_MIN, Math.min(EXPORT_MKT_MAX,
         this.mkt + (Math.random() - 0.5) * 0.13 + (1 - this.mkt) * 0.045));
     }
+    // v33 经济周期：景气指数步进 + 相位记账（荣枯起落写入编年史）
+    this.stepCycle(dt);
     // 收入 − 维护（G/分 → 按秒累积；可能为负 = 赤字，需拆除减负）
     // 税收 v4：可调税率（0-20%）驱动，高税多金但市民不满
     const tax = this.pop * (this.taxRate / 100) * (this.has('taxref') ? 1.15 : 1) * s.happyMult * s.powerMult;
@@ -2707,6 +2859,7 @@ export class Tycoon {
       eduOut: s.eduOut,                        // v22：学区外住宅心声
       crime: s.crimeN,                         // v23：盲区商铺心声（街坊议论失窃）
       fireOut: s.fireOut,                      // v24：消防盲区心声（火险保贵的街区）
+      cyc: s.cycPhase,                         // v33：市况相位心声（衰退抱怨生意淡 / 繁荣夸市道）
       day: Math.floor(this.gHours / 24) + 1,   // v30：开埠天数（书信合集收信日）
       inEdu: (x, y) => this.eduField.has(map.idx(x, y)),   // v22：升学判定（学区内市民会随时间求学深造）
     }, this.playtime);
@@ -2902,6 +3055,14 @@ export class Tycoon {
       }
     }
     if (pick.key === 'flood') this.floods++;   // v18 灾害计数（成就）
+
+    // v33 市况冲击：大灾大喜都会震动市况（景气指数立即跳变并重分类）
+    const CYC_SHOCK: Record<string, number> = {
+      quake: -8, flood: -7, fire: -5, plague: -4, scandal: -5, tradewar: -6,
+      badreview: -4, blackout: -3,
+      bullmkt: 6, tourseason: 5, boom: 4, invest: 5, festival: 3, harvest: 2,
+    };
+    if (CYC_SHOCK[pick.key]) this.cycShock(CYC_SHOCK[pick.key]);
 
     // 事故现场：自定义挑选器优先（v23 犯罪：盲区商铺）；缺省：已购领地内挑一栋建筑
     let fx: { x: number; y: number } | undefined;
@@ -3107,7 +3268,7 @@ export class Tycoon {
         reqNote: o.reqNote ?? '',
         on: this.ords.has(o.id),
         lockLv: this.level < o.lv,
-        reqOk: !o.req || (!!s && o.req(s)),
+        reqOk: !o.req || (!!s && o.req(s, this)),
       })),
       // ---- v11 ----
       tramStops: s?.tramStops ?? 0,
@@ -3131,6 +3292,17 @@ export class Tycoon {
       chron: this.chron.view(),
       // ---- v29：市长公署 ----
       gov,
+      // ---- v33：经济周期 ----
+      cycIdx: Math.round(this.cycIdx),
+      cycPhase: this.cycPhase,
+      cycHap: s?.cycHap ?? 0,
+      cycComK: s?.cycComK ?? 1,
+      cycTourK: s?.cycTourK ?? 1,
+      cycIndK: s?.cycIndK ?? 1,
+      cycMigK: s?.cycMigK ?? 1,
+      cycBoomN: this.cycBoomN, cycRecN: this.cycRecN,
+      cycBoomT: Math.round(this.cycBoomT), cycRecT: Math.round(this.cycRecT),
+      cycSegN: this.cycBoomN + this.cycRecN,
       // ---- v18：灾害链 ----
       quakes: this.quakes, floods: this.floods,
       levees: s?.levees ?? 0, waterNear: s?.waterNear ?? 0,
@@ -3272,6 +3444,10 @@ export class Tycoon {
     this.gHours = 0;
     // v28：城事回望重置（首期在第 12 游戏时——第一个换季点）
     this.revNext = 12; this.revN = 0; this.revLast = null;
+    // v33：经济周期重置（开埠即平稳市况 100；荣枯账本清零）
+    this.cycIdx = 100; this.cycPhase = 1; this.cycPrevPhase = 1;
+    this.cycChronAt = -999; this.cycTimer = CYC_STEP;
+    this.cycBoomN = 0; this.cycRecN = 0; this.cycBoomT = 0; this.cycRecT = 0;
     // v29：市长公署重置（首份公文在开埠首日清晨 8 点）
     this.docPending = null; this.docNext = DOC_FIRST_H; this.docN = 0;
     this.docUsed = []; this.docLog = []; this.docHap = 0; this.docHapLeft = 0;
@@ -3343,6 +3519,11 @@ export class Tycoon {
       gHours: Math.round(this.gHours * 10) / 10,
       // v28：城事回望档
       revN: this.revN, revNext: this.revNext, revLast: this.revLast,
+      // v33：经济周期档（景气指数 / 相位记账 / 纪事时刻 —— 旧档缺省恢复基准 100）
+      cyc: Math.round(this.cycIdx),
+      cycB: this.cycBoomN, cycR: this.cycRecN,
+      cycBT: Math.round(this.cycBoomT), cycRT: Math.round(this.cycRecT),
+      cycCA: Math.round(this.cycChronAt * 10) / 10, cycPP: this.cycPrevPhase,
       // v29：市长公署档（待批公文 / 已批数 / 用过池 / 朱批存档 / 民心增益）
       docP: this.docPending, docNext: this.docNext, docN: this.docN,
       docUsed: this.docUsed, docLog: this.docLog,
@@ -3472,6 +3653,16 @@ export class Tycoon {
       ? { pop: Number(rl.pop), bld: Number(rl.bld), coins: Math.floor(Number(rl.coins) || 0),
           id: Math.max(0, Math.floor(Number(rl.id) || 0)) }
       : null;
+    // v33：经济周期档恢复（旧档无字段 → 基准 100 平稳开局；纪事时刻 −999 保证下一次荣枯入册）
+    this.cycIdx = Math.max(CYC_MIN, Math.min(CYC_MAX, Number(d.cyc) || 100));
+    this.cycPhase = cycPhaseOf(this.cycIdx);
+    this.cycBoomN = Math.max(0, Math.floor(Number(d.cycB) || 0));
+    this.cycRecN = Math.max(0, Math.floor(Number(d.cycR) || 0));
+    this.cycBoomT = Math.max(0, Number(d.cycBT) || 0);
+    this.cycRecT = Math.max(0, Number(d.cycRT) || 0);
+    this.cycChronAt = Number.isFinite(Number(d.cycCA)) ? Number(d.cycCA) : -999;
+    this.cycPrevPhase = Math.max(0, Math.min(3, Math.floor(Number(d.cycPP) ?? this.cycPhase)));
+    this.cycTimer = CYC_STEP;
     // v29：市长公署档恢复（旧档无字段 → 首份公文从下一个清晨八点起算；在批公文原样回到案头）
     this.docN = Math.max(0, Math.floor(Number(d.docN) || 0));
     this.docNext = Number(d.docNext) > 0 ? Number(d.docNext) : nextMorningH(this.gHours);
@@ -3572,6 +3763,7 @@ export class Tycoon {
       eduOut: s?.eduOut ?? 0,                   // v22：学区外住宅心声
       crime: s?.crimeN ?? 0,                    // v23：盲区商铺心声
       fireOut: s?.fireOut ?? 0,                 // v24：消防盲区心声
+      cyc: s?.cycPhase ?? 1,                    // v33：市况相位心声（衰退抱怨生意淡 / 繁荣夸市道）
     });
   }
 

@@ -18,7 +18,7 @@ import { PALETTE } from '@/lib/pixelcity/palette';
 import { iconURI } from '@/lib/pixelcity/icons';
 import {
   Tycoon, ECON, costOf, unlockOf, fmtG, QUESTS, TECHS, BRANCHES, TECH_GATE, techNameOf,
-  taxMood, TAX_MIN, TAX_MAX, SEASONS, FESTS,
+  taxMood, TAX_MIN, TAX_MAX, SEASONS, FESTS, CYC_PHASES, CYC_MIN, CYC_MAX,
   type EconView, type HistPoint,
 } from '@/lib/pixelcity/tycoon';
 import type { CitzCard } from '@/lib/pixelcity/citizens';
@@ -763,6 +763,11 @@ export default function PixelCity() {
   const rinc = (n: number): string =>
     n >= 100 ? fmtG(n) : `${Math.round(Math.abs(n) * 10) / 10}`;
   const rincS = (n: number): string => `${n < 0 ? '−' : '+'}${rinc(n)}`;
+  /** v33 市况荣枯：秒数 → 分秒账本显示（不足 1 分钟只报秒） */
+  const fmtDur = (sec: number): string => {
+    const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+    return m > 0 ? `${m} 分 ${s} 秒` : `${s} 秒`;
+  };
 
   /** 经营 ⇄ 沙盒切换（经营进度独立存档，互不覆盖） */
   const switchMode = useCallback(() => {
@@ -1924,6 +1929,38 @@ export default function PixelCity() {
                   </tbody></table>
                 </section>
                 <section>
+                  <h3>市况荣枯（v33）</h3>
+                  <table><tbody>
+                    <tr className={econ.cycPhase === 0 ? 'bad' : econ.cycPhase === 3 ? 'g' : ''}>
+                      <td>景气指数</td>
+                      <td>{econ.cycIdx}（{CYC_PHASES[econ.cycPhase]?.name ?? '平稳'} · 幸福 {econ.cycHap >= 0 ? '+' : ''}{econ.cycHap}）</td>
+                    </tr>
+                    <tr><td>市况影响</td>
+                      <td>商业 ×{econ.cycComK.toFixed(2)} · 游客 ×{econ.cycTourK.toFixed(2)} · 工业 ×{econ.cycIndK.toFixed(2)} · 迁入 ×{econ.cycMigK.toFixed(2)}</td>
+                    </tr>
+                    <tr><td>荣枯账本</td>
+                      <td>{econ.cycBoomN + econ.cycRecN > 0
+                        ? `繁荣 ${econ.cycBoomN} 段（累计 ${fmtDur(econ.cycBoomT)}）· 衰退 ${econ.cycRecN} 段（累计 ${fmtDur(econ.cycRecT)}）`
+                        : '尚未历经荣枯 —— 指数偏离均值后各有惯性，大灾大喜也会震动市况'}</td>
+                    </tr>
+                  </tbody></table>
+                  <div className="pxc-cyc">
+                    <div className="pxc-cycbar" aria-hidden>
+                      <i className="b0" /><i className="b1" /><i className="b2" /><i className="b3" />
+                      <span className="mark" style={{ left: `${Math.round((econ.cycIdx - CYC_MIN) / (CYC_MAX - CYC_MIN) * 100)}%` }} />
+                    </div>
+                    <div className="pxc-cycrow">
+                      {CYC_PHASES.map((p, i) => (
+                        <span key={i} className={i === econ.cycPhase ? `ph${i} cur` : `ph${i}`}>{p.name}</span>
+                      ))}
+                      <span className={`idxv ${econ.cycPhase === 0 ? 'bad' : econ.cycPhase === 3 ? 'g' : ''}`}>
+                        {econ.cycIdx}
+                      </span>
+                    </div>
+                    <div className="taxhint">{CYC_PHASES[econ.cycPhase]?.note ?? ''}。景气指数随时间起落：≥120 繁荣、&lt;90 衰退；衰退时少举债缓扩张，繁荣时抓住窗口多营生</div>
+                  </div>
+                </section>
+                <section>
                   <h3>领地</h3>
                   <table><tbody>
                     <tr><td>已购领地</td><td>{econ.chunks} 块（每块 16×16 格）</td></tr>
@@ -2996,7 +3033,7 @@ export default function PixelCity() {
                     <tr><td>地形</td><td>真实海拔起伏：抬升造山、降低挖谷（挖到 0 化为水域）；山坡建房自动整地（另付小额费用）；行人车辆会爬坡</td></tr>
                     <tr><td>桥梁</td><td>道路工具拖过水面自动架桥（15G/格，物流网络科技打折），桥面与岸上路面齐平，行人车辆畅通无阻</td></tr>
                     <tr><td>四季</td><td>春樱/夏绿/秋红/冬雪随时钟轮转（每季 4 分钟×1）：春季樱花瓣飘落、冬季水面封冻大地积雪；粮产/商业/用电随季节联动</td></tr>
-                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>城市卫士应急联动</b>（交番驻巡逻警车·治安+220 护盾；火灾/疫病来袭消防车救护车沿路驰援——到场喷水/接载并免余损，设施邻路是关键）· <b>消防水网与火势蔓延</b>（消防局半径 5 格·消防栓半径 2 格织成水网：覆盖区火势减半；盲区起火蔓延更快且会蹿烧邻栋——受灾住户与街坊都写进个人史册，消防员到场还可能成为你家恩人）· <b>市民列传</b>（人口迁入迎来有名有姓的市民：顶栏「民」指标开名人册看传记与大事记，观察工具点击街上行人打招呼——在册市民就是本人、脸生的则是过路人，成婚添丁组成家族谱系，市民之声随城市状态轮播）· <b>市长信箱</b>（顶栏「邮」指标：市民随城市状态来信——求助/吐槽/感谢/见闻，回信影响他们的心情，回满 8 封解锁成就「见字如面」）· <b>市长公署</b>（顶栏「批」指标：每日清晨公文送抵案头——请愿/联名/风闻/献策，每份两三道朱批各有代价与回响，府库/人口/粮仓/民心随之而动，批注落笔编年史「政令」卷）· <b>城市节庆</b>（顶栏「庆」指标：随季节办节 —— 樱花祭/花火大会/丰收节/暖灯节，90 秒全城增益配专属街景特效）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
+                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>城市卫士应急联动</b>（交番驻巡逻警车·治安+220 护盾；火灾/疫病来袭消防车救护车沿路驰援——到场喷水/接载并免余损，设施邻路是关键）· <b>消防水网与火势蔓延</b>（消防局半径 5 格·消防栓半径 2 格织成水网：覆盖区火势减半；盲区起火蔓延更快且会蹿烧邻栋——受灾住户与街坊都写进个人史册，消防员到场还可能成为你家恩人）· <b>市民列传</b>（人口迁入迎来有名有姓的市民：顶栏「民」指标开名人册看传记与大事记，观察工具点击街上行人打招呼——在册市民就是本人、脸生的则是过路人，成婚添丁组成家族谱系，市民之声随城市状态轮播）· <b>市长信箱</b>（顶栏「邮」指标：市民随城市状态来信——求助/吐槽/感谢/见闻，回信影响他们的心情，回满 8 封解锁成就「见字如面」）· <b>市长公署</b>（顶栏「批」指标：每日清晨公文送抵案头——请愿/联名/风闻/献策，每份两三道朱批各有代价与回响，府库/人口/粮仓/民心随之而动，批注落笔编年史「政令」卷）· <b>城市节庆</b>（顶栏「庆」指标：随季节办节 —— 樱花祭/花火大会/丰收节/暖灯节，90 秒全城增益配专属街景特效）· <b>市况荣枯</b>（景气指数随时间起落：繁荣商业游客双旺、衰退市道冷清，大灾大喜震动市况，荣枯起落写入编年史；财政报告「市况荣枯」看行情条，金融枢纽科技解锁「平准均输」法令可熨平波动）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
                     <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
                     <tr><td>引导</td><td>首次进入经营模式自动展开新手引导横幅（修路→建房→迎市民→开业→看面板→认市民）；随时可跳过，也可在这里点「重新查看新手引导」重看</td></tr>
                     <tr><td>音效</td><td>顶栏喇叭图标：音效开关 + 主音量滑杆（本地记忆偏好）；建造/金币/灾害警报/应急警笛/电车铃/季节钟声/成就凯旋等 21 种专属 8-bit 音色</td></tr>

@@ -1521,6 +1521,60 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 }
 
 
+/* ---- v33 市况荣枯：相位带状行情条 ---- */
+.pxc-cyc { margin-top: 7px; border-top: 1px dashed #868c95; padding-top: 6px; }
+.pxc-cyc .pxc-cycbar {
+  position: relative;
+  height: 12px;
+  background: #E8E2CE;
+  border: 2px solid;
+  border-color: #8a6d1a #C9C2A8 #C9C2A8 #8a6d1a;
+  overflow: hidden;
+  display: flex;
+}
+/* 四段相位带：衰退 37.5% · 平稳 22.5% · 复苏 15% · 繁荣 25%（对应 60-90 / 90-108 / 108-120 / 120-140） */
+.pxc-cyc .pxc-cycbar i.b0 { width: 37.5%; background: repeating-linear-gradient(90deg, #C77B66 0 5px, #B03A2E 5px 8px); opacity: 0.72; }
+.pxc-cyc .pxc-cycbar i.b1 { width: 22.5%; background: repeating-linear-gradient(90deg, #A8A87E 0 5px, #8C8C64 5px 8px); opacity: 0.62; }
+.pxc-cyc .pxc-cycbar i.b2 { width: 15%;  background: repeating-linear-gradient(90deg, #7FA8C9 0 5px, #4A86C8 5px 8px); opacity: 0.66; }
+.pxc-cyc .pxc-cycbar i.b3 { width: 25%;  background: repeating-linear-gradient(90deg, #D9B44A 0 5px, #C9A227 5px 8px); opacity: 0.78; }
+.pxc-cyc .pxc-cycbar .mark {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 3px;
+  background: #23252E;
+  box-shadow: 0 0 0 1px #F2EFE3;
+  transition: left 0.4s steps(6);
+}
+.pxc-cyc .pxc-cycrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 5px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #5c626d;
+}
+.pxc-cyc .pxc-cycrow .ph0.cur { color: #B03A2E; }
+.pxc-cyc .pxc-cycrow .ph2.cur { color: #33689A; }
+.pxc-cyc .pxc-cycrow .ph3.cur { color: #8a6d1a; }
+.pxc-cyc .pxc-cycrow .cur { text-decoration: underline; text-underline-offset: 2px; }
+.pxc-cyc .pxc-cycrow .idxv {
+  margin-left: auto;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: #23252E;
+}
+.pxc-cyc .pxc-cycrow .idxv.g { color: #4E9040; }
+.pxc-cyc .pxc-cycrow .idxv.bad { color: #B03A2E; }
+.pxc-cyc .taxhint {
+  margin-top: 5px;
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: #5c626d;
+}
+
+
 /* ---- v13 市民列传 ---- */
 .pxc-citz { width: min(600px, calc(100vw - 24px)); }
 .pxc-citz .citz-stats {
