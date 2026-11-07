@@ -772,6 +772,25 @@ const ICONS: Record<string, string[]> = {
     '......y.y.......',
     '................',
   ],
+  // v34 体育盛典：足球（白球身 + 居中黑五边形 + 底部草绿一抹）
+  ball: [
+    '................',
+    '.....KKKKKK.....',
+    '...KKWWWWWWKK...',
+    '..KWWWWWWWWWWK..',
+    '..KWWKKKKKKWWK..',
+    '.KWWKKKKKKKKWWK.',
+    '.KWKWWKKKKWWKWK.',
+    'KWKKWWWWWWWWKKWK',
+    'KWKWWWWWWWWWWKKK',
+    'KWKWWWWWWWWWWKKK',
+    '.KWKKWWWWWWKKWK.',
+    '.KWKWWKKKKWWKWK.',
+    '..KWWKKKKKKWWK..',
+    '..KWWWWWWWWWWK..',
+    '...KKWWWWWWKK.g.',
+    '.....KKKKKK.....',
+  ],
   // v17 城市编年史：展开的卷轴（金轴 parchment 纸面 + 墨书行 + 朱印）
   scroll: [
     '................',

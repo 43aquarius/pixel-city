@@ -51,7 +51,7 @@ import { CYC_MIN, CYC_MAX, CYC_STEP, CYC_COM_K, CYC_TOUR_K, CYC_IND_K, CYC_MIG_K
   CYC_PHASES, cycPhaseOf, ORDS, ACHIEVEMENTS, QUESTS } from "./src/lib/pixelcity/tycoon.ts";
 const st = ORDS.find(o => o.id === "stabil");
 const a1 = ACHIEVEMENTS.find(a => a.id === "cycboth"), a2 = ACHIEVEMENTS.find(a => a.id === "cyc5");
-const q = QUESTS[QUESTS.length - 1];
+const q = QUESTS.find(x => x.id === "cyc1") ?? QUESTS[QUESTS.length - 1];   // v34 起任务在末尾追加（lg1），按 id 定位本版任务
 console.log(JSON.stringify({
   k: CYC_MIN + "," + CYC_MAX + "," + CYC_STEP + "," + CYC_COM_K + "," + CYC_TOUR_K + "," + CYC_IND_K + "," + CYC_MIG_K,
   hap: CYC_HAP.join(","),

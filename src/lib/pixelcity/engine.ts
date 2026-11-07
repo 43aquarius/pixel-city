@@ -181,6 +181,12 @@ export class Engine {
   /** 孔明灯（12 × 4：x, y, 摆动相位, 上升速度；暖光缓升） */
   private lampPts: Float32Array | null = null;
 
+  // ---- v34：绿茵之城视觉（由 tycoon.lgFxT 每帧同步：赢球彩带）----
+  /** 彩带上帧开关（沿触发：赢球瞬间重新铺满顶部） */
+  private lgFxPrev = false;
+  /** 彩带粒子（112 × 5：x, y, 落速, 摆动相位, 颜色序号；屏幕空间） */
+  private lgConf: Float32Array | null = null;
+
   // ---- v18：灾害链视觉（地震震屏 / 洪水淹没层）----
   /** 地震震屏剩余秒数（> 0 时相机随机抖动，振幅随剩余时间衰减） */
   quakeT = 0;
@@ -633,6 +639,54 @@ export class Engine {
         lp[j] += Math.sin(nowSec * 0.7 + lp[j + 2]) * 6 * dt;
         lp[j + 1] -= lp[j + 3] * dt;
         if (lp[j + 1] < -8) { lp[j + 1] = this.lh + 6; lp[j] = Math.random() * this.lw; }
+      }
+    }
+
+    // v34 绿茵之城：赢球彩带更新（飘落 + 摆动；tycoon.lgFxT > 0 时持续循环补给）
+    if (this.lgFxPrev && this.lgConf) {
+      const cp = this.lgConf;
+      for (let i = 0; i < 112; i++) {
+        const j = i * 5;
+        cp[j] += Math.sin(nowSec * 1.6 + cp[j + 3]) * 14 * dt;
+        cp[j + 1] += (30 + cp[j + 2]) * dt;
+        if (cp[j + 1] > this.lh + 6) { cp[j + 1] = -6; cp[j] = Math.random() * (this.lw + 30) - 15; }
+        if (cp[j] < -18) cp[j] += this.lw + 30;
+        else if (cp[j] > this.lw + 18) cp[j] -= this.lw + 30;
+      }
+    }
+  }
+
+  /** v34 绿茵之城：赢球瞬间铺满彩带层（112 粒七色全屏铺开，颜色取自游戏有限色板） */
+  private spawnConfetti(): void {
+    if (!this.lgConf) this.lgConf = new Float32Array(112 * 5);
+    const cp = this.lgConf;
+    for (let i = 0; i < 112; i++) {
+      const j = i * 5;
+      cp[j] = Math.random() * (this.lw + 30) - 15;
+      cp[j + 1] = Math.random() * this.lh;   // 全屏随机铺开（赢球瞬间即满屏翻飞，之后循环补给）
+      cp[j + 2] = Math.random() * 26;        // 附加落速
+      cp[j + 3] = Math.random() * 6.28;      // 摆动相位
+      cp[j + 4] = (Math.random() * 7) | 0;   // 颜色序号
+    }
+  }
+
+  /** v34 绿茵之城：彩带绘制（七色细长纸屑，随摆动微倾斜；赛后余韵随 lgFxT 归零淡出） */
+  private drawConfetti(ctx: CanvasRenderingContext2D): void {
+    if (!this.lgFxPrev || !this.lgConf) return;
+    const PAL = ['#E05548', '#F2D24B', '#5BC8B8', '#79B45C', '#4A86C8', '#E8A4B4', '#F4F2E8'];
+    const cp = this.lgConf;
+    const nowSec = performance.now() / 1000;
+    for (let i = 0; i < 112; i++) {
+      const j = i * 5;
+      const x = Math.round(cp[j]), y = Math.round(cp[j + 1]);
+      ctx.fillStyle = PAL[cp[j + 4] | 0];
+      // 近层 2×3 纸屑 / 远层 1×2 短纸屑（随摆动相位微错位，营造翻飞感）
+      if (i % 4 === 0) {
+        const sk = Math.sin(nowSec * 2 + cp[j + 3]) > 0 ? 1 : 0;
+        ctx.fillRect(x, y + sk, 2, 3);
+        if (i % 8 === 0) { ctx.fillStyle = '#F1E5C0'; ctx.fillRect(x, y, 1, 1); }
+      } else {
+        ctx.fillRect(x, y, 1, 2);
       }
     }
   }
@@ -1477,9 +1531,14 @@ export class Engine {
       };
       // v16 城市节庆：节日视觉状态同步（粒子层驱动）
       this.festKind = this.tycoon.fest ? this.tycoon.fest.kind : -1;
+      // v34 绿茵之城：赢球彩带沿触发（lgFxT 从 0 变正 → 重铺彩带层）
+      const lgFx = this.tycoon.lgFxT > 0;
+      if (lgFx && !this.lgFxPrev) this.spawnConfetti();
+      this.lgFxPrev = lgFx;
     } else {
       this.actors.patrolCap = 0;
       this.festKind = -1;
+      this.lgFxPrev = false;   // v34：无 tycoon 时彩带复位（沙盒非经营模式）
     }
     // 经营模式：行人密度跟随实际人口（荒地开局无人，市民迁入后街巷渐热闹）
     this.actors.popNow = this.tycoon ? this.tycoon.pop : null;
@@ -1989,6 +2048,7 @@ export class Engine {
     this.drawWeatherParticles(ctx, rainI, snowI);
     // v16：城市节庆粒子（花吹雪加密 / 花火 / 金叶 / 孔明灯；最上层特效）
     this.drawFestivalParticles(ctx);
+    this.drawConfetti(ctx);   // v34：赢球彩带（最上层屏幕空间，与节庆粒子同层）
 
     // ---- Pass 3：光标 + 幽灵 + 浮字 ----（v18：震屏偏移在此恢复，输入层不抖）
     if (shx || shy) { this.cam.x -= shx; this.cam.y -= shy; }

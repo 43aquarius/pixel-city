@@ -2109,6 +2109,77 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 .pxc.m .fc-name { font-size: 15px; }
 .pxc.m .fest-hist .fh-kind { padding: 1px 6px; font-size: 10px; }
 
+/* ============ v34 体育盛典「球场风云」 ============ */
+.pxc-lg { width: min(500px, calc(100vw - 24px)); }
+.lg-chip.lg-pre { border-color: #4E9040; background: #EFF5E8; }
+.lg-chip.lg-win { border-color: #C9A227; background: #FAF3D9; }
+.lg-empty { border: 1px dashed #C9C2A8; border-radius: 4px; padding: 14px 12px; text-align: center; }
+.lg-empty .le-t { font-size: 15px; font-weight: 800; color: #23252E; letter-spacing: 2px; }
+.lg-empty .le-d { margin-top: 8px; font-size: 12px; color: #555c66; line-height: 1.7; text-align: left; }
+.lg-empty .le-d b { color: #3B7138; }
+
+/* 赛程卡（比赛日预热高亮） */
+.lg-card {
+  border: 1px solid #C9C2A8; border-radius: 4px; padding: 10px 12px;
+  background: #F4F1E5;
+}
+.lg-card.pre { border-color: #4E9040; background: #EFF5E8; }
+.lc-head { display: flex; align-items: center; gap: 8px; }
+.lc-badge {
+  font-size: 10px; padding: 2px 8px; border-radius: 10px;
+  background: #23252E; color: #F4F2E8; letter-spacing: 1px; flex: none;
+}
+.lg-card.pre .lc-badge { background: #4E9040; }
+.lc-name { font-size: 14px; font-weight: 800; color: #23252E; font-variant-numeric: tabular-nums; }
+.lc-tier { margin-left: auto; font-size: 11px; color: #8a6d1a; }
+.lc-vs { margin-top: 8px; font-size: 15px; display: flex; align-items: baseline; gap: 8px; }
+.lc-vs b { color: #4E9040; letter-spacing: 1px; }
+.lc-vs i { font-size: 11px; color: #85878f; font-style: normal; }
+.lc-vs span { color: #B03A2E; font-weight: 700; }
+.lc-hot { margin-top: 7px; font-size: 11px; color: #3B7138; font-weight: 600; }
+.lc-mood { margin-top: 7px; font-size: 11px; padding: 4px 8px; border-radius: 3px; }
+.lc-mood.up { color: #3B7138; background: #E3EFD8; }
+.lc-mood.down { color: #B03A2E; background: #F6E3DF; }
+
+/* 战绩表 */
+.lg-stats { width: 100%; border-collapse: collapse; margin-top: 10px; }
+.lg-stats td { border-top: 1px solid #E5E0CE; padding: 6px 4px; font-size: 12px; color: #3d434e; }
+.lg-stats td:first-child { width: 76px; color: #85878f; white-space: nowrap; }
+.lg-stats .g { color: #3B7138; }
+.lg-stats .bad { color: #B03A2E; }
+
+/* 最近五场 */
+.lg-form { display: flex; align-items: center; gap: 6px; margin-top: 9px; }
+.lg-form .lf-label { font-size: 11px; color: #85878f; }
+.lg-form .lf-none { font-size: 11px; color: #9a958a; }
+.lf-chip {
+  width: 22px; height: 22px; border-radius: 3px; font-size: 12px; font-weight: 800;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.lf-chip.w { background: #4E9040; color: #F4F2E8; }
+.lf-chip.d { background: #CFB379; color: #23252E; }
+.lf-chip.l { background: #B03A2E; color: #F4F2E8; }
+
+/* 荣誉墙 */
+.lg-honour {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px;
+  border-top: 1px dashed #C9C2A8; padding-top: 10px;
+}
+.lh-cup {
+  font-size: 11px; padding: 3px 9px; border-radius: 10px;
+  border: 1px solid #C9C2A8; background: #F2EFE3; color: #9a8f72;
+}
+.lh-cup.on { border-color: #C9A227; background: #FAF3D9; color: #8a6d1a; font-weight: 700; }
+.lh-zn { margin-left: auto; font-size: 11px; color: #85878f; }
+.lg-note { margin-top: 10px; font-size: 11px; color: #85878f; line-height: 1.65; }
+
+/* 移动端 */
+.pxc.m .lg-card { padding: 9px 10px; }
+.pxc.m .lc-vs { font-size: 13px; }
+.pxc.m .lg-stats td { font-size: 11px; padding: 5px 3px; }
+.pxc.m .lg-stats td:first-child { width: 64px; }
+.pxc.m .lh-zn { margin-left: 0; width: 100%; }
+
 /* ============ v17 城市编年史 ============ */
 .pxc-chron { width: min(560px, calc(100vw - 24px)); }
 

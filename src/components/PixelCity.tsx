@@ -36,7 +36,7 @@ const ICON_NAMES = [
   'wheat', 'book', 'flask', 'heart', 'up', 'down', 'job', 'medal',
   'sun', 'cloud', 'rain', 'snoww',
   'spr', 'sum', 'fall', 'win', 'drop', 'bridge',
-  'camera', 'box', 'fire', 'shield', 'mail', 'fest', 'scroll',
+  'camera', 'box', 'fire', 'shield', 'mail', 'fest', 'scroll', 'ball',
 ];
 
 type Phase = 'loading' | 'ready';
@@ -269,7 +269,7 @@ export default function PixelCity() {
   /** v27 移动端卷目横条：左右渐隐暗示（滚动感知） */
   const [cwNavMore, setCwNavMore] = useState({ l: false, r: false });
   const cwNavScrollRef = useRef<HTMLDivElement | null>(null);
-  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'chron' | 'gov'>('none');
+  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'chron' | 'gov'>('none');
   const [econ, setEcon] = useState<EconView | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
@@ -631,7 +631,7 @@ export default function PixelCity() {
     }
   }, [say]);
 
-  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'chron' | 'gov') => {
+  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'chron' | 'gov') => {
     if (m === 'save') {
       setSlotMeta([0, 1, 2].map(i => Engine.slotMeta(i)));
     }
@@ -1269,6 +1269,14 @@ export default function PixelCity() {
                       ? `城市节庆：需市政厅 LV${econ.festLv} 解锁 —— 按季节举办樱花祭/花火大会/丰收节/暖灯节`
                       : `城市节庆：随时可办「${FESTS[econ.season].name}」（${FESTS[econ.season].desc}）`}>
                 <img src={iu('fest')} alt="" /><b>{econ.fest ? `${econ.fest.left}s` : econ.festCount}</b><i>庆</i>
+              </button>
+              <button className={`chip lg-chip${econ.lg.pre ? ' lg-pre' : ''}${econ.lg.moodT > 0 && econ.lg.mood > 0 ? ' lg-win' : ''}`} onClick={() => openModal('lg')}
+                title={econ.lg.on
+                  ? econ.lg.pre
+                    ? `比赛日：客场球迷正进城 —— 距开赛 ${Math.max(0.1, Math.round((econ.lg.next - econ.gHours) * 10) / 10)} 游戏时，主场迎战${econ.lg.oppN}（${econ.lg.tierN}）`
+                    : `城市联赛：${econ.lg.sn > 0 ? `第 ${econ.lg.zn + 1} 赛季 ${econ.lg.sn}/${6} 场 · ${econ.lg.pts} 分` : '备战中'} —— 下场 ${Math.max(0, Math.round((econ.lg.next - econ.gHours) * 10) / 10)} 游戏时后迎战${econ.lg.oppN}；全期 ${econ.lg.w}胜${econ.lg.d}平${econ.lg.l}负${econ.lg.t1 > 0 ? ` · ${econ.lg.t1} 冠` : ''}`
+                  : '城市联赛：建成体育场即开张 ——「市民联」主场迎客，比赛日全城沸腾，战绩奖杯载入城市史册'}>
+                <img src={iu('ball')} alt="" /><b>{econ.lg.on ? (econ.lg.pre ? '赛' : `${econ.lg.t1 > 0 ? econ.lg.t1 + '冠' : econ.lg.w + '胜'}`) : '—'}</b><i>球</i>
               </button>
               <button className="chip" onClick={() => openModal('chron')}
                 title={`城市编年史：在册 ${econ.chron.n} 笔纪事（累计 ${econ.chron.total} 笔）· 当前纪元「${econ.chron.eraName}」—— 开埠奠基、时代跃迁、灾祸喜讯、科技节庆与里程碑，都记在这本城市之书里`}>
@@ -1923,6 +1931,14 @@ export default function PixelCity() {
                     <tr><td>季节 / 天气</td>
                       <td>夏 1.25× · 春 1.1× · 秋 1.15× · 冬 0.55×；晴 1.15× / 雨 0.7× / 雪 0.6×</td>
                     </tr>
+                    <tr className={econ.lg.pre ? 'g' : ''}>
+                      <td>比赛日（v34）</td>
+                      <td>{econ.lg.on
+                        ? econ.lg.pre
+                          ? `预热中 ×1.22 游客 · ×1.08 商业 —— ${Math.max(0.1, Math.round((econ.lg.next - econ.gHours) * 10) / 10)} 游戏时后主场迎战${econ.lg.oppN}`
+                          : `平日 —— 下场 ${Math.max(0, Math.round((econ.lg.next - econ.gHours) * 10) / 10)} 游戏时后迎战${econ.lg.oppN}（顶栏「球」看赛程战绩）`
+                        : '无 —— 建成体育场后「市民联」联赛开张，比赛日球迷进城消费'}</td>
+                    </tr>
                     <tr><td>吸引力大户</td>
                       <td>摩天轮/水族馆/城堡 5 · 博物馆/体育场 4 · 神社/天文台 3 分</td>
                     </tr>
@@ -2134,6 +2150,84 @@ export default function PixelCity() {
               <div className="fest-note">
                 节日随季节轮转（每季 4 分钟）：春天樱吹雪、夏天夜花火、秋天金叶满街、冬天孔明灯升空 ——
                 办节提振幸福与市面，也是市民大事记里的高光时刻；连办四季解锁成就「四季轮庆」
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* v34 体育盛典「球场风云」模态（经营模式） */}
+      {modal === 'lg' && econ && (
+        <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
+          <div className="pxc-modal pxc-lg" role="dialog" aria-label="球场风云">
+            <header>
+              球 场 风 云
+              <button className="pxc-x" onClick={() => setModal('none')} aria-label="关闭">×</button>
+            </header>
+            <div className="pxc-body">
+              {!econ.lg.on ? (
+                <div className="lg-empty">
+                  <div className="le-t">联赛尚未开张</div>
+                  <div className="le-d">建成一座<b>体育场</b>，市民俱乐部「市民联」就会挂牌成立：
+                    每隔数日一场主场比赛，比赛日商业 ×1.08 · 游客 ×1.22 · 幸福 +1，
+                    赢球还有 120 秒的全城狂欢；战绩与奖杯都会写进城市编年史</div>
+                </div>
+              ) : (
+                <>
+                  {/* 赛程卡：下一场对手 + 倒计时（赛前窗口内高亮） */}
+                  <div className={`lg-card${econ.lg.pre ? ' pre' : ''}`}>
+                    <div className="lc-head">
+                      <span className="lc-badge">{econ.lg.pre ? '比赛日' : `第 ${econ.lg.zn + 1} 赛季 · 第 ${Math.min(6, econ.lg.sn + 1)} 轮`}</span>
+                      <b className="lc-name">{econ.lg.pre ? `距开赛 ${Math.max(0.1, Math.round((econ.lg.next - econ.gHours) * 10) / 10)} 游戏时` : `${Math.max(0, Math.round((econ.lg.next - econ.gHours) * 10) / 10)} 游戏时后开赛`}</b>
+                      <span className="lc-tier">{econ.lg.tierN}</span>
+                    </div>
+                    <div className="lc-vs"><b>市民联</b><i>主场迎战</i><span>{econ.lg.oppN}</span></div>
+                    {econ.lg.pre && <div className="lc-hot">客场球迷正进城：商业 ×1.08 · 游客 ×1.22 · 幸福 +1</div>}
+                    {econ.lg.moodT > 0 && (
+                      <div className={`lc-mood${econ.lg.mood > 0 ? ' up' : ' down'}`}>
+                        {econ.lg.mood > 0 ? `赛后余温：幸福 +${econ.lg.mood}（还剩 ${econ.lg.moodT} 秒）` : `赛后低落：幸福 ${econ.lg.mood}（还剩 ${econ.lg.moodT} 秒）`}
+                      </div>
+                    )}
+                  </div>
+                  {/* 战绩表：全期 + 本季积分 */}
+                  <table className="lg-stats"><tbody>
+                    <tr>
+                      <td>全期战绩</td>
+                      <td>{econ.lg.pl} 场 · <b className="g">{econ.lg.w} 胜</b> · {econ.lg.d} 平 · <b className="bad">{econ.lg.l} 负</b> · 进 {econ.lg.gf} / 失 {econ.lg.ga}</td>
+                    </tr>
+                    <tr>
+                      <td>本季积分</td>
+                      <td>{econ.lg.pts} 分（{econ.lg.sn}/6 场 · 积分 ≥13 加冕冠军 · ≥10 亚军 · ≥7 季军）</td>
+                    </tr>
+                    <tr>
+                      <td>连胜 / 纪录</td>
+                      <td>当前{econ.lg.str > 0 ? ` ${econ.lg.str} 连胜` : '无连胜'} · 历史最长 {econ.lg.strB} 连胜 · 单季最高 {econ.lg.bp} 分</td>
+                    </tr>
+                    <tr>
+                      <td>上一场</td>
+                      <td>{econ.lg.last || '尚未开赛'}</td>
+                    </tr>
+                  </tbody></table>
+                  {/* 最近五场 */}
+                  <div className="lg-form">
+                    <span className="lf-label">最近五场</span>
+                    {econ.lg.form.length === 0 && <span className="lf-none">——</span>}
+                    {econ.lg.form.map((f, i) => (
+                      <span key={i} className={`lf-chip ${f === '胜' ? 'w' : f === '平' ? 'd' : 'l'}`}>{f}</span>
+                    ))}
+                  </div>
+                  {/* 荣誉墙 */}
+                  <div className="lg-honour">
+                    <span className={`lh-cup${econ.lg.t1 > 0 ? ' on' : ''}`}>冠军旗帜 ×{econ.lg.t1}</span>
+                    <span className={`lh-cup${econ.lg.t2 > 0 ? ' on' : ''}`}>亚军奖盘 ×{econ.lg.t2}</span>
+                    <span className={`lh-cup${econ.lg.t3 > 0 ? ' on' : ''}`}>季军奖牌 ×{econ.lg.t3}</span>
+                    <span className="lh-zn">已征战 {econ.lg.zn} 个赛季</span>
+                  </div>
+                </>
+              )}
+              <div className="lg-note">
+                球是圆的，输赢都是城市的功课：客队档次随城市评级水涨船高（业余组 → 地区组 → 全国组 → 豪门巡访），
+                幸福度越高、球迷底蕴越厚，主场胜率越高 —— 赛季收官积分达 13 分即可加冕；赢球彩带飘满全城的瞬间，就是这座城的高光时刻
               </div>
             </div>
           </div>
@@ -3033,7 +3127,7 @@ export default function PixelCity() {
                     <tr><td>地形</td><td>真实海拔起伏：抬升造山、降低挖谷（挖到 0 化为水域）；山坡建房自动整地（另付小额费用）；行人车辆会爬坡</td></tr>
                     <tr><td>桥梁</td><td>道路工具拖过水面自动架桥（15G/格，物流网络科技打折），桥面与岸上路面齐平，行人车辆畅通无阻</td></tr>
                     <tr><td>四季</td><td>春樱/夏绿/秋红/冬雪随时钟轮转（每季 4 分钟×1）：春季樱花瓣飘落、冬季水面封冻大地积雪；粮产/商业/用电随季节联动</td></tr>
-                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>城市卫士应急联动</b>（交番驻巡逻警车·治安+220 护盾；火灾/疫病来袭消防车救护车沿路驰援——到场喷水/接载并免余损，设施邻路是关键）· <b>消防水网与火势蔓延</b>（消防局半径 5 格·消防栓半径 2 格织成水网：覆盖区火势减半；盲区起火蔓延更快且会蹿烧邻栋——受灾住户与街坊都写进个人史册，消防员到场还可能成为你家恩人）· <b>市民列传</b>（人口迁入迎来有名有姓的市民：顶栏「民」指标开名人册看传记与大事记，观察工具点击街上行人打招呼——在册市民就是本人、脸生的则是过路人，成婚添丁组成家族谱系，市民之声随城市状态轮播）· <b>市长信箱</b>（顶栏「邮」指标：市民随城市状态来信——求助/吐槽/感谢/见闻，回信影响他们的心情，回满 8 封解锁成就「见字如面」）· <b>市长公署</b>（顶栏「批」指标：每日清晨公文送抵案头——请愿/联名/风闻/献策，每份两三道朱批各有代价与回响，府库/人口/粮仓/民心随之而动，批注落笔编年史「政令」卷）· <b>城市节庆</b>（顶栏「庆」指标：随季节办节 —— 樱花祭/花火大会/丰收节/暖灯节，90 秒全城增益配专属街景特效）· <b>市况荣枯</b>（景气指数随时间起落：繁荣商业游客双旺、衰退市道冷清，大灾大喜震动市况，荣枯起落写入编年史；财政报告「市况荣枯」看行情条，金融枢纽科技解锁「平准均输」法令可熨平波动）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
+                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>城市卫士应急联动</b>（交番驻巡逻警车·治安+220 护盾；火灾/疫病来袭消防车救护车沿路驰援——到场喷水/接载并免余损，设施邻路是关键）· <b>消防水网与火势蔓延</b>（消防局半径 5 格·消防栓半径 2 格织成水网：覆盖区火势减半；盲区起火蔓延更快且会蹿烧邻栋——受灾住户与街坊都写进个人史册，消防员到场还可能成为你家恩人）· <b>市民列传</b>（人口迁入迎来有名有姓的市民：顶栏「民」指标开名人册看传记与大事记，观察工具点击街上行人打招呼——在册市民就是本人、脸生的则是过路人，成婚添丁组成家族谱系，市民之声随城市状态轮播）· <b>市长信箱</b>（顶栏「邮」指标：市民随城市状态来信——求助/吐槽/感谢/见闻，回信影响他们的心情，回满 8 封解锁成就「见字如面」）· <b>市长公署</b>（顶栏「批」指标：每日清晨公文送抵案头——请愿/联名/风闻/献策，每份两三道朱批各有代价与回响，府库/人口/粮仓/民心随之而动，批注落笔编年史「政令」卷）· <b>城市节庆</b>（顶栏「庆」指标：随季节办节 —— 樱花祭/花火大会/丰收节/暖灯节，90 秒全城增益配专属街景特效）· <b>市况荣枯</b>（景气指数随时间起落：繁荣商业游客双旺、衰退市道冷清，大灾大喜震动市况，荣枯起落写入编年史；财政报告「市况荣枯」看行情条，金融枢纽科技解锁「平准均输」法令可熨平波动）· <b>城市联赛</b>（顶栏「球」指标：体育场落成后「市民联」联赛自动开张——每隔数日一场主场，比赛日商业 ×1.08 · 游客 ×1.22 · 幸福 +1，赢球彩带飘满全城 120 秒；客队档次随城市评级升级，每 6 场一赛季积分加冕，战绩奖杯写进编年史；「球场风云」看赛程战绩与荣誉墙）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
                     <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
                     <tr><td>引导</td><td>首次进入经营模式自动展开新手引导横幅（修路→建房→迎市民→开业→看面板→认市民）；随时可跳过，也可在这里点「重新查看新手引导」重看</td></tr>
                     <tr><td>音效</td><td>顶栏喇叭图标：音效开关 + 主音量滑杆（本地记忆偏好）；建造/金币/灾害警报/应急警笛/电车铃/季节钟声/成就凯旋等 21 种专属 8-bit 音色</td></tr>

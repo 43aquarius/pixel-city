@@ -157,6 +157,35 @@ export const CYC_PHASES = [
 export function cycPhaseOf(idx: number): number {
   return idx >= 120 ? 3 : idx >= 108 ? 2 : idx >= 90 ? 1 : 0;
 }
+
+// ---- v34 体育盛典：绿茵之城（城市联赛） ----
+export const LG_SZN = 6;              // 一个赛季 = 6 场主场比赛
+export const LG_GAP = 9;              // 相邻主场比赛间隔（游戏小时；每季 12 时 → 约「数日一场」的节奏）
+export const LG_PRE = 2.5;            // 赛前预热窗口（游戏小时）：比赛日经济启动
+export const LG_COM_K = 1.08;         // 比赛日商业乘数（球迷进城：铺面客流 +8%）
+export const LG_TOUR_K = 1.22;        // 比赛日游客乘数（远道而来的客队球迷 +22%）
+export const LG_HAP = 1;              // 比赛日幸福加成（全城沸腾）
+export const LG_MOOD_WIN = 3;         // 赢球幸福余温（120 秒）
+export const LG_MOOD_DRAW = 1;        // 平局：不算坏也不尽兴
+export const LG_MOOD_LOSE = -2;       // 输球：街坊有点低落
+export const LG_MOOD_T = 120;         // 赛后情绪时长（秒）
+export const LG_FXT = 14;             // 赢球彩带时长（秒；engine 屏幕彩带粒子）
+/** 客队档次表：随城市评级解锁（低评级来的是业余队，S 级才有豪门巡访） */
+export const LG_TIERS = [
+  { name: '业余组', note: '乡镇足球队 · 厂矿联队', lo: 34, hi: 46, min: 0 },
+  { name: '地区组', note: '地区联赛球队', lo: 48, hi: 62, min: 55 },
+  { name: '全国组', note: '全国联赛球队', lo: 64, hi: 78, min: 72 },
+  { name: '豪门巡访', note: '海外巡回豪门', lo: 80, hi: 90, min: 84 },
+] as const;
+/** 客队名池（按档次抽取；主场战报与赛程卡共用） */
+export const LG_TEAMS = [
+  ['木厂镇 FC', '河湾业余联', '砖窑厂队', '夜市联队'],
+  ['港城水手', '丘陵漫游者', '湖畔天鹅', '谷仓城联'],
+  ['北岭雄鹰', '东港铁锚', '金沙军团', '苍原骑兵'],
+  ['皇蓝巡游者', '圣白塔', '红隼竞技', '银河快帆'],
+] as const;
+/** 主队名（体育场落成即开张的市民俱乐部） */
+export const LG_HOME = '市民联';
 /** 火灾起火热势（火头初燃） */
 export const FIRE_HEAT0 = 0.35;
 /** 火势增速/秒：水网覆盖区（消防栓水压压制）与盲区 */
@@ -731,6 +760,11 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 1, val: (_s, t) => (t.cycBoomN >= 1 && t.cycRecN >= 1 ? 1 : 0) },
   { id: 'cyc5', name: '穿越荣枯', desc: '累计历经 5 段繁荣/衰退行情（平准均输可熨平波动，但穿越周期才是真本事 —— 大灾大喜也会震动市况）', icon: 'coin',
     goal: 5, val: (_s, t) => t.cycBoomN + t.cycRecN },
+  // ---- v34 体育盛典 ----
+  { id: 'win5', name: '主场之威', desc: '累计赢下 5 场主场比赛（体育场落成后「市民联」自动开赛：比赛日全城沸腾，球场越赢越有底气 —— 球迷底蕴会化作看台上的助威）', icon: 'ball',
+    goal: 5, val: (_s, t) => t.lgW },
+  { id: 'champ1', name: '冠军旗帜', desc: '赢得首个赛季冠军（每 6 场主场比赛为一赛季，积分 ≥13 加冕 —— 颁奖礼的彩带会飘满全城，编年史记下这一天）', icon: 'ball',
+    goal: 1, val: (_s, t) => t.lgT1 },
   // ---- v17 城市编年史 ----
   { id: 'chron60', name: '汗青永续', desc: '编年史累计记下 60 笔城市纪事（开埠/时代跃迁/事件/科技/节庆/法令/里程碑皆入册）', icon: 'book',
     goal: 60, val: (_s, t) => t.chron.total },
@@ -962,6 +996,12 @@ export type QS = {
   citzPassed: number;   // 累计安详离世数
   // ---- v33 经济周期 ----
   cycSegN: number;      // 累计历经繁荣/衰退段数（任务口径）
+  // ---- v34 绿茵之城 ----
+  stadiums: number;     // 体育场座数
+  lgW: number;          // 累计主场胜场（任务口径）
+  lgPre: number;        // 比赛日预热中
+  lgTourK: number;      // 比赛日游客乘数
+  lgComK: number;       // 比赛日商业乘数
 };
 
 export type Quest = {
@@ -1083,6 +1123,9 @@ export const QUESTS: Quest[] = [
   // ---- v33 经济周期 ----
   { id: 'cyc1', title: '市况荣枯', hint: '历经一段繁荣或衰退行情（景气指数随时间起落：繁荣时商业游客双旺，衰退时市道冷清 —— 大灾大喜都会震动市况，金融枢纽科技解锁「平准均输」法令可熨平波动；财政报告里有行情条）', goal: 1,
     val: s => s.cycSegN, rG: 260, rXp: 120 },
+  // ---- v34 体育盛典 ----
+  { id: 'lg1', title: '绿茵之城', hint: '建成体育场并赢下一场主场比赛（体育场落成后「市民联」联赛自动开张：每隔数日一场主场，比赛日商业游客双旺、赛后赢球全城沸腾 —— 顶栏「球」指标看赛程战绩与奖杯）', goal: 1,
+    val: s => (s.stadiums > 0 && s.lgW > 0 ? 1 : 0), rG: 480, rXp: 210 },
 ];
 
 // ------------------------------------------------------------
@@ -1187,6 +1230,24 @@ export type EconView = {
   cycBoomT: number;       // 累计繁荣时长（秒）
   cycRecT: number;        // 累计衰退时长（秒）
   cycSegN: number;        // 累计历经荣枯段数
+  // ---- v34：绿茵之城（城市联赛）----
+  lg: {
+    on: boolean;          // 联赛已开张（体育场在城）
+    next: number;         // 下场开赛游戏时（-1 未开张）
+    pre: boolean;         // 比赛日预热中
+    oppN: string;         // 下一场对手
+    tierN: string;        // 对手档次名
+    pl: number; w: number; d: number; l: number;   // 全期战绩
+    gf: number; ga: number;                        // 累计进/失球
+    pts: number; sn: number; zn: number;           // 本季积分 / 已赛 / 赛季纪元
+    str: number; strB: number;                     // 当前连胜 / 历史最长
+    t1: number; t2: number; t3: number;            // 冠/亚/季军奖杯
+    bp: number;                                    // 单季最高积分
+    form: string[];                                // 最近五场（旧在前）
+    last: string;                                  // 上一场战报
+    mood: number; moodT: number;                   // 赛后情绪与倒计时
+  };
+  gHours: number;         // 当前游戏时（赛程倒计时用）
   // ---- v19：污染空间化 ----
   smogTiles: number;                // 雾霾格数（浓度 ≥45）
   smogBad: number;                  // 重污染格数（浓度 ≥75）
@@ -1238,6 +1299,12 @@ export type EconView = {
   secMissRes: number;               // 盲区住宅栋数（幸福惩罚源）
   policehqN: number;                // 警察局座数
   rescuePolice: number;             // 巡逻车破案数
+  // ---- v34：绿茵之城 ----
+  stadiums: number;                 // 体育场座数（联赛开张的门槛）
+  lgPre: number;                    // 比赛日预热中（1 = 赛前窗口内）
+  lgTourK: number;                  // 比赛日游客乘数（1.22 / 平日 1）
+  lgComK: number;                   // 比赛日商业乘数（1.08 / 平日 1）
+  lgW: number;                      // 累计主场胜场（任务口径）
 };
 
 export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
@@ -1367,6 +1434,46 @@ export class Tycoon {
   cycRecN = 0;
   cycBoomT = 0;
   cycRecT = 0;
+
+  // ---- v34：绿茵之城（城市联赛）----
+  /** 下场开赛游戏时（-1 = 联赛未开张：城里还没有体育场） */
+  lgNext = -1;
+  /** 下一场对手名与档次序（赛程卡展示；开赛时排定） */
+  lgOppN = '';
+  lgTier = 0;
+  /** 累计战绩：场 / 胜 / 平 / 负（全期） */
+  lgPl = 0;
+  lgW = 0;
+  lgD = 0;
+  lgL = 0;
+  /** 累计进 / 失球 */
+  lgGF = 0;
+  lgGA = 0;
+  /** 本季积分与已赛场次（赛季末清零） */
+  lgPts = 0;
+  lgSn = 0;
+  /** 赛季纪元（第几个赛季，从 1 起） */
+  lgZN = 0;
+  /** 当前连胜与历史最长连胜 */
+  lgStr = 0;
+  lgStrB = 0;
+  /** 奖杯陈列：冠 / 亚 / 季军 */
+  lgT1 = 0;
+  lgT2 = 0;
+  lgT3 = 0;
+  /** 单季最高积分 */
+  lgBP = 0;
+  /** 最近五场战果（'胜' | '平' | '负'，旧在前） */
+  lgForm: string[] = [];
+  /** 上一场战报摘要（球场风云卡展示） */
+  lgLast = '';
+  /** 赛后情绪（+3 赢球 / +1 平 / −2 输）与倒计时（秒） */
+  lgMood = 0;
+  lgMoodT = 0;
+  /** 赢球彩带倒计时（秒；engine 每帧读取绘制屏幕彩带） */
+  lgFxT = 0;
+  /** 体育场落成纪事（只写一次） */
+  lgSeen = false;
 
   // ---- v11：出口市场（随行就市 / 惜售囤货）----
   /** 出口市价系数（0.55..1.55；1 = 基准价；随机游走 + 均值回归） */
@@ -1755,6 +1862,7 @@ export class Tycoon {
     let hospitals = 0, firestations = 0, kobans = 0;   // v12：交班计数
     let operas = 0, expos = 0;                        // v31：地标双塔计数
     let wfRes = 0, marinas = 0;                       // v32：滨水住宅 / 码头计数
+    let stadiums = 0;                                 // v34：体育场计数（联赛开张门槛）
     let levees = 0;                                     // v18：防洪堤计数
     let hasWaterTower = 0, waterCapT = 0;
     let busStops = 0, ferries = 0;
@@ -1843,6 +1951,7 @@ export class Tycoon {
         if (o.id === 'opera') operas++;                     // v31 大剧院
         if (o.id === 'expo') expos++;                       // v31 会展中心
         if (o.id === 'marina') marinas++;                   // v32 游船码头
+        if (o.id === 'stadium') stadiums++;                 // v34 体育场
       }
       // v6 水务设施：登记覆盖圆心（半径含足迹）
       if (e?.waterR) {
@@ -1981,13 +2090,18 @@ export class Tycoon {
     const cycIndK = 1 + cycDev * CYC_IND_K * cycDamp;
     const cycMigK = 1 + cycDev * CYC_MIG_K;
     const cycHap = CYC_HAP[Math.max(0, Math.min(3, this.cycPhase))];
+    // v34 绿茵之城：比赛日预热（体育场在城且进入赛前窗口）→ 球迷进城消费，赢球余温另算幸福
+    const lgPre = stadiums > 0 && this.lgNext >= 0 && this.gHours >= this.lgNext - LG_PRE && this.gHours < this.lgNext ? 1 : 0;
+    const lgComK = lgPre ? LG_COM_K : 1;
+    const lgTourK = lgPre ? LG_TOUR_K : 1;
+    const lgHap = (lgPre ? LG_HAP : 0) + (this.lgMoodT > 0 ? this.lgMood : 0);
     // v22 人力资本：在册市民平均学历 → hrIdx（空册兑底 50）；超过基线才有加成
     //   （只 buff 不打折：老城不因新玩法亏钱，大学城工业/科研至多 +16%/+20%）
     const hrIdx = this.citz.hrIdx();
     const hrK = 1 + 0.0032 * Math.max(0, hrIdx - HR_BASE);   // 工业熟练工乘数
     const hrS = 1 + 0.004 * Math.max(0, hrIdx - HR_BASE);    // 科研乘数
     foodProd *= multFood;
-    earnCom *= multCom * cycComK;            // v33：市况乘数并入商业（繁荣双旺 / 衰退双冷）
+    earnCom *= multCom * cycComK * lgComK;            // v33：市况乘数并入商业（繁荣双旺 / 衰退双冷）；v34：比赛日球迷进城
     earnInd *= multInd * hrK * cycIndK;      // v33：工业对景气最钝（出口市价另有专人负责）
     spRaw *= multSp * hrS;
     // v10 法令：夜间经济 / 消费券 / 环保条例
@@ -2143,10 +2257,10 @@ export class Tycoon {
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
-      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap + this.docHap + cycHap
+      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap + this.docHap + cycHap + lgHap
       + (operas > 0 ? 2 : 0)
       + Math.min(WF_HAP_MAX, wfRes)
-      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区扣减；v29 朱批民心增益；v31 大剧院全市幸福 +2；v32 滨水住宅每栋 +1；v33 市况荣枯 ±2/0/+1/+3
+      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区扣减；v29 朱批民心增益；v31 大剧院全市幸福 +2；v32 滨水住宅每栋 +1；v33 市况荣枯 ±2/0/+1/+3；v34 比赛日沸腾 + 赛后情绪
     const happyMult = 0.6 + happiness / 125;
 
     // ---- v10 旅游：景点吸引力 × 文化/幸福 × 季节/天气 → 游客（酒店床位为接待上限）----
@@ -2155,7 +2269,7 @@ export class Tycoon {
     const appeal = attract * (0.6 + 0.4 * cultureIdx / 100) * (0.5 + 0.5 * happiness / 100);
     const capVisit = hotelBeds * 2 + 30;
     const tourists = attract < 1 ? 0
-      : Math.min(capVisit, appeal * seasonTourK * weatherTourK * multTour * cycTourK);   // v33：市况荣枯也牵动游客的出行计划
+      : Math.min(capVisit, appeal * seasonTourK * weatherTourK * multTour * cycTourK * lgTourK);   // v33：市况荣枯也牵动游客的出行计划；v34：比赛日客队球迷远道而来
     const tourIdx = Math.max(0, Math.min(100, Math.round(attract * 2.4)));
 
     // ---- v10 货物供应链：工业产货 → 零售上货 → 港口外销 ----
@@ -2219,6 +2333,8 @@ export class Tycoon {
       fireIn, fireOut, fireMissRes, hydrants,                                       // v24 消防空间化
       operas, expos, cultShops: this.cultShopField.size,                             // v31 都会名片
       wfN: this.wfField.size, wfRes, marinas,                                        // v32 滨水都市
+      // ---- v34 绿茵之城 ----
+      stadiums, lgPre, lgTourK, lgComK, lgW: this.lgW,
       // ---- v33 经济周期 ----
       cycIdx: Math.round(this.cycIdx), cycPhase: this.cycPhase, cycHap,
       cycComK, cycTourK, cycIndK, cycMigK,
@@ -2733,6 +2849,149 @@ export class Tycoon {
     this.cycReclass();
   }
 
+  // ---------------- v34：绿茵之城（城市联赛） ----------------
+
+  /** 联赛开张：体育场落成后排定首场（约 5.4 游戏时后开赛，给市民留出买票热身的时间） */
+  private lgFound(): void {
+    this.lgNext = this.gHours + LG_GAP * 0.6;
+    this.lgScheduleOpp();
+    this.msg?.(`体育场落成 ——「${LG_HOME}」联赛开张：${LG_SZN} 场一赛季，${this.lgNext - this.gHours >= 0 ? Math.round((this.lgNext - this.gHours) * 10) / 10 : 0} 游戏时后主场首赛（对手：${this.lgOppN}）`);
+  }
+
+  /** 排定下一场对手：按城市评级选档次，档内随机取名 */
+  private lgScheduleOpp(): void {
+    const rating = this.snap?.rating ?? 0;
+    let ti = 0;
+    for (let i = LG_TIERS.length - 1; i >= 0; i--) {
+      if (rating >= LG_TIERS[i].min) { ti = i; break; }
+    }
+    this.lgTier = ti;
+    const pool = LG_TEAMS[ti];
+    let name = pool[(Math.random() * pool.length) | 0];
+    if (name === this.lgOppN && pool.length > 1) name = pool[(Math.random() * pool.length) | 0];   // 避免连打同一客队
+    this.lgOppN = name;
+  }
+
+  /** 每帧心跳：联赛开张判定 + 赛后情绪/彩带倒计时 + 开赛哨（在 tick 中调用） */
+  private stepLeague(dt: number): void {
+    // 体育场落成 → 开张（lgSeen 只用于纪事，开张判定看 lgNext）
+    if (this.lgNext < 0 && (this.snap?.stadiums ?? 0) > 0) this.lgFound();
+    // 开张后体育场被拆光 → 场租悬空，比赛顺延（联赛不注销，重建球场即恢复）
+    if (this.lgNext >= 0 && this.gHours >= this.lgNext && (this.snap?.stadiums ?? 0) === 0) {
+      this.lgNext = this.gHours + 3;
+      this.msg?.('主场球票已售，可体育场待建 —— 比赛顺延（重建体育场即恢复赛程）');
+      return;
+    }
+    // 开赛哨：到达开赛游戏时即模拟比赛
+    if (this.lgNext >= 0 && this.gHours >= this.lgNext && (this.snap?.stadiums ?? 0) > 0) {
+      this.lgKick();
+    }
+    // 赛后情绪与赢球彩带倒计时（秒制，与 tick 的 dt 同步）
+    if (this.lgMoodT > 0) {
+      this.lgMoodT = Math.max(0, this.lgMoodT - dt);
+      if (this.lgMoodT === 0) this.lgMood = 0;
+    }
+    if (this.lgFxT > 0) this.lgFxT = Math.max(0, this.lgFxT - dt);
+  }
+
+  /** 开赛：模拟一场主场比赛（结果 → 战绩/情绪/编年史/赛季结算） */
+  private lgKick(): void {
+    const s = this.snap;
+    const hap = s?.happiness ?? 52;
+    // 主队实力随参赛经验成长（42..80）；客队按城市评级取档
+    const str = 42 + Math.min(38, this.lgPl * 2.2);
+    const tier = LG_TIERS[Math.max(0, Math.min(LG_TIERS.length - 1, this.lgTier))];
+    const opp = tier.lo + Math.random() * (tier.hi - tier.lo);
+    // 胜率：实力差 + 主场氛围（幸福度）+ 球迷底蕴（奖杯与历史胜场的助威）
+    const fans = Math.min(0.10, this.lgT1 * 0.02 + this.lgW * 0.0025);
+    const pWin = Math.max(0.14, Math.min(0.86,
+      0.42 + (str - opp) / 95 + (hap - 52) / 400 + fans));
+    const r = Math.random();
+    const res = r < pWin ? '胜' : r < pWin + 0.24 ? '平' : '负';
+    // 进球：净胜球随实力差浮动（胜方 1..3-4 球；平局 1-2 球互交白卷或对攻）
+    const diffK = res === '胜' ? Math.max(0, (str - opp) / 16) : Math.max(0, (opp - str) / 16);
+    let diff = 1 + (Math.random() * (1 + diffK) | 0);
+    if (res === '平') diff = 1 + (Math.random() * 2 | 0);
+    const loser = (Math.random() < 0.42 ? 1 : 0) + (Math.random() < 0.12 ? 1 : 0);
+    const gf = res === '胜' ? diff : res === '平' ? diff : loser;
+    const ga = res === '胜' ? loser : res === '平' ? diff : diff;
+    this.lgPlay(gf, ga, res, opp);
+  }
+
+  /** 沙盒/测试：强制打一场指定结果的比赛（绕开赛程与随机；战报照常入册） */
+  lgTest(res: '胜' | '平' | '负', opp = 55): void {
+    const gf = res === '胜' ? 2 : res === '平' ? 1 : 0;
+    const ga = res === '胜' ? 0 : res === '平' ? 1 : 2;
+    this.lgPlay(gf, ga, res, opp);
+  }
+
+  /** 比赛结算核心：战绩 / 情绪 / 彩带 / 编年史 / 赛季颁奖 / 排下一场 */
+  private lgPlay(gf: number, ga: number, res: '胜' | '平' | '负', opp: number): void {
+    const tier = LG_TIERS[Math.max(0, Math.min(LG_TIERS.length - 1, this.lgTier))];
+    this.lgPl++; this.lgSn++;
+    if (res === '胜') {
+      this.lgW++; this.lgPts += 3; this.lgStr++;
+      this.lgStrB = Math.max(this.lgStrB, this.lgStr);
+    } else if (res === '平') {
+      this.lgD++; this.lgPts += 1; this.lgStr = 0;
+    } else {
+      this.lgL++; this.lgStr = 0;
+    }
+    this.lgGF += gf; this.lgGA += ga;
+    this.lgForm.push(res);
+    if (this.lgForm.length > 5) this.lgForm.shift();
+    const score = `${gf} : ${ga}`;
+    // 赛后情绪（幸福余温）与赢球彩带
+    this.lgMood = res === '胜' ? LG_MOOD_WIN : res === '平' ? LG_MOOD_DRAW : LG_MOOD_LOSE;
+    this.lgMoodT = LG_MOOD_T;
+    if (res === '胜') this.lgFxT = LG_FXT;
+    // 战报
+    const bigWin = res === '胜' && gf - ga >= 3;
+    const title = bigWin ? '主场大捷' : res === '胜' ? '主场奏捷' : res === '平' ? '握手言和' : '主场憾负';
+    const body = res === '胜'
+      ? `${LG_HOME} 在主场 ${score} 力克${this.lgOppN}。终场哨响，看台的欢呼漫过整个街区${bigWin ? ' —— 这是一场酣畅淋漓的大胜' : ''}。`
+      : res === '平'
+        ? `${LG_HOME} 与${this.lgOppN} ${score} 握手言和。各有攻守，球迷们商量着下个主场再喊得更响些。`
+        : `${LG_HOME} 主场 ${score} 不敌${this.lgOppN}。球是圆的，输赢都是城市的功课 —— 教练组连夜复盘。`;
+    this.chron.write('event', bigWin ? 'big' : res === '胜' ? 'good' : res === '平' ? 'info' : 'bad',
+      'fest', title, body, this.gHours);
+    this.lgLast = `第 ${this.lgSn} 轮 · ${LG_HOME} ${score} ${this.lgOppN}（${tier.name}）—— ${res}`;
+    this.msg?.(`${res === '胜' ? '✦' : res === '平' ? '·' : '⚠'} 主场${res === '胜' ? '奏捷' : res === '平' ? '战平' : '憾负'}！${LG_HOME} ${score} ${this.lgOppN}${res === '胜' ? ' —— 看台的欢呼响彻全城' : ''}`);
+    if (res === '胜') this.sfx?.('cheer');
+    // 赛季颁奖（每 LG_SZN 场一季；积分 ≥13 冠军 / 10-12 亚军 / 7-9 季军）
+    if (this.lgSn >= LG_SZN) {
+      this.lgZN++;
+      const pts = this.lgPts;
+      this.lgBP = Math.max(this.lgBP, pts);
+      const place = pts >= 13 ? 1 : pts >= 10 ? 2 : pts >= 7 ? 3 : 0;
+      if (place === 1) {
+        this.lgT1++;
+        this.chron.write('mile', 'big', 'fest', '联赛加冕',
+          `${LG_HOME} 以 ${pts} 分夺得第 ${this.lgZN} 赛季冠军！颁奖礼上彩旗与彩带齐飞，市民把球场围得水泄不通 —— 这座城从此有了自己的足球传承。`, this.gHours);
+        this.msg?.(`✦ 第 ${this.lgZN} 赛季冠军！${LG_HOME} ${pts} 分加冕（累计 ${this.lgT1} 冠）`);
+        this.sfx?.('achieve');
+      } else if (place === 2) {
+        this.lgT2++;
+        this.chron.write('mile', 'good', 'fest', '赛季亚军',
+          `${LG_HOME} 以 ${pts} 分拿下第 ${this.lgZN} 赛季亚军。差之毫厘，球迷们已经开始盘算下个赛季。`, this.gHours);
+        this.msg?.(`第 ${this.lgZN} 赛季亚军：${pts} 分（差冠军 ${13 - pts} 分）`);
+      } else if (place === 3) {
+        this.lgT3++;
+        this.chron.write('mile', 'info', 'fest', '赛季季军',
+          `${LG_HOME} 以 ${pts} 分位列第 ${this.lgZN} 赛季第三。奖杯是铜的，看台上的掌声是真的。`, this.gHours);
+        this.msg?.(`第 ${this.lgZN} 赛季季军：${pts} 分`);
+      } else {
+        this.chron.write('mile', 'info', 'fest', '赛季收官',
+          `${LG_HOME} 第 ${this.lgZN} 赛季 ${pts} 分收官，未能染指奖杯。青训场的灯还亮着 —— 从头再来。`, this.gHours);
+        this.msg?.(`第 ${this.lgZN} 赛季收官：${pts} 分，无缘奖杯 —— 下赛季再战`);
+      }
+      this.lgSn = 0; this.lgPts = 0;
+    }
+    // 排下一场（对手随最新评级重抽）
+    this.lgNext = this.gHours + LG_GAP;
+    this.lgScheduleOpp();
+  }
+
   // ---------------- 每帧心跳 ----------------
 
   tick(dt: number, map: CityMap): void {
@@ -2764,6 +3023,8 @@ export class Tycoon {
     }
     // v33 经济周期：景气指数步进 + 相位记账（荣枯起落写入编年史）
     this.stepCycle(dt);
+    // v34 绿茵之城：联赛开张判定 + 赛后情绪/彩带倒计时 + 开赛哨（比赛日经济已在 snapOf 生效）
+    this.stepLeague(dt);
     // 收入 − 维护（G/分 → 按秒累积；可能为负 = 赤字，需拆除减负）
     // 税收 v4：可调税率（0-20%）驱动，高税多金但市民不满
     const tax = this.pop * (this.taxRate / 100) * (this.has('taxref') ? 1.15 : 1) * s.happyMult * s.powerMult;
@@ -2860,6 +3121,7 @@ export class Tycoon {
       crime: s.crimeN,                         // v23：盲区商铺心声（街坊议论失窃）
       fireOut: s.fireOut,                      // v24：消防盲区心声（火险保贵的街区）
       cyc: s.cycPhase,                         // v33：市况相位心声（衰退抱怨生意淡 / 繁荣夸市道）
+      lg: this.lgMoodT > 0 ? (this.lgMood > 0 ? 2 : 3) : s.lgPre,   // v34：绿茵心声（比赛日预热 / 赢球余温 / 输球低落）
       day: Math.floor(this.gHours / 24) + 1,   // v30：开埠天数（书信合集收信日）
       inEdu: (x, y) => this.eduField.has(map.idx(x, y)),   // v22：升学判定（学区内市民会随时间求学深造）
     }, this.playtime);
@@ -2932,6 +3194,14 @@ export class Tycoon {
       this.chron.write('mile', 'good', 'drop', '游船启航',
         '第一班游船鸣着汽笛离岸，甲板上的游客朝岸边的步道挥手。水不再只是城的边界，而是城的风景。', this.gHours);
       this.msg?.('游船码头启用 —— 周围 3 格并入滨水带（滨水商铺收入升档 ×1.10）');
+      this.sfx?.('achieve');
+    }
+    // ---- v34：体育场落成纪事（只写一次；联赛开张由 stepLeague 另行播报） ----
+    if (s.stadiums > 0 && !this.lgSeen) {
+      this.lgSeen = true;
+      this.chron.write('mile', 'good', 'fest', '绿茵开张',
+        '体育场的看台立起来了。开张那天四乡八邻都来了，孩子们在跑道上追着球疯跑 —— 这座城从此有了自己的主场，也有了每到比赛日的满城沸腾。', this.gHours);
+      this.msg?.('体育场落成 ——「市民联」联赛开张：比赛日全城沸腾，战绩与奖杯进城市编年史');
       this.sfx?.('achieve');
     }
 
@@ -3303,6 +3573,26 @@ export class Tycoon {
       cycBoomN: this.cycBoomN, cycRecN: this.cycRecN,
       cycBoomT: Math.round(this.cycBoomT), cycRecT: Math.round(this.cycRecT),
       cycSegN: this.cycBoomN + this.cycRecN,
+      // ---- v34：绿茵之城 ----
+      lg: {
+        on: (s?.stadiums ?? 0) > 0 && this.lgNext >= 0,
+        next: this.lgNext,
+        pre: (s?.lgPre ?? 0) === 1,
+        oppN: this.lgOppN,
+        tierN: LG_TIERS[Math.max(0, Math.min(LG_TIERS.length - 1, this.lgTier))].name,
+        pl: this.lgPl, w: this.lgW, d: this.lgD, l: this.lgL,
+        gf: this.lgGF, ga: this.lgGA,
+        pts: this.lgPts, sn: this.lgSn, zn: this.lgZN,
+        str: this.lgStr, strB: this.lgStrB,
+        t1: this.lgT1, t2: this.lgT2, t3: this.lgT3,
+        bp: this.lgBP,
+        form: [...this.lgForm],
+        last: this.lgLast,
+        mood: this.lgMood, moodT: Math.ceil(this.lgMoodT),
+      },
+      stadiums: s?.stadiums ?? 0, lgPre: s?.lgPre ?? 0,
+      lgTourK: s?.lgTourK ?? 1, lgComK: s?.lgComK ?? 1, lgW: this.lgW,
+      gHours: Math.round(this.gHours * 10) / 10,
       // ---- v18：灾害链 ----
       quakes: this.quakes, floods: this.floods,
       levees: s?.levees ?? 0, waterNear: s?.waterNear ?? 0,
@@ -3448,6 +3738,14 @@ export class Tycoon {
     this.cycIdx = 100; this.cycPhase = 1; this.cycPrevPhase = 1;
     this.cycChronAt = -999; this.cycTimer = CYC_STEP;
     this.cycBoomN = 0; this.cycRecN = 0; this.cycBoomT = 0; this.cycRecT = 0;
+    // v34：绿茵之城重置（联赛未开张 —— 体育场落成后 stepLeague 自动排定首赛）
+    this.lgNext = -1; this.lgOppN = ''; this.lgTier = 0;
+    this.lgPl = 0; this.lgW = 0; this.lgD = 0; this.lgL = 0;
+    this.lgGF = 0; this.lgGA = 0; this.lgPts = 0; this.lgSn = 0; this.lgZN = 0;
+    this.lgStr = 0; this.lgStrB = 0;
+    this.lgT1 = 0; this.lgT2 = 0; this.lgT3 = 0; this.lgBP = 0;
+    this.lgForm = []; this.lgLast = '';
+    this.lgMood = 0; this.lgMoodT = 0; this.lgFxT = 0; this.lgSeen = false;
     // v29：市长公署重置（首份公文在开埠首日清晨 8 点）
     this.docPending = null; this.docNext = DOC_FIRST_H; this.docN = 0;
     this.docUsed = []; this.docLog = []; this.docHap = 0; this.docHapLeft = 0;
@@ -3524,6 +3822,19 @@ export class Tycoon {
       cycB: this.cycBoomN, cycR: this.cycRecN,
       cycBT: Math.round(this.cycBoomT), cycRT: Math.round(this.cycRecT),
       cycCA: Math.round(this.cycChronAt * 10) / 10, cycPP: this.cycPrevPhase,
+      // v34：绿茵之城档（赛程 / 战绩 / 奖杯 —— 旧档缺省 → 联赛未开张，体育场落成后自动开赛）
+      lgN: Math.round(this.lgNext * 10) / 10,
+      lgON: this.lgOppN, lgTI: this.lgTier,
+      lgPl: this.lgPl, lgW: this.lgW, lgD: this.lgD, lgL: this.lgL,
+      lgGF: this.lgGF, lgGA: this.lgGA,
+      lgPts: this.lgPts, lgSn: this.lgSn, lgZN: this.lgZN,
+      lgStr: this.lgStr, lgStrB: this.lgStrB,
+      lgT1: this.lgT1, lgT2: this.lgT2, lgT3: this.lgT3,
+      lgBP: this.lgBP,
+      lgFm: this.lgForm.join(''),
+      lgLast: this.lgLast,
+      lgMT: Math.round(this.lgMoodT), lgMd: this.lgMood,
+      lgSeen: this.lgSeen ? 1 : 0,
       // v29：市长公署档（待批公文 / 已批数 / 用过池 / 朱批存档 / 民心增益）
       docP: this.docPending, docNext: this.docNext, docN: this.docN,
       docUsed: this.docUsed, docLog: this.docLog,
@@ -3663,6 +3974,33 @@ export class Tycoon {
     this.cycChronAt = Number.isFinite(Number(d.cycCA)) ? Number(d.cycCA) : -999;
     this.cycPrevPhase = Math.max(0, Math.min(3, Math.floor(Number(d.cycPP) ?? this.cycPhase)));
     this.cycTimer = CYC_STEP;
+    // v34：绿茵之城档恢复（旧档无字段 → 联赛未开张；体育场在城时首个 tick 由 stepLeague 自动开赛）
+    this.lgNext = Number.isFinite(Number(d.lgN)) ? Number(d.lgN) : -1;
+    this.lgOppN = typeof d.lgON === 'string' ? d.lgON : '';
+    this.lgTier = Math.max(0, Math.min(LG_TIERS.length - 1, Math.floor(Number(d.lgTI) || 0)));
+    this.lgPl = Math.max(0, Math.floor(Number(d.lgPl) || 0));
+    this.lgW = Math.max(0, Math.floor(Number(d.lgW) || 0));
+    this.lgD = Math.max(0, Math.floor(Number(d.lgD) || 0));
+    this.lgL = Math.max(0, Math.floor(Number(d.lgL) || 0));
+    this.lgGF = Math.max(0, Math.floor(Number(d.lgGF) || 0));
+    this.lgGA = Math.max(0, Math.floor(Number(d.lgGA) || 0));
+    this.lgPts = Math.max(0, Math.floor(Number(d.lgPts) || 0));
+    this.lgSn = Math.max(0, Math.floor(Number(d.lgSn) || 0));
+    this.lgZN = Math.max(0, Math.floor(Number(d.lgZN) || 0));
+    this.lgStr = Math.max(0, Math.floor(Number(d.lgStr) || 0));
+    this.lgStrB = Math.max(0, Math.floor(Number(d.lgStrB) || 0));
+    this.lgT1 = Math.max(0, Math.floor(Number(d.lgT1) || 0));
+    this.lgT2 = Math.max(0, Math.floor(Number(d.lgT2) || 0));
+    this.lgT3 = Math.max(0, Math.floor(Number(d.lgT3) || 0));
+    this.lgBP = Math.max(0, Math.floor(Number(d.lgBP) || 0));
+    this.lgForm = typeof d.lgFm === 'string'
+      ? d.lgFm.split('').filter(c => c === '胜' || c === '平' || c === '负').slice(-5)
+      : [];
+    this.lgLast = typeof d.lgLast === 'string' ? d.lgLast.slice(0, 60) : '';
+    this.lgMoodT = Math.max(0, Math.min(LG_MOOD_T, Number(d.lgMT) || 0));
+    this.lgMood = this.lgMoodT > 0 ? ([-2, 1, 3].includes(Number(d.lgMd)) ? Number(d.lgMd) : 0) : 0;
+    this.lgFxT = 0;   // 彩带纯视觉，不进存档
+    this.lgSeen = d.lgSeen === 1;
     // v29：市长公署档恢复（旧档无字段 → 首份公文从下一个清晨八点起算；在批公文原样回到案头）
     this.docN = Math.max(0, Math.floor(Number(d.docN) || 0));
     this.docNext = Number(d.docNext) > 0 ? Number(d.docNext) : nextMorningH(this.gHours);
