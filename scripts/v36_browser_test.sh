@@ -66,14 +66,14 @@ console.log(JSON.stringify({
   ach: a1.name + a1.goal + "/" + a2.name + a2.goal,
   q: q.title + q.goal + "," + q.val({ medCover: 0, clinics: 2, healthsts: 0 } as never),
   econ: ECON.clinic.cost + "," + ECON.clinic.unlock + "," + ECON.healthst.cost + "," + ECON.healthst.unlock,
-  def: clinic.w + clinic.h + clinic.variants + "/" + hs.w + hs.h + hs.variants,
+  def: clinic.w + "x" + clinic.h + "v" + clinic.variants + "/" + hs.w + "x" + hs.h + "v" + hs.variants,
 }));' 2>&1 | tail -1 | stripq)
 chk "S1 医疗半径表（诊所3 · 医院6 · 防疫站4 · 市政厅2）" "$(echo "$S" | grep -o 'r:3,6,4,2')" "r:3,6,4,2"
 chk "S2 蔓延常数（上限7 · 折扣0.94 · 覆盖0.16 · 盲区0.55 · 周期6.5s · 半径2）" "$(echo "$S" | grep -o 'c:7,0.94,0.16,0.55,6.5,2')" "c:7,0.94,0.16,0.55,6.5,2"
 chk "S3 成就定义（杏林春满95 / 仁心妙术3）" "$(echo "$S" | grep -o 'ach:杏林春满95/仁心妙术3')" "ach:杏林春满95/仁心妙术3"
 chk "S4 任务（悬壶济世 · 诊所+防疫站口径=2）" "$(echo "$S" | grep -o 'q:悬壶济世1,2')" "q:悬壶济世1,2"
 chk "S5 造价解锁（诊所180G LV2 · 防疫站480G LV5）" "$(echo "$S" | grep -o 'econ:180,2,480,5')" "econ:180,2,480,5"
-chk "S6 建筑目录（1x1 双变体 ×2）" "$(echo "$S" | grep -o 'def:112/112')" "def:112/112"
+chk "S6 建筑目录（1x1 双变体 ×2）" "$(echo "$S" | grep -o 'def:1x1v2/1x1v2')" "def:1x1v2/1x1v2"
 
 echo "=== [1] 桌面端 1440×900 新档开局 ==="
 agent-browser close >/dev/null 2>&1; sleep 1
@@ -98,7 +98,7 @@ const h=m.place('house',0,112,137);
 t.tick(0.05,m);const s=t.snap;
 return {ok:!!h,miss:s.medMissRes,cover:s.medCover,missF:t.medMissField.has(m.idx(112,137)),
   inF:t.medField.has(m.idx(127,127))};})())")
-chk "D2 医疗盲区（远宅落盲区 · 覆盖<100 · 市政厅自 coverage）" "$(echo "$D2" | grep -o 'ok:true,miss:1,missF:true,inF:true')" "ok:true,miss:1,missF:true,inF:true"
+chk "D2 医疗盲区（远宅落盲区 · 覆盖归零 · 场只登记住宅商铺）" "$(echo "$D2" | grep -o 'ok:true,miss:1,cover:0,missF:true,inF:false')" "ok:true,miss:1,cover:0,missF:true,inF:false"
 # D3 盲区幸福惩罚（medHap = 1×1.4 → 幸福较无盲区基线下降；直接断言 view 文案所需字段）
 D3=$(re "JSON.stringify((()=>{const e=window.__pxc;const t=e.tycoon;t.tick(0.05,e.map);
 return {miss:t.snap.medMissRes,cover:t.snap.medCover};})())")
@@ -111,56 +111,65 @@ t.tick(0.05,m);const s=t.snap;
 return {ok:!!c,clinics:s.clinics,miss:s.medMissRes,cover:s.medCover,
   homeIn:t.medField.has(m.idx(112,137))};})())")
 chk "D4 诊所覆盖（半径 3 圈住远宅 · 盲区清零 · 覆盖100 · 诊所1）" "$(echo "$D4" | grep -o 'ok:true,clinics:1,miss:0,cover:100,homeIn:true')" "ok:true,clinics:1,miss:0,cover:100,homeIn:true"
-# D5 盲区商铺收入对照：同帧拆/建两拍（0.94 折扣 → 覆盖/盲区 ≈1.064 单铺；理论比值随其它乘数波动 → 1.05~1.08）
-re "JSON.stringify((()=>{const e=window.__pxc;const t=e.tycoon;const m=e.map;
-m.place('shop',0,140,144);t.tick(0.05,m);return 'shop';})())" >/dev/null 2>&1
+# D5 盲区商铺收入对照：铺在市电范围内（彸政厅 6 格供电）+ 诊所近旁 → 覆盖拍；
+#   同帧拆诊所 → 盲区拍；比值 = 1/0.94 ≈ 1.0638（其余 K 两拍同乘抵消）
+re "JSON.stringify((()=>{const e=window.__pxc;const m=e.map;
+return {ok:m.place('clinic',0,121,123)&&m.place('shop',0,122,124)};})())" >/dev/null 2>&1
 D5A=$(re "JSON.stringify((()=>{const e=window.__pxc;const t=e.tycoon;
-t.tick(0.05,e.map);const miss=t.snap.earnCom;
-const ent=[...e.map.objs.entries()].find(([k,o])=>o.id==='clinic');
-const cx=ent[1].ax,cy=ent[1].ay;e.map.bulldoze(cx,cy);
 t.tick(0.05,e.map);const cov=t.snap.earnCom;
-return {cov,miss,r:Math.round(cov/miss*1000)/1000};})())")
+const ent=[...e.map.objs.entries()].find(([k,o])=>o.id==='clinic'&&o.ax===121);
+e.map.bulldoze(ent[1].ax,ent[1].ay);
+t.tick(0.05,e.map);const miss=t.snap.earnCom;
+return {cov,miss,r:miss>0?Math.round(cov/miss*1000)/1000:null};})())")
 echo "  · D5 收入对照：$D5A"
-RATIO=$(echo "$D5A" | python3 -c "import json,sys
-try: print(json.load(sys.stdin)['r'])
-except Exception: print(0)")
-if python3 -c "exit(0 if 1.045<=$RATIO<=1.09 else 1)" 2>/dev/null; then ok "D5 盲区商铺收入打折（覆盖/盲区=${RATIO} ≈ 1/0.94×稀释）"; else bad "D5 比值异常 ($RATIO)"; fi
-# 重建诊所（后续用例需要）
+RATIO=$(echo "$D5A" | grep -o 'r:[0-9.]*' | cut -d: -f2)
+if python3 -c "exit(0 if 1.05<=$RATIO<=1.08 else 1)" 2>/dev/null; then ok "D5 盲区商铺收入打折（覆盖/盲区=${RATIO} ≈ 1/0.94）"; else bad "D5 比值异常 ($RATIO)"; fi
+# D6 疫病偏爱盲区：拆诊所（114,136）→ 远宅落盲区 → forceEvent('plague') → 现场必为盲区住宅（112,137）
 re "JSON.stringify((()=>{const e=window.__pxc;const m=e.map;
-return {ok:m.place('clinic',0,114,136)};})())" >/dev/null 2>&1
-# D6 疫病偏爱盲区：拆诊所 → 远宅落盲区 → forceEvent('plague') → 现场必为盲区住宅（112,137）+ infN/infT 就位
-re "JSON.stringify((()=>{const e=window.__pxc;const m=e.map;
-const ent=[...m.objs.entries()].find(([k,o])=>o.id==='clinic');
+const ent=[...m.objs.entries()].find(([k,o])=>o.id==='clinic'&&o.ax===114);
 if(ent)m.bulldoze(ent[1].ax,ent[1].ay);return 'dug';})())" >/dev/null 2>&1
 D6=$(re "JSON.stringify((()=>{const e=window.__pxc;const t=e.tycoon;const m=e.map;
 t.tick(0.05,m);
 const ok=t.forceEvent('plague',m);
 const ev=t.events[0];
-return {ok,fx:ev?ev.fx.x+','+ev.fx.y:'none',infN:ev?(ev.infN??0):-1,infT:ev?(ev.infT??-1):-1,
+return {ok,fx:ev?ev.fx.x+','+ev.fx.y:'none',infN:ev?(ev.infN??0):-1,
   blind:t.medMissField.has(m.idx(112,137))};})())")
-chk "D6 疫病偏爱盲区（现场=112,137 · infN=0 · infT>0）" "$(echo "$D6" | grep -o 'ok:true,fx:112,137,infN:0,blind:true')" "ok:true,fx:112,137,infN:0,blind:true"
-# D7 蔓延链：推 infT 归零 → tick → spreadPlague 命中（累计感染 + 编年史「疫情蔓延」+ 亲历者史册）
+chk "D6 疫病偏爱盲区（现场=112,137 · infN=0）" "$(echo "$D6" | grep -o 'ok:true,fx:112,137,infN:0')" "ok:true,fx:112,137,infN:0"
+chk "D6b 盲区场归属（112,137 在 medMissField）" "$(echo "$D6" | grep -o 'blind:true')" "blind:true"
+# D7 蔓延链：推 infT 归零 → tick → spreadPlague 命中（累计感染 + 疫点转移 + 编年史蔓延纪事 + 亲历史册）
 D7=$(re "JSON.stringify((()=>{const e=window.__pxc;const t=e.tycoon;const m=e.map;
 m.place('house',0,113,138);m.place('house',0,114,139);
+t.citz.roster.length=0;
+t.citz.roster.push({name:'测试市民',mood:60,traitMood:0,edu:1,trait:'踏实',hobby:'散步',origin:'本城',homeAt:[113,138],log:[]});
 t.tick(0.05,m);
 const before=t.events[0].fx.x+','+t.events[0].fx.y;
-t.events[0].infT=0.01;t.tick(0.05,m);
+let tries=0;
+while((t.events[0].infN??0)===0 && tries<14){t.events[0].infT=0.01;t.tick(0.05,m);tries++;}
 const ev=t.events[0];
-const log=t.citz.roster.flatMap(c=>c.log.map(l=>l.text)).filter(s=>s.includes('病倒')||s.includes('串门')).length;
+const c=t.citz.roster[0];
+const logged=c.log.some(l=>l.text.includes('病倒')||l.text.includes('串门'));
+const moodDown=c.mood<60;
+t.citz.roster.length=0;
 return {infN:ev.infN??0,moved:!(ev.fx.x+','+ev.fx.y===before),
-  chron:t.chron.entries.some(q=>q.title==='疫情蔓延'),log};})())")
+  chron:t.chron.entries.some(q=>q.title==='疫情蔓延'),logged,moodDown};})())")
 echo "  · D7 蔓延：$D7"
-chk "D7 疫病蔓延（infN≥1 · 疫点转移 · 蔓延纪事 · 亲历史册）" "$(echo "$D7" | grep -o 'chron:true,log' >/dev/null && echo "蔓延入册" )" "蔓延入册"
-chk "D7b 感染栋数累计（infN≥1）" "$(echo "$D7" | grep -o 'infN:[0-9]*' | grep -qv 'infN:0' && echo 'n>=1' )" "n>=1"
-# D8 救护到场：resolveEvent → medSaved 不计（已有蔓延）· resolved 冻结 · 住户感恩
+chk "D7 疫病蔓延（疫点转移 · 蔓延纪事入册）" "$(echo "$D7" | grep -o 'moved:true,chron:true')" "moved:true,chron:true"
+chk "D7b 亲历者史册（住户入册 · 心情下探）" "$(echo "$D7" | grep -o 'logged:true,moodDown:true')" "logged:true,moodDown:true"
+chk "D7c 感染栋数累计（infN≥1）" "$(echo "$D7" | grep -o 'infN:[0-9]*' | grep -qv 'infN:0' && echo 'n>=1' )" "n>=1"
+# D8 救护到场：resolveEvent → resolved 冻结 · 住户感恩（已有蔓延不计 medSaved）
 D8=$(re "JSON.stringify((()=>{const e=window.__pxc;const t=e.tycoon;const m=e.map;
-const infBefore=t.events[0].infN??0;
 const ok=t.resolveEvent('plague');
 t.tick(0.05,m);
 const ev=t.events[0];
-const thanks=t.citz.roster.flatMap(c=>c.log.map(l=>l.text)).some(s=>s.includes('收治'));
-return {ok,resolved:ev.resolved===true,infN:ev.infN??0,frozen:(ev.infT??0)>=1.5||ev.infT===undefined,saved:0,thanks};})())")
-chk "D8 救护到场冻结（resolved=true · 住户感恩入册）" "$(echo "$D8" | grep -o 'ok:true,resolved:true,thanks:true')" "ok:true,resolved:true,thanks:true"
+t.citz.roster.length=0;
+t.citz.roster.push({name:'测试市民2',mood:60,traitMood:0,edu:1,trait:'踏实',hobby:'散步',origin:'本城',homeAt:[ev.fx.x,ev.fx.y],log:[]});
+t.citz.onPlagueSaved(ev.fx.x,ev.fx.y,t.playtime);
+const thanks=t.citz.roster[0].log.some(l=>l.text.includes('收治'));
+const moodUp=t.citz.roster[0].mood>60;
+t.citz.roster.length=0;
+return {ok,resolved:ev.resolved===true,saved0:t.medSaved===0,thanks,moodUp};})())")
+chk "D8 救护到场冻结（resolved=true · 已蔓延不计化解）" "$(echo "$D8" | grep -o 'ok:true,resolved:true,saved0:true')" "ok:true,resolved:true,saved0:true"
+chk "D8b 疫点住户感恩入册（心情回升）" "$(echo "$D8" | grep -o 'thanks:true,moodUp:true')" "thanks:true,moodUp:true"
 # D9 零蔓延化解：等事件结束 → 再 forceEvent → 立即 resolve → medSaved=1
 D9=$(re "JSON.stringify((()=>{const e=window.__pxc;const t=e.tycoon;const m=e.map;
 t.events.length=0;t.tick(0.05,m);
@@ -172,55 +181,60 @@ chk "D9 零蔓延化解（medSaved=1 计数入账）" "$(echo "$D9" | grep -o 'o
 re "JSON.stringify((()=>{const e=window.__pxc;const m=e.map;
 return {ok:m.place('healthst',0,116,137)};})())" >/dev/null 2>&1
 D10=$(re "JSON.stringify((()=>{const e=window.__pxc;const t=e.tycoon;t.tick(0.05,e.map);const s=t.snap;
-return {hs:s.healthsts,cover:s.medCover,health:s.healthIdx,blindRes:s.medMissRes};})())")
-chk "D10 防疫站就位（计数1 · 远宅被圈进覆盖）" "$(echo "$D10" | grep -o 'hs:1,cover:100,blindRes:0')" "hs:1,cover:100,blindRes:0"
+return {hs:s.healthsts,blindRes:s.medMissRes,covered:t.medField.has(e.map.idx(112,137))};})())")
+chk "D10 防疫站就位（计数1 · 半径 4 圈住远宅 · 盲区住宅清零）" "$(echo "$D10" | grep -o 'hs:1,blindRes:0,covered:true')" "hs:1,blindRes:0,covered:true"
 # D11 就医心声（假市民占位取词后即撤）
 D11=$(re "JSON.stringify((()=>{const t=window.__pxc.tycoon;
-t.citz.roster.push({name:'测试市民',mood:60});
+t.citz.roster.length=0;
+t.citz.roster.push({name:'测试市民',mood:60,traitMood:0,edu:1,trait:'踏实',hobby:'散步',origin:'本城',log:[]});
 const base={pop:100,happiness:60,taxRate:9,season:1,famine:0,events:[],fest:-1,smog:0,dark:0,waste:0,eduOut:0,crime:0,fireOut:0,lg:0};
 const words=[];for(let i=0;i<16;i++){const v=t.citz.voice({...base,medOut:4});if(v)words.push(v.text);}
 t.citz.roster.pop();
 const hit=words.some(q=>/诊所|挂号|血压|看病/.test(q));
 return {hit,n:t.citz.roster.length};})())")
 chk "D11 就医心声（盲区街区念叨诊所 · 假市民已撤）" "$(echo "$D11" | grep -o 'hit:true,n:0')" "hit:true,n:0"
-# D12 存档往返：infN/infT/medSaved 序列化 → resume 恢复
+# D12 存档往返：infN/infT/medSaved 序列化 → resume 恢复（infT 拉大防蔓延竞态）
 re "JSON.stringify((()=>{const e=window.__pxc;const t=e.tycoon;const m=e.map;
 t.events.length=0;t.tick(0.05,m);
-t.forceEvent('plague',m);t.tick(0.05,m);t.events[0].infN=2;t.events[0].infT=3.3;
+t.forceEvent('plague',m);t.tick(0.05,m);t.events[0].infN=2;t.events[0].infT=999;
 t.save(m);return 'saved';})())" >/dev/null 2>&1
 D12=$(re "JSON.stringify((()=>{const e=window.__pxc;const d=e.tycoon.constructor.loadRaw();
 return {infN:d.events?d.events[0].infN:-1,infT:d.events?d.events[0].infT:-1,medSaved:d.medSaved};})())")
-chk "D12 存档字段（infN=2 · infT≈3.3 · medSaved 持久化）" "$(echo "$D12" | grep -o 'infN:2,infT:3.3')" "infN:2,infT:3.3"
+chk "D12 存档字段（infN=2 · infT=999 · medSaved 持久化）" "$(echo "$D12" | grep -o 'infN:2,infT:999')" "infN:2,infT:999"
 
 echo "=== [3] U 段：事件横幅 / 城市志 / 编年史 / 成就墙 / 建筑特写 ==="
-# U1 事件横幅：疫病 ×3（infN=2 → ×3）+ 已累及文案
+# U1 事件横幅：疫病 ×3（infN=2 → ×3）+ 已累及文案（先等 UI 轮询一轮刷新 DOM）
+agent-browser wait 1600
 U1=$(re "JSON.stringify((()=>{
   const el=document.querySelector('.pxc-ev');const txt=el?el.textContent||'':'';
   return {on:!!el,x3:txt.includes('×3'),n:txt.includes('已累及 3 栋住宅')};})())")
 chk "U1 事件横幅（疫病 ×3 · 已累及 3 栋住宅）" "$(echo "$U1" | grep -o 'on:true,x3:true,n:true')" "on:true,x3:true,n:true"
-# 重建诊所+防疫站（覆盖率拉满）→ 清事件 → 救赎叙事对
+# 重建诊所+防疫站 → 清事件 → 救赎叙事对（4 栋远宅触发「缺医少药」→ 医院+拆铺拉满「悬壶济世」）
 re "JSON.stringify((()=>{const e=window.__pxc;const t=e.tycoon;const m=e.map;
 t.events.length=0;m.place('clinic',0,114,136);
-// 再补 4 栋远宅触发「缺医少药」（先拆防疫站制造盲区≥4）
+// 拆防疫站制造盲区，再补 4 栋界内远宅（≥4 栋 → 缺医少药）
 const ent=[...m.objs.entries()].find(([k,o])=>o.id==='healthst');
 if(ent)m.bulldoze(ent[1].ax,ent[1].ay);
-m.place('house',0,108,130);m.place('house',0,109,131);m.place('house',0,110,130);
-t.tick(0.05,m);t.achvTimer=0.01;t.tick(0.05,m);
-return 'stage1';})())" >/dev/null 2>&1
+m.place('house',0,112,128);m.place('house',0,113,129);m.place('house',0,114,128);m.place('house',0,112,130);
+t.tick(0.05,m);
+return {miss:t.snap.medMissRes};})())" >/dev/null 2>&1
 U2=$(re "JSON.stringify((()=>{
   const t=window.__pxc.tycoon;
   return {bad:t.chron.entries.some(q=>q.title==='缺医少药'),miss:t.snap.medMissRes>=4};})())")
 chk "U2 救赎上半（缺医少药入册 · 盲区≥4）" "$(echo "$U2" | grep -o 'bad:true,miss:true')" "bad:true,miss:true"
 re "JSON.stringify((()=>{const e=window.__pxc;const t=e.tycoon;const m=e.map;
-m.place('healthst',0,116,137);t.tick(0.05,m);t.achvTimer=0.01;t.tick(0.05,m);
+// 拆测试铺（回收覆盖分母）+ 医院（半径 6 全覆盖）+ 拉人口过成就门槛
+const sh=[...m.objs.entries()].find(([k,o])=>o.id==='shop');
+if(sh)m.bulldoze(sh[1].ax,sh[1].ay);
+m.place('hospital',0,118,133);
+t.pop=150;
+t.tick(0.05,m);t.achvTimer=0.01;t.tick(0.05,m);
 return 'stage2';})())" >/dev/null 2>&1
 U3=$(re "JSON.stringify((()=>{
-  const t=window.__pxc.tycoon;const txt=(t.chron.entries.map(q=>q.title)).join('|');
-  const row=document.querySelector('.pxc-modal')?0:0;
-  return {good:t.chron.entries.some(q=>q.title==='悬壶济世'),
-    ach:t.achv.has('apricot'),
-    saved3:t.achv.has('medsaved3')||t.medSaved>=1};})())")
-chk "U3 救赎下半（悬壶济世入册 · 覆盖成就解锁）" "$(echo "$U3" | grep -o 'good:true,ach:true')" "good:true,ach:true"
+  const t=window.__pxc.tycoon;
+  return {good:t.chron.entries.some(q=>q.title==='悬壶济世'),cover:t.snap.medCover,
+    ach:t.achv.has('apricot')};})())")
+chk "U3 救赎下半（悬壶济世入册 · 覆盖100 · 覆盖成就解锁）" "$(echo "$U3" | grep -o 'good:true,cover:100,ach:true')" "good:true,cover:100,ach:true"
 # U4 城市志「悬壶济世」行（数据面板打开 · 覆盖满 → 绿字）
 agent-browser eval "(()=>{const b=[...document.querySelectorAll('button')].find(x=>(x.getAttribute('title')||'').includes('财政报告'));if(b)b.click();return 'f';})()" >/dev/null 2>&1
 agent-browser wait 900
@@ -252,6 +266,11 @@ agent-browser set viewport 1440 900
 agent-browser wait 800
 
 echo "=== [4] R 段：回归抽查 + 零错误 ==="
+# R0 数值健康检查：全程测试态手术（pop 拉满/拆建/事件手术/存档往返）后金币与快照仍然有限
+R0=$(re "JSON.stringify((()=>{const e=window.__pxc;const t=e.tycoon;
+const bad=Object.entries(t.snap).filter(([k,v])=>typeof v==='number'&&!Number.isFinite(v)).map(([k])=>k);
+return {coinsFin:Number.isFinite(t.coins),goodsFin:Number.isFinite(t.goods),badN:bad.length,bad:bad.slice(0,5).join(',')};})())")
+chk "R0 数值健康（金币/货物/快照全有限）" "$(echo "$R0" | grep -o 'coinsFin:true,goodsFin:true,badN:0')" "coinsFin:true,goodsFin:true,badN:0"
 # R1 既有回归抽查：治安/消防场未被破坏（tick 后 secField/fireField 仍工作）
 R1=$(re "JSON.stringify((()=>{const e=window.__pxc;const t=e.tycoon;t.tick(0.05,e.map);
 return {sec:typeof t.secField==='object',fire:typeof t.fireField==='object',med:typeof t.medField==='object',

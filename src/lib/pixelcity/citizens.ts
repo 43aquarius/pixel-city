@@ -1566,7 +1566,7 @@ export class CitizenRegistry {
   hrIdx(): number {
     if (!this.roster.length) return 50;
     let sum = 0;
-    for (const c of this.roster) sum += c.edu;
+    for (const c of this.roster) sum += c.edu ?? 0;   // v36 防御：edu 缺失按 0 计（正常路径 addCitizen/restore 必有值，测试假市民/脏档不再污染人力资本）
     return Math.round((100 * (sum / this.roster.length)) / 3);
   }
 

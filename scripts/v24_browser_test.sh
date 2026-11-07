@@ -5,7 +5,9 @@
 #   S0 初始：无 res/com/ind → fireCover=100（分母 0 守护）
 #   S1 两商铺 + pop 拉升：A(124,130) 距 hall 3 → 消防盲区·治安覆盖（距 3 ≤ SEC_R 3 对照前提）；
 #        B(129,129) 距 2 → 双覆盖 → fireCover=50；pop=60 使 staffing=1（S2 对照前提）
-#   S2 收入对照（拆/建两拍，jobs/power/pop 恒定）：A 盲区 vs A'(126,129) 距 2 覆盖 → 比值 8.4/8.19≈1.026
+#   S2 收入对照（拆/建两拍，jobs/power/pop 恒定）：A 盲区 vs A'(126,129) 距 2 覆盖
+#   v36 注记：A(124,130) 距 hall 切比雪夫 3 > MED_R 2 落医疗盲区，额外 ×0.94；A' 距 2 被覆盖
+#   → c2/c1 = 8.4 / (4.2×0.95×0.94+4.2) ≈ 1.057（v36 空间化叠加后的新理论值）
 #   S3 拆 A' + 南郊三铺 (112,141)(114,141)(116,141) + 远宅 (115,139)（互距 ≤2 蔓延链）→ fireOut=4 → 编年史「祝融之灾」
 #   S4 消防栓 (113,142) r2 圈住 (112,141)/(114,141) → fireOut 4→2 / hydrants=1；拆栓复原 4（版本重算）
 #   S5 消防局 (123,132)（邻 x=122 支路·距南郊 ≥9 不覆盖）+ forceEvent('fire')
@@ -80,10 +82,10 @@ t.tick(0.05,e.map);const c2=t.view().incomeCom;
 const r=c2/c1;
 return {c1:Math.round(c1*1000)/1000,c2:Math.round(c2*1000)/1000,r:Math.round(r*1000)/1000,ok:!!a2};})())" 2>/dev/null | grep -m1 . | stripq)
 R2V=$(echo "$S2" | grep -o 'r:[0-9.]*' | cut -d: -f2)
-if [ -n "$R2V" ] && python3 -c "exit(0 if 1.02 <= $R2V <= 1.03 else 1)" 2>/dev/null; then
-  ok "S2 盲区收入 ×0.95 对照（比值 $R2V ≈ 1.026）"
+if [ -n "$R2V" ] && python3 -c "exit(0 if 1.05 <= $R2V <= 1.07 else 1)" 2>/dev/null; then
+  ok "S2 盲区收入 ×0.95×0.94 对照（比值 $R2V ≈ 1.057 · v36 医疗盲区叠加）"
 else
-  bad "S2 收入对照（got=$R2V want≈1.02~1.03）"
+  bad "S2 收入对照（got=$R2V want≈1.05~1.07）"
 fi
 # S3：拆 A' + 南郊三铺 + 远宅 (115,139)（互距 ≤2 蔓延链）→ fireOut=4 → 编年史「祝融之灾」
 S3=$(agent-browser eval "JSON.stringify((()=>{const e=window.__pxc;const t=e.tycoon;
