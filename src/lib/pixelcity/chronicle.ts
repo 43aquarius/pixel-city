@@ -273,6 +273,7 @@ export class Chronicle {
     edu: new Set<number>(),                                                  // v22 文教（1 望学兴叹 / 2 有教无类）
     sec: new Set<number>(),                                                  // v23 治安（1 盗贼横行 / 2 夜不闭户）
     fire: new Set<number>(),                                                 // v24 消防（1 祝融之灾 / 2 固若金汤）
+    med: new Set<number>(),                                                  // v36 医疗（1 缺医少药 / 2 悬壶济世）
   };
 
   /** 游戏小时 → 开埠第 N 天 */
@@ -300,7 +301,8 @@ export class Chronicle {
       wasteN?: number; recycles?: number; sweepCover?: number;
       eduOut?: number; eduCover?: number; universities?: number;
       crimeN?: number; secCover?: number; policehqN?: number;
-      fireOut?: number; fireCover?: number; firestations?: number }, gHours: number): number {
+      fireOut?: number; fireCover?: number; firestations?: number;
+      medMissRes?: number; medCover?: number; clinics?: number }, gHours: number): number {
     let eraUp = -1;
     // 纪元跃迁（只升不重记；人口回落后再升回不重复入册）
     const e = eraOfPop(ctx.pop);
@@ -425,6 +427,18 @@ export class Chronicle {
       this.write('mile', 'good', 'fire', '固若金汤',
         `消防栓的红桩子立满了街角，消防覆盖率回到 ${fireCover}%。夜里再见火星，水枪三分钟就能压住 —— 街坊们终于能睡个安稳觉。`, gHours);
     }
+    // ---- v36 医疗里程碑：缺医少药 → 悬壶济世（一对救赎叙事；先求医无门后建成医疗网才成对入册）----
+    const medMissRes = ctx.medMissRes ?? 0, medCover = ctx.medCover ?? 100, clinicN = ctx.clinics ?? 0;
+    if (medMissRes >= 4 && !this.miles.med.has(1)) {
+      this.miles.med.add(1);
+      this.write('mile', 'bad', 'heart', '缺医少药',
+        `${medMissRes} 栋住宅看病要跨半座城，老人体检孩子退烧都得坐车赶路。有位阿婆在市政厅门口拉住市长：「咱们巷子里，也该有个能看病的地方。」`, gHours);
+    }
+    if (this.miles.med.has(1) && !this.miles.med.has(2) && medCover >= 95 && clinicN >= 1) {
+      this.miles.med.add(2);
+      this.write('mile', 'good', 'heart', '悬壶济世',
+        `街角诊所的白十字一块块亮起来，医疗覆盖率回到 ${medCover}%。感冒发烧不必再跨城赶路，出诊的大夫十分钟就能到门口 —— 杏林春满，悬壶济世。`, gHours);
+    }
     return eraUp;
   }
 
@@ -445,7 +459,7 @@ export class Chronicle {
     this.nextId = 1;
     this.miles = {
       pop: new Set(), rate: new Set(), bld: new Set(), land: new Set(), coin: new Set(), eco: new Set(),
-      pw: new Set(), gs: new Set(), edu: new Set(), sec: new Set(), fire: new Set(),
+      pw: new Set(), gs: new Set(), edu: new Set(), sec: new Set(), fire: new Set(), med: new Set(),
     };
   }
 
@@ -456,7 +470,7 @@ export class Chronicle {
         pop: [...this.miles.pop], rate: [...this.miles.rate], bld: [...this.miles.bld],
         land: [...this.miles.land], coin: [...this.miles.coin], eco: [...this.miles.eco],
         pw: [...this.miles.pw], gs: [...this.miles.gs], edu: [...this.miles.edu], sec: [...this.miles.sec],
-        fire: [...this.miles.fire],
+        fire: [...this.miles.fire], med: [...this.miles.med],
       },
     });
   }
@@ -470,7 +484,7 @@ export class Chronicle {
         e?: unknown; tot?: unknown; era?: unknown; maxEra?: unknown; nid?: unknown; m?: {
           pop?: unknown; rate?: unknown; bld?: unknown; land?: unknown; coin?: unknown;
           eco?: unknown; pw?: unknown; gs?: unknown; edu?: unknown; sec?: unknown;
-          fire?: unknown;
+          fire?: unknown; med?: unknown;
         };
       };
       if (!Array.isArray(d.e)) return false;
@@ -504,7 +518,7 @@ export class Chronicle {
         pop: new Set(L(d.m?.pop)), rate: new Set(L(d.m?.rate)), bld: new Set(L(d.m?.bld)),
         land: new Set(L(d.m?.land)), coin: new Set(L(d.m?.coin)), eco: new Set(L(d.m?.eco)),
         pw: new Set(L(d.m?.pw)), gs: new Set(L(d.m?.gs)), edu: new Set(L(d.m?.edu)), sec: new Set(L(d.m?.sec)),
-        fire: new Set(L(d.m?.fire)),
+        fire: new Set(L(d.m?.fire)), med: new Set(L(d.m?.med)),
       };
       return true;
     } catch {

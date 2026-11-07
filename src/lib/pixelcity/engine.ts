@@ -1002,6 +1002,50 @@ export class Engine {
       ctx.fillText(label, Math.round(sx), Math.round(sy - 48));
       ctx.textAlign = 'left';
     }
+    // v36：疫病现场 —— 住户剪影倚窗咳嗽（双帧蜷缩）+ 病气绿雾缓升 + 事件标签（多栋感染显示 ×N）。
+    //   救护车到场（resolved）→ 医护白影立于门前（静态），疫情收尾一并消失 —— 与「人赃并获」同款收束
+    for (const ev of eco.events) {
+      if (!ev.fx || ev.key !== 'plague') continue;
+      const sx = this.w2sx(ev.fx.x, ev.fx.y);
+      const sy = this.w2sy(ev.fx.x, ev.fx.y) + this.hOfs(ev.fx.x, ev.fx.y);
+      const fl = Math.floor(now / 340) % 2 === 0;
+      const cured = ev.resolved === true || ev.left <= 3.6;
+      if (!cured) {
+        // 病气绿雾（两缕自窗台缓升 —— 隔着屏幕都闻得到消毒水的味道）
+        for (let f = 0; f < 2; f++) {
+          const rise = (now / 52 + f * 12 + ((ev.fx.x * 5 + ev.fx.y * 3 + f) % 11)) % 20;
+          ctx.fillStyle = `rgba(118,190,148,${Math.max(0, 0.42 - rise / 52).toFixed(3)})`;
+          const wx = Math.round(sx - 3 + f * 8 + Math.sin(now / 900 + f * 2) * 2);
+          ctx.fillRect(wx, Math.round(sy - 26 - rise), 4, 3);
+          ctx.fillRect(wx + 1, Math.round(sy - 28 - rise), 2, 2);
+        }
+        // 倚窗咳嗽剪影（蜷缩人形：双帧弓背 + 白帕掩口）
+        ctx.fillStyle = '#2E3440';                                   // 病中人形
+        ctx.fillRect(Math.round(sx - 6), Math.round(sy - 28), 4, 4);  // 头
+        ctx.fillRect(Math.round(sx - 6 + (fl ? 0 : 1)), Math.round(sy - 24), 5, fl ? 8 : 6); // 弓背（双帧起伏）
+        ctx.fillStyle = '#F4F2E8';                                   // 掩口白帕
+        ctx.fillRect(Math.round(sx - 4 + (fl ? 0 : 1)), Math.round(sy - 27), 2, 2);
+      } else {
+        // 医护白影（门前静态：白衣 + 药箱 —— 收治中）
+        ctx.fillStyle = '#F4F2E8';                                   // 白大卦
+        ctx.fillRect(Math.round(sx + 7), Math.round(sy - 15), 4, 10);
+        ctx.fillStyle = '#C6D3DE';                                   // 头（护士帽淡青）
+        ctx.fillRect(Math.round(sx + 8), Math.round(sy - 18), 3, 3);
+        ctx.fillStyle = '#7A8C9E';                                   // 药箱
+        ctx.fillRect(Math.round(sx + 4), Math.round(sy - 10), 3, 3);
+      }
+      // 事件标签（感染多栋时显示 ×N）
+      ctx.font = 'bold 8px monospace';
+      ctx.textAlign = 'center';
+      const nInf = (ev.infN ?? 0) + 1;
+      const label = cured ? '收治中!' : (nInf > 1 ? `疫情×${nInf}!` : `${ev.name}!`);
+      const w = ctx.measureText(label).width + 6;
+      ctx.fillStyle = 'rgba(11,15,36,0.92)';
+      ctx.fillRect(Math.round(sx - w / 2), Math.round(sy - 56), Math.round(w), 11);
+      ctx.fillStyle = cured ? '#7DC8A0' : (fl ? '#CFEBDA' : '#F4F2E8');
+      ctx.fillText(label, Math.round(sx), Math.round(sy - 48));
+      ctx.textAlign = 'left';
+    }
   }
 
   /** v18 地震震屏：amp px 振幅，约 4.5 秒随机抖动后衰减归零 */
@@ -1230,6 +1274,42 @@ export class Engine {
         ctx.fillRect(Math.round(sx - 2), Math.round(sy - 40), 5, 2);   // 焰底
         ctx.fillStyle = 'rgba(247,200,72,0.95)';
         ctx.fillRect(Math.round(sx - 1), Math.round(sy - 41), 2, 2);   // 焰心
+      }
+    }
+  }
+
+  /** v36：医疗盲区层 —— 接诊半径外的商铺与住宅铺青灰病气阴影菱形（湿冷的阴郁意象）+
+   *  盲区住宅屋顶绿色十字缓闪（大夫照不到的巷子 —— 绿十字＝「这里缺个诊所」）。
+   *  画法与治安冷蓝/消防暖橙同层位：青灰色相与两者都错开；
+   *  缓闪相位用 1100ms 慢周期（体温计般的缓绿，不似火苗急促） */
+  private drawMedOverlay(ctx: CanvasRenderingContext2D, t: number): void {
+    const eco = this.tycoon;
+    if (!eco || eco.medMissField.size === 0) return;
+    const n = this.map.n;
+    for (const i of eco.medMissField) {
+      const tx = i % n, ty = (i / n) | 0;
+      const sx = this.w2sx(tx, ty);
+      const sy = this.w2sy(tx, ty) + this.hOfs(tx, ty);
+      if (sx < -40 || sx > this.lw + 40 || sy < -56 || sy > this.lh + 40) continue;
+      // 青灰病气阴影（贴地菱形 —— 湿冷的怨气：这片街区看病太远）
+      ctx.fillStyle = 'rgba(58,92,80,0.22)';
+      ctx.beginPath();
+      ctx.moveTo(sx - 18, sy + 2);
+      ctx.lineTo(sx, sy + 11);
+      ctx.lineTo(sx + 18, sy + 2);
+      ctx.lineTo(sx, sy - 7);
+      ctx.closePath();
+      ctx.fill();
+      // 屋顶绿色十字缓闪（慢周期呼吸：医疗的符号 = 这里缺医疗）
+      const br = 0.5 + 0.5 * Math.sin(t / 1100 + (tx * 7 + ty * 3) * 0.9);
+      if (br > 0.28) {
+        const a = (0.85 * br).toFixed(3);
+        ctx.fillStyle = `rgba(96,200,148,${a})`;
+        ctx.fillRect(Math.round(sx - 2), Math.round(sy - 43), 2, 7);   // 竖臂
+        ctx.fillRect(Math.round(sx - 4), Math.round(sy - 41), 6, 3);   // 横臂
+        ctx.fillStyle = `rgba(96,200,148,${(0.30 * br).toFixed(3)})`;
+        ctx.fillRect(Math.round(sx - 3), Math.round(sy - 44), 4, 9);   // 光晕
+        ctx.fillRect(Math.round(sx - 5), Math.round(sy - 42), 8, 5);
       }
     }
   }
@@ -1986,6 +2066,8 @@ export class Engine {
     this.drawSecOverlay(ctx, t);
     // ---- v24：消防盲区层（盲区焦枯暖影 + 屋顶火苗警示；与治安同层位）----
     this.drawFireOverlay(ctx, t);
+    // ---- v36：医疗盲区层（盲区青灰病气 + 屋顶绿十字缓闪；与治安/消防同层位）----
+    this.drawMedOverlay(ctx, t);
     // ---- v22：学区层（学区内住宅金光罩 + 书页飘飞；垃圾之下）----
     this.drawEduOverlay(ctx, t);
     // ---- v21：垃圾堆积层（清运不到的巷口垃圾成堆；雾霾之下）----

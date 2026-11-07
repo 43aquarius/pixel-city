@@ -2180,6 +2180,60 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 .pxc.m .lg-stats td:first-child { width: 64px; }
 .pxc.m .lh-zn { margin-left: 0; width: 100%; }
 
+/* ============ v35 百兽之园「物种图鉴」 ============ */
+.pxc-zoo { width: min(560px, calc(100vw - 24px)); }
+.zoo-chip.zoo-on { border-color: #4E9040; background: #EFF5E8; }
+.zoo-chip.zoo-full { border-color: #C9A227; background: #FAF3D9; }
+.zoo-empty { border: 1px dashed #C9C2A8; border-radius: 4px; padding: 14px 12px; text-align: center; }
+.zoo-empty .ze-t { font-size: 15px; font-weight: 800; color: #23252E; letter-spacing: 2px; }
+.zoo-empty .ze-d { margin-top: 8px; font-size: 12px; color: #555c66; line-height: 1.7; text-align: left; }
+.zoo-empty .ze-d b { color: #3B7138; }
+
+/* 图鉴进度条 */
+.zoo-head {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  border-bottom: 1px solid #E5E0CE; padding-bottom: 8px; margin-bottom: 9px;
+}
+.zh-progress { font-size: 13px; color: #3d434e; font-weight: 700; }
+.zh-progress b { color: #8a6d1a; font-size: 16px; }
+.zh-bonus { font-size: 11px; color: #3B7138; font-weight: 600; }
+.zh-next { margin-left: auto; font-size: 11px; color: #85878f; font-variant-numeric: tabular-nums; }
+
+/* 九宫格图鉴卡 */
+.zoo-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px;
+}
+.zk-card {
+  border: 1px solid #C9C2A8; border-radius: 4px; padding: 7px 8px;
+  background: #F2EFE3; min-width: 0;
+}
+.zk-card.on { border-color: #4E9040; background: #F4F8EE; }
+.zk-card.rare1.on { border-color: #4A86C8; background: #EFF4FA; }
+.zk-card.rare2.on { border-color: #C9A227; background: #FAF3D9; }
+.zk-head { display: flex; align-items: center; gap: 6px; }
+.zk-head img { image-rendering: pixelated; flex: none; }
+.zk-card:not(.on) .zk-head img { filter: grayscale(1) opacity(0.45); }
+.zk-head b { font-size: 13px; color: #23252E; }
+.zk-card:not(.on) .zk-head b { color: #9a958a; }
+.zk-badge {
+  margin-left: auto; font-size: 9px; font-style: normal; padding: 1px 5px;
+  border-radius: 8px; flex: none; background: #C9C2A8; color: #F2EFE3;
+}
+.zk-badge.r1 { background: #4A86C8; }
+.zk-badge.r2 { background: #C9A227; }
+.zk-note {
+  margin-top: 5px; font-size: 10.5px; color: #555c66; line-height: 1.55;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.zk-card:not(.on) .zk-note { color: #9a958a; }
+.zk-bonus { margin-top: 4px; font-size: 10px; color: #8a6d1a; font-variant-numeric: tabular-nums; }
+.zoo-note { margin-top: 10px; font-size: 11px; color: #85878f; line-height: 1.65; }
+
+/* 移动端 */
+.pxc.m .zoo-grid { grid-template-columns: repeat(2, 1fr); }
+.pxc.m .zk-head b { font-size: 12px; }
+.pxc.m .zh-next { margin-left: 0; width: 100%; }
+
 /* ============ v17 城市编年史 ============ */
 .pxc-chron { width: min(560px, calc(100vw - 24px)); }
 

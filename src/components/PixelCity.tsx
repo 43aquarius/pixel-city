@@ -18,7 +18,7 @@ import { PALETTE } from '@/lib/pixelcity/palette';
 import { iconURI } from '@/lib/pixelcity/icons';
 import {
   Tycoon, ECON, costOf, unlockOf, fmtG, QUESTS, TECHS, BRANCHES, TECH_GATE, techNameOf,
-  taxMood, TAX_MIN, TAX_MAX, SEASONS, FESTS, CYC_PHASES, CYC_MIN, CYC_MAX,
+  taxMood, TAX_MIN, TAX_MAX, SEASONS, FESTS, CYC_PHASES, CYC_MIN, CYC_MAX, ZOO_SPECIES,
   type EconView, type HistPoint,
 } from '@/lib/pixelcity/tycoon';
 import type { CitzCard } from '@/lib/pixelcity/citizens';
@@ -37,6 +37,7 @@ const ICON_NAMES = [
   'sun', 'cloud', 'rain', 'snoww',
   'spr', 'sum', 'fall', 'win', 'drop', 'bridge',
   'camera', 'box', 'fire', 'shield', 'mail', 'fest', 'scroll', 'ball',
+  'paw', 'rabbit', 'goat', 'deer', 'peacock', 'flamingo', 'redpanda', 'penguin', 'koi', 'panda',
 ];
 
 type Phase = 'loading' | 'ready';
@@ -269,7 +270,7 @@ export default function PixelCity() {
   /** v27 移动端卷目横条：左右渐隐暗示（滚动感知） */
   const [cwNavMore, setCwNavMore] = useState({ l: false, r: false });
   const cwNavScrollRef = useRef<HTMLDivElement | null>(null);
-  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'chron' | 'gov'>('none');
+  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'zoo' | 'chron' | 'gov'>('none');
   const [econ, setEcon] = useState<EconView | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
@@ -631,7 +632,7 @@ export default function PixelCity() {
     }
   }, [say]);
 
-  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'chron' | 'gov') => {
+  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'zoo' | 'chron' | 'gov') => {
     if (m === 'save') {
       setSlotMeta([0, 1, 2].map(i => Engine.slotMeta(i)));
     }
@@ -1278,6 +1279,12 @@ export default function PixelCity() {
                   : '城市联赛：建成体育场即开张 ——「市民联」主场迎客，比赛日全城沸腾，战绩奖杯载入城市史册'}>
                 <img src={iu('ball')} alt="" /><b>{econ.lg.on ? (econ.lg.pre ? '赛' : `${econ.lg.t1 > 0 ? econ.lg.t1 + '冠' : econ.lg.w + '胜'}`) : '—'}</b><i>球</i>
               </button>
+              <button className={`chip zoo-chip${econ.zoo.on ? ' zoo-on' : ''}${econ.zoo.n >= econ.zoo.total ? ' zoo-full' : ''}`} onClick={() => openModal('zoo')}
+                title={econ.zoo.on
+                  ? `物种图鉴：已入住 ${econ.zoo.n}/${econ.zoo.total} 种（吸引力 +${econ.zoo.at} · 幸福 +${econ.zoo.hap}${econ.zoo.k > 1 ? ` · 游客 ×${econ.zoo.k.toFixed(2)}` : ''}）—— 下次巡查 ${Math.max(0, Math.round((econ.zoo.next - econ.gHours) * 10) / 10)} 游戏时后`
+                  : '物种图鉴：建成动物园即开园 —— 巡查员定期进园评估，动物住户逐步入住，集齐 9 种翻满图鉴'}>
+                <img src={iu('paw')} alt="" /><b>{econ.zoo.on ? `${econ.zoo.n}/${econ.zoo.total}` : '—'}</b><i>兽</i>
+              </button>
               <button className="chip" onClick={() => openModal('chron')}
                 title={`城市编年史：在册 ${econ.chron.n} 笔纪事（累计 ${econ.chron.total} 笔）· 当前纪元「${econ.chron.eraName}」—— 开埠奠基、时代跃迁、灾祸喜讯、科技节庆与里程碑，都记在这本城市之书里`}>
                 <img src={iu('scroll')} alt="" /><b>{econ.chron.n}</b><i>史</i>
@@ -1388,8 +1395,8 @@ export default function PixelCity() {
             <div className="pxc-events" role="status" aria-label="进行中事件">
               {econ.events.map(ev => (
                 <div key={ev.key} className={`pxc-ev ${ev.kind}`}>
-                  <span className="ev-name">{ev.kind === 'bad' ? '⚠' : '✦'} {ev.name}{ev.spreadN ? ` ×${ev.spreadN + 1}` : ''}</span>
-                  <span className="ev-note">{ev.note}{ev.spreadN ? ` —— 已过火 ${ev.spreadN + 1} 栋` : ''}</span>
+                  <span className="ev-name">{ev.kind === 'bad' ? '⚠' : '✦'} {ev.name}{ev.key === 'fire' && ev.spreadN ? ` ×${ev.spreadN + 1}` : ''}{ev.key === 'plague' && ev.infN ? ` ×${ev.infN + 1}` : ''}</span>
+                  <span className="ev-note">{ev.note}{ev.key === 'fire' && ev.spreadN ? ` —— 已过火 ${ev.spreadN + 1} 栋` : ''}{ev.key === 'plague' && ev.infN ? ` —— 已累及 ${ev.infN + 1} 栋住宅` : ''}</span>
                   <span className="ev-left">{Math.ceil(ev.left)}s</span>
                   <span className="ev-bar"><i style={{ width: `${Math.max(0, Math.min(100, (ev.left / ev.dur) * 100))}%` }} /></span>
                 </div>
@@ -1800,8 +1807,18 @@ export default function PixelCity() {
                           : `消防覆盖 ${econ.fireCover}%${econ.hydrants > 0 ? `（消防栓 ${econ.hydrants} 座）` : ''}`
                       } · 灭火 {econ.rescueFire} 场</td>
                     </tr>
+                    <tr className={econ.medMissRes > 0 ? 'bad' : (econ.clinics + econ.healthsts > 0 ? 'g' : '')}>
+                      <td>悬壶济世</td>
+                      <td>{
+                        econ.medMissRes > 0
+                          ? `医疗覆盖 ${econ.medCover}%（盲区 ${econ.medOut} 栋 · 看病要跨半座城${econ.medMissRes > 0 ? ` · 盲区住宅 ${econ.medMissRes} 栋 · 幸福 −${Math.min(7, Math.round(econ.medMissRes * 1.4))}` : ''}）`
+                          : `医疗覆盖 ${econ.medCover}%${econ.clinics + econ.healthsts > 0
+                            ? `（诊所 ${econ.clinics}${econ.healthsts > 0 ? ` · 防疫站 ${econ.healthsts}` : ''}）`
+                            : ''}`
+                      } · 疫病零蔓延化解 {econ.medSaved} 次</td>
+                    </tr>
                     <tr className={econ.healthIdx < 55 ? 'bad' : ''}>
-                      <td>健康指数</td><td>{econ.healthIdx} / 100（医院 {econ.hospitals} 座）</td>
+                      <td>健康指数</td><td>{econ.healthIdx} / 100（医院 {econ.hospitals} · 诊所 {econ.clinics} · 防疫站 {econ.healthsts}）</td>
                     </tr>
                     <tr className={econ.safetyIdx < 55 ? 'bad' : ''}>
                       <td>安全指数</td><td>{econ.safetyIdx} / 100（消防站 {econ.firestations} 座）</td>
@@ -1938,6 +1955,12 @@ export default function PixelCity() {
                           ? `预热中 ×1.22 游客 · ×1.08 商业 —— ${Math.max(0.1, Math.round((econ.lg.next - econ.gHours) * 10) / 10)} 游戏时后主场迎战${econ.lg.oppN}`
                           : `平日 —— 下场 ${Math.max(0, Math.round((econ.lg.next - econ.gHours) * 10) / 10)} 游戏时后迎战${econ.lg.oppN}（顶栏「球」看赛程战绩）`
                         : '无 —— 建成体育场后「市民联」联赛开张，比赛日球迷进城消费'}</td>
+                    </tr>
+                    <tr className={econ.zoo.n > 0 ? 'g' : ''}>
+                      <td>百兽之园（v35）</td>
+                      <td>{econ.zoo.on
+                        ? `物种图鉴 ${econ.zoo.n}/${econ.zoo.total} · 物种加成 吸引力 +${econ.zoo.at} · 幸福 +${econ.zoo.hap}${econ.zoo.k > 1 ? ` · 游客 ×${econ.zoo.k.toFixed(2)}` : ''}（顶栏「兽」翻图鉴）`
+                        : '无 —— 建成动物园（需「城市名片」）后物种图鉴开册，住户越多吸引力越高'}</td>
                     </tr>
                     <tr><td>吸引力大户</td>
                       <td>摩天轮/水族馆/城堡 5 · 博物馆/体育场 4 · 神社/天文台 3 分</td>
@@ -2228,6 +2251,59 @@ export default function PixelCity() {
               <div className="lg-note">
                 球是圆的，输赢都是城市的功课：客队档次随城市评级水涨船高（业余组 → 地区组 → 全国组 → 豪门巡访），
                 幸福度越高、球迷底蕴越厚，主场胜率越高 —— 赛季收官积分达 13 分即可加冕；赢球彩带飘满全城的瞬间，就是这座城的高光时刻
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* v35 百兽之园「物种图鉴」模态（经营模式） */}
+      {modal === 'zoo' && econ && (
+        <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
+          <div className="pxc-modal pxc-zoo" role="dialog" aria-label="物种图鉴">
+            <header>
+              物 种 图 鉴
+              <button className="pxc-x" onClick={() => setModal('none')} aria-label="关闭">×</button>
+            </header>
+            <div className="pxc-body">
+              {!econ.zoo.on ? (
+                <div className="zoo-empty">
+                  <div className="ze-t">图鉴尚未开册</div>
+                  <div className="ze-d">建成一座<b>动物园</b>（需研究「城市名片」），动物巡查员就会定期进园评估栖息环境：
+                    城市的吸引力与评级越高，动物住户来得越勤 —— 每种住户带来吸引力与幸福加成，
+                    集齐 9 种翻满图鉴；冬季企鹅最爱来，镇园之宝大熊猫要评级 ≥80 且游客 ≥80 才点头</div>
+                </div>
+              ) : (
+                <>
+                  {/* 图鉴进度 */}
+                  <div className="zoo-head">
+                    <span className="zh-progress">图鉴 <b>{econ.zoo.n}</b>/{econ.zoo.total} 种</span>
+                    <span className="zh-bonus">吸引力 +{econ.zoo.at} · 幸福 +{econ.zoo.hap}{econ.zoo.k > 1 ? ` · 游客 ×${econ.zoo.k.toFixed(2)}` : ''}</span>
+                    <span className="zh-next">下次巡查 {Math.max(0, Math.round((econ.zoo.next - econ.gHours) * 10) / 10)} 游戏时后</span>
+                  </div>
+                  {/* 九宫格图鉴卡 */}
+                  <div className="zoo-grid">
+                    {ZOO_SPECIES.map(sp => {
+                      const got = econ.zoo.got.includes(sp.id);
+                      return (
+                        <div key={sp.id} className={`zk-card${got ? ' on' : ''}${sp.rare === 2 ? ' rare2' : sp.rare === 1 ? ' rare1' : ''}`}>
+                          <div className="zk-head">
+                            <img src={iu(sp.icon)} alt="" width={22} height={22} />
+                            <b>{got ? sp.name : '？？？'}</b>
+                            {sp.rare === 2 ? <i className="zk-badge r2">镇园</i> : sp.rare === 1 ? <i className="zk-badge r1">稀有</i> : null}
+                          </div>
+                          <div className="zk-note">{got ? sp.note : '图鉴未录 —— 等它搬来那天再告诉你'}</div>
+                          <div className="zk-bonus">{sp.at > 0 ? `吸引力 +${sp.at}` : ''}{sp.hap > 0 ? `${sp.at > 0 ? ' · ' : ''}幸福 +${sp.hap}` : ''}{sp.tourK ? ` · 游客 ×${sp.tourK.toFixed(2)}` : ''}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+              <div className="zoo-note">
+                动物入住看城市的底气：吸引力与评级越高，巡查员的评估越快通过；
+                季节也有话语权 —— 冬天企鹅排着队来，夏天锦鲤挤破池塘；
+                拆园不停簿：已入住的住户寄养城中、加成保留，重建动物园巡查即恢复
               </div>
             </div>
           </div>
@@ -3127,7 +3203,7 @@ export default function PixelCity() {
                     <tr><td>地形</td><td>真实海拔起伏：抬升造山、降低挖谷（挖到 0 化为水域）；山坡建房自动整地（另付小额费用）；行人车辆会爬坡</td></tr>
                     <tr><td>桥梁</td><td>道路工具拖过水面自动架桥（15G/格，物流网络科技打折），桥面与岸上路面齐平，行人车辆畅通无阻</td></tr>
                     <tr><td>四季</td><td>春樱/夏绿/秋红/冬雪随时钟轮转（每季 4 分钟×1）：春季樱花瓣飘落、冬季水面封冻大地积雪；粮产/商业/用电随季节联动</td></tr>
-                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>城市卫士应急联动</b>（交番驻巡逻警车·治安+220 护盾；火灾/疫病来袭消防车救护车沿路驰援——到场喷水/接载并免余损，设施邻路是关键）· <b>消防水网与火势蔓延</b>（消防局半径 5 格·消防栓半径 2 格织成水网：覆盖区火势减半；盲区起火蔓延更快且会蹿烧邻栋——受灾住户与街坊都写进个人史册，消防员到场还可能成为你家恩人）· <b>市民列传</b>（人口迁入迎来有名有姓的市民：顶栏「民」指标开名人册看传记与大事记，观察工具点击街上行人打招呼——在册市民就是本人、脸生的则是过路人，成婚添丁组成家族谱系，市民之声随城市状态轮播）· <b>市长信箱</b>（顶栏「邮」指标：市民随城市状态来信——求助/吐槽/感谢/见闻，回信影响他们的心情，回满 8 封解锁成就「见字如面」）· <b>市长公署</b>（顶栏「批」指标：每日清晨公文送抵案头——请愿/联名/风闻/献策，每份两三道朱批各有代价与回响，府库/人口/粮仓/民心随之而动，批注落笔编年史「政令」卷）· <b>城市节庆</b>（顶栏「庆」指标：随季节办节 —— 樱花祭/花火大会/丰收节/暖灯节，90 秒全城增益配专属街景特效）· <b>市况荣枯</b>（景气指数随时间起落：繁荣商业游客双旺、衰退市道冷清，大灾大喜震动市况，荣枯起落写入编年史；财政报告「市况荣枯」看行情条，金融枢纽科技解锁「平准均输」法令可熨平波动）· <b>城市联赛</b>（顶栏「球」指标：体育场落成后「市民联」联赛自动开张——每隔数日一场主场，比赛日商业 ×1.08 · 游客 ×1.22 · 幸福 +1，赢球彩带飘满全城 120 秒；客队档次随城市评级升级，每 6 场一赛季积分加冕，战绩奖杯写进编年史；「球场风云」看赛程战绩与荣誉墙）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
+                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>城市卫士应急联动</b>（交番驻巡逻警车·治安+220 护盾；火灾/疫病来袭消防车救护车沿路驰援——到场喷水/接载并免余损，设施邻路是关键）· <b>消防水网与火势蔓延</b>（消防局半径 5 格·消防栓半径 2 格织成水网：覆盖区火势减半；盲区起火蔓延更快且会蹿烧邻栋——受灾住户与街坊都写进个人史册，消防员到场还可能成为你家恩人）· <b>市民列传</b>（人口迁入迎来有名有姓的市民：顶栏「民」指标开名人册看传记与大事记，观察工具点击街上行人打招呼——在册市民就是本人、脸生的则是过路人，成婚添丁组成家族谱系，市民之声随城市状态轮播）· <b>市长信箱</b>（顶栏「邮」指标：市民随城市状态来信——求助/吐槽/感谢/见闻，回信影响他们的心情，回满 8 封解锁成就「见字如面」）· <b>市长公署</b>（顶栏「批」指标：每日清晨公文送抵案头——请愿/联名/风闻/献策，每份两三道朱批各有代价与回响，府库/人口/粮仓/民心随之而动，批注落笔编年史「政令」卷）· <b>城市节庆</b>（顶栏「庆」指标：随季节办节 —— 樱花祭/花火大会/丰收节/暖灯节，90 秒全城增益配专属街景特效）· <b>市况荣枯</b>（景气指数随时间起落：繁荣商业游客双旺、衰退市道冷清，大灾大喜震动市况，荣枯起落写入编年史；财政报告「市况荣枯」看行情条，金融枢纽科技解锁「平准均输」法令可熨平波动）· <b>城市联赛</b>（顶栏「球」指标：体育场落成后「市民联」联赛自动开张——每隔数日一场主场，比赛日商业 ×1.08 · 游客 ×1.22 · 幸福 +1，赢球彩带飘满全城 120 秒；客队档次随城市评级升级，每 6 场一赛季积分加冕，战绩奖杯写进编年史；「球场风云」看赛程战绩与荣誉墙）· <b>城市动物园</b>（顶栏「兽」指标：动物园落成后物种图鉴开册——巡查员定期进园评估，吸引力与评级越高动物住户来得越勤，每种住户给吸引力/幸福加成；冬季企鹅最爱来、夏天锦鲤挤破池塘、镇园之宝大熊猫要高评级才点头；集齐 9 种解锁「万兽来朝」）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
                     <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
                     <tr><td>引导</td><td>首次进入经营模式自动展开新手引导横幅（修路→建房→迎市民→开业→看面板→认市民）；随时可跳过，也可在这里点「重新查看新手引导」重看</td></tr>
                     <tr><td>音效</td><td>顶栏喇叭图标：音效开关 + 主音量滑杆（本地记忆偏好）；建造/金币/灾害警报/应急警笛/电车铃/季节钟声/成就凯旋等 21 种专属 8-bit 音色</td></tr>

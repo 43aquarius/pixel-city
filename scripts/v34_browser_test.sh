@@ -54,7 +54,7 @@ S=$(cd /home/z/my-project && bun -e '
 import { LG_SZN, LG_GAP, LG_PRE, LG_COM_K, LG_TOUR_K, LG_HAP, LG_MOOD_WIN, LG_MOOD_DRAW, LG_MOOD_LOSE,
   LG_MOOD_T, LG_FXT, LG_TIERS, LG_TEAMS, LG_HOME, ACHIEVEMENTS, QUESTS } from "./src/lib/pixelcity/tycoon.ts";
 const a1 = ACHIEVEMENTS.find(a => a.id === "win5"), a2 = ACHIEVEMENTS.find(a => a.id === "champ1");
-const q = QUESTS[QUESTS.length - 1];
+const q = QUESTS.find(x => x.id === "lg1") ?? QUESTS[QUESTS.length - 1];   // v35 起任务在末尾追加（zoo3），按 id 定位本版任务
 console.log(JSON.stringify({
   k: LG_SZN + "," + LG_GAP + "," + LG_PRE + "," + LG_COM_K + "," + LG_TOUR_K + "," + LG_HAP,
   mood: LG_MOOD_WIN + "," + LG_MOOD_DRAW + "," + LG_MOOD_LOSE + "," + LG_MOOD_T + "," + LG_FXT,

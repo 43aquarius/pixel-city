@@ -186,6 +186,59 @@ export const LG_TEAMS = [
 ] as const;
 /** 主队名（体育场落成即开张的市民俱乐部） */
 export const LG_HOME = '市民联';
+
+// ---- v35 百兽之园：动物园与物种图鉴 ----
+export const ZOO_ROLL_GAP = 7;          // 动物巡查员巡园间隔（游戏时；入住判定步长）
+export const ZOO_BASE_P = 0.30;         // 基础入住概率（另有吸引力与评级加成，封顶 0.8）
+/** 物种定义：rare 0 常见 / 1 稀有 / 2 镇园之宝 */
+export type ZooSpeciesDef = {
+  id: string; name: string; rare: 0 | 1 | 2;
+  at: number;             // 吸引力加成（并入城市 attract）
+  hap: number;            // 幸福加成（企鹅冬季另有 +2，在 snapOf 结算）
+  tourK?: number;         // 游客乘数（仅镇园之宝）
+  icon: string;           // 图鉴像素头像（icons.ts）
+  note: string;           // 图鉴一句话
+  w?: (rating: number, season: number, tourists: number) => number;   // 入住权重（缺省 1；0 = 暂不可来）
+};
+export const ZOO_SPECIES: ZooSpeciesDef[] = [
+  { id: 'rabbit', name: '垂耳兔', rare: 0, at: 1, hap: 0, icon: 'rabbit',
+    note: '圆滚滚的安静住户，耳朵比脸还长，孩子们排队来看' },
+  { id: 'goat', name: '小山羊', rare: 0, at: 1, hap: 0, icon: 'goat',
+    note: '会隔着围栏跟饲养员讨胡萝卜吃，咩声很元气' },
+  { id: 'deer', name: '梅花鹿', rare: 0, at: 2, hap: 0, icon: 'deer',
+    note: '晨雾里散步时最好看的剪影，皮毛上的白点像落了星子' },
+  { id: 'peacock', name: '蓝孔雀', rare: 1, at: 2, hap: 1, icon: 'peacock',
+    note: '开屏那天全城都来拍照，尾巴上缀着一百只眼睛' },
+  { id: 'flamingo', name: '火烈鸟', rare: 1, at: 3, hap: 1, icon: 'flamingo',
+    note: '把水池站成一片晚霞，单腿立着打盹是它们的绝活' },
+  { id: 'redpanda', name: '小熊猫', rare: 1, at: 3, hap: 1, icon: 'redpanda',
+    note: '尾巴一圈环纹，上树比下树利索，睡觉四脚朝天' },
+  { id: 'penguin', name: '王企鹅', rare: 1, at: 3, hap: 1, icon: 'penguin',
+    note: '摇摇摆摆的巡游队 —— 冬天的园区因它们格外热闹（冬季幸福 +2）',
+    w: (_r, season) => (season === 3 ? 4 : season === 1 ? 0.3 : 1) },
+  { id: 'koi', name: '锦鲤', rare: 1, at: 2, hap: 0, icon: 'koi',
+    note: '池塘里游动的活邮票，夏日投喂时刻围满了人',
+    w: (_r, season) => (season === 1 ? 4 : season === 3 ? 0.3 : 1) },
+  { id: 'panda', name: '大熊猫', rare: 2, at: 6, hap: 2, tourK: 1.08, icon: 'panda',
+    note: '从远山请来的镇园之宝：全国组都未必有的排面 —— 游客 ×1.08 · 幸福 +2（评级 ≥80 且游客 ≥80 才会点头）',
+    w: (rating, _s, tourists) => (rating >= 80 && tourists >= 80 ? 1 : 0) },
+];
+/** 物种加成汇总（snap/view 与图鉴面板共用） */
+export function zooBonusOf(got: string[], season: number): { at: number; hap: number; tourK: number } {
+  let at = 0, hap = 0, tourK = 1;
+  for (const sp of ZOO_SPECIES) {
+    if (!got.includes(sp.id)) continue;
+    at += sp.at;
+    hap += sp.hap;
+    if (sp.id === 'penguin' && season === 3) hap += 2;   // 企鹅冬季加成
+    if (sp.tourK) tourK *= sp.tourK;
+  }
+  return { at, hap, tourK };
+}
+/** 入住权重查询（0 = 暂不可来；镇园之宝看评级与游客门槛） */
+export function zooWeightOf(sp: ZooSpeciesDef, rating: number, season: number, tourists: number): number {
+  return sp.w ? sp.w(rating, season, tourists) : 1;
+}
 /** 火灾起火热势（火头初燃） */
 export const FIRE_HEAT0 = 0.35;
 /** 火势增速/秒：水网覆盖区（消防栓水压压制）与盲区 */
@@ -194,6 +247,25 @@ export const FIRE_HEAT_OUT = 0.026;
 /** 蔓延判定间隔（秒）与蔓延搜索半径（切比雪夫：火头跳邻栋） */
 export const FIRE_SPREAD_T = 5.5;
 export const FIRE_SPREAD_R = 2;
+// ---- v36 公共卫生空间化：悬壶济世 · 健康之城 ----
+/** 各医疗设施的接诊半径（切比雪夫，自锤点起算）。
+ *  诊所 3 / 医院 6 / 防疫站 4 / 市政厅 2（早期聚落市政厅附设义诊棚）。
+ *  半径外的住宅＝医疗盲区：看病要跨半座城（幸福 −1.4/栋至多 −7）；
+ *  半径外的商铺：店员病倒客人却步（收入 ×0.94）；
+ *  疫病偏爱在盲区住宅爆发，且在盲区蔓延更快（防疫站在城全城传播机率 ×0.6） */
+export const MED_R: Record<string, number> = {
+  clinic: 3, hospital: 6, healthst: 4, cityhall: 2,
+};
+/** 医疗盲区住宅幸福惩罚上限（−1.4/栋） */
+export const MED_HAP_MAX = 7;
+/** 医疗盲区商铺收入乘数（病假摊薄：店员带病营业，客人绕着走） */
+export const MED_EARN_K = 0.94;
+/** 疫病蔓延判定间隔（秒）与蔓延搜索半径（切比雪夫：疫点跳邻栋住宅） */
+export const PLAGUE_SPREAD_T = 6.5;
+export const PLAGUE_SPREAD_R = 2;
+/** 单次蔓延概率：医疗覆盖区（消毒隔离有序）与盲区（防疫站站在城再 ×0.6） */
+export const PLAGUE_P_IN = 0.16;
+export const PLAGUE_P_OUT = 0.55;
 
 /** v21 垃圾产量（件/分）：住宅按人口、商业按营收、工业按污染规模推导；
  *  环卫设施自产归零（自家的账自家清）；市政厅/公园等 pop=0 公共设施天然零产。 */
@@ -350,6 +422,8 @@ export const ECON: Record<string, EconDef> = {
   museum: D(550, 7, { power: 6, amenity: 4, upk: 2, edu: 25, sp: 1.5, cul: 4 }),
   firestation: D(240, 5, { power: 3, amenity: 3, upk: 1.5 }),
   hydrant: D(45, 2, { upk: 0.2 }),   // v24 消防栓：半径 2 消防覆盖（廉价延伸）
+  clinic: D(180, 2, { power: 2, amenity: 2, upk: 0.8 }),   // v36 诊所：半径 3 医疗覆盖（早期实惠之选）+ 健康指数 +120 病床
+  healthst: D(480, 5, { power: 3, amenity: 2, upk: 1.6 }),   // v36 防疫站：半径 4 医疗覆盖 + 疫病蔓延机率 ×0.6 + 健康指数 +260 病床
   koban: D(140, 2, { power: 1, amenity: 1, upk: 0.8 }),   // v12 交番：安全护盾 + 巡逻车
   policehq: D(550, 5, { power: 4, amenity: 3, upk: 2.2 }),   // v23 警察局：巡防半径 6 + 常驻 2 辆巡逻车 + 失窃出警
   ecotower: D(720, 6, { power: 8, amenity: 2, upk: 2.4 }),  // v19 空气净化塔：半径 5 格强净化
@@ -370,6 +444,8 @@ export const ECON: Record<string, EconDef> = {
   // ---- v31 都会名片：地标双塔 ----
   opera: D(1800, 7, { power: 14, amenity: 6, upk: 4, cul: 6 }),   // 半径 6 文化街区 + 全市幸福 +2（首座落成入编年史）
   expo: D(2400, 8, { power: 16, amenity: 5, upk: 5, cul: 4, sp: 1 }),   // 节庆引擎：历时+30% 冷却−20% 节庆期游客+30%
+  // ---- v35 百兽之园 ----
+  zoo: D(1500, 6, { power: 10, amenity: 4, upk: 3.2, cul: 3, edu: 6, sp: 0.3 }),   // 物种图鉴引擎：住户越多吸引力越高（基础吸引力 5）
   cellmast: D(120, 7, { power: 2, upk: 0.25 }),
   // ---- 水务（v6：供水覆盖指数）----
   watertower: D(130, 2, { power: 2, amenity: 1, upk: 0.75, waterR: 9, waterCap: 260 }),
@@ -465,6 +541,9 @@ export type ActiveEvent = {
   spreadT?: number;
   /** v24 应急到场标记（火势冻结、蔓延停止） */
   resolved?: boolean;
+  /** v36 疫病实景：已蔓延感染栋数（疫点跳邻栋）与蔓延判定倒计时（秒） */
+  infN?: number;
+  infT?: number;
 };
 
 export type EventLogItem = { t: number; name: string; kind: 'good' | 'bad'; result: string };
@@ -525,18 +604,34 @@ const EVENT_TPLS: EventTpl[] = [
   {
     key: 'plague', name: '疫病流行', kind: 'bad', dur: 25, hap: -8,
     mult: {}, fx: true, resp: 'aid',
-    note: '传染病蔓延，救护车赶到可免大部分病退',
-    w: s => (s.pop >= 60 ? (s.hospitals > 0 ? 5 : 13) : 0),
+    note: '传染病在街区蔓延，救护车赶到可免大部分病退',
+    // v36：疫病偏爱医疗盲区（诊所/医院照不到的巷子最先倒下）；全覆盖则低权重偶发
+    w: s => (s.pop >= 60 ? (s.medMissRes > 0 ? 12 : (s.hospitals + s.clinics > 0 ? 5 : 13)) : 0),
+    // v36：现场优先选医疗盲区住宅（缺省退回已购随机住宅 —— 疫总是从住家开始的）
+    fxPick: (map, t) => {
+      const cands = [...map.objs.values()].filter(o => defById(o.id).cat === 'res' &&
+        t.ownedAt(o.ax, o.ay) && t.medMissField.has(map.idx(o.ax, o.ay)));
+      if (cands.length) {
+        const o = cands[(Math.random() * cands.length) | 0];
+        return { x: o.ax, y: o.ay };
+      }
+      const res = [...map.objs.values()].filter(o => defById(o.id).cat === 'res' && t.ownedAt(o.ax, o.ay));
+      if (res.length) {
+        const o = res[(Math.random() * res.length) | 0];
+        return { x: o.ax, y: o.ay };
+      }
+      return undefined;
+    },
     fire: (t, s, bill) => {
-      // v12 两段结算：即时 40% + 余款挂账（救护车到场收治则豁免）
-      const cut = s.hospitals > 0 ? 0.5 : 1;
+      // v12 两段结算：即时 40% + 余款挂账（救护车到场收治则豁免）；v36 诊所与医院同为接诊设施
+      const cut = s.hospitals + s.clinics > 0 ? 0.5 : 1;
       const total = Math.max(1, Math.round(t.pop * 0.06 * cut));
       const now = Math.max(1, Math.round(total * 0.4));
       if (bill) bill.p = total - now;
       t.pop = Math.max(0, t.pop - now);
-      return s.hospitals > 0
+      return s.hospitals + s.clinics > 0
         ? `救护车鸣笛出诊！${now} 人先期病退 —— 祈祷急救及时`
-        : `${now} 位市民病倒离开，疫情仍在蔓延 —— 医院不可少`;
+        : `${now} 位市民病倒离开，疫情仍在蔓延 —— 快把诊所/医院接进街区`;
     },
   },
   {
@@ -765,6 +860,11 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 5, val: (_s, t) => t.lgW },
   { id: 'champ1', name: '冠军旗帜', desc: '赢得首个赛季冠军（每 6 场主场比赛为一赛季，积分 ≥13 加冕 —— 颁奖礼的彩带会飘满全城，编年史记下这一天）', icon: 'ball',
     goal: 1, val: (_s, t) => t.lgT1 },
+  // ---- v35 百兽之园 ----
+  { id: 'zoo1', name: '开园纳客', desc: '动物园迎来首位动物住户（巡查员定期进园评估：吸引力与评级越高，住户来得越勤 —— 图鉴从这里翻开第一页）', icon: 'paw',
+    goal: 1, val: (_s, t) => (t.zooGot.length >= 1 ? 1 : 0) },
+  { id: 'zoo9', name: '万兽来朝', desc: '集齐全部 9 种动物住户（冬来企鹅夏来锦鲤，镇园之宝大熊猫要评级 ≥80 且游客 ≥80 才点头 —— 图鉴集齐之日，全城游园）', icon: 'paw',
+    goal: 9, val: (_s, t) => t.zooGot.length },
   // ---- v17 城市编年史 ----
   { id: 'chron60', name: '汗青永续', desc: '编年史累计记下 60 笔城市纪事（开埠/时代跃迁/事件/科技/节庆/法令/里程碑皆入册）', icon: 'book',
     goal: 60, val: (_s, t) => t.chron.total },
@@ -805,6 +905,11 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 95, val: (s, t) => (t.pop >= 100 ? s.fireCover : 0) },
   { id: 'blaze5', name: '烈火雄心', desc: '消防车及时扑灭 5 场火灾（起火偏爱消防盲区且会蔓延：设施务必邻路且路网连通现场 —— 到场即架枪，余损全免）', icon: 'fire',
     goal: 5, val: s => s.rescueFire },
+  // ---- v36 公共卫生空间化 ----
+  { id: 'apricot', name: '杏林春满', desc: '人口 ≥100 且医疗覆盖 ≥95% —— 家家门口有大夫（医疗半径：诊所 3 格 · 医院 6 格 · 防疫站 4 格；市政厅自带义诊棚）', icon: 'heart',
+    goal: 95, val: (s, t) => (t.pop >= 100 ? s.medCover : 0) },
+  { id: 'medsaved3', name: '仁心妙术', desc: '救护车在疫情扩散前赶到 3 次（疫病偏爱医疗盲区住宅且会蔓延邻栋：设施务必邻路且路网连通疫点 —— 到场即隔离，蔓延归零）', icon: 'heart',
+    goal: 3, val: (_s, t) => t.medSaved },
   // ---- v26 生民列传：含饴弄孙·四季人生 ----
   { id: 'grown6', name: '长大成人', desc: '累计 6 位市民长大成人（本城出生的孩子到了年纪行完成人礼：按学历择业安身，制服与速写随人生更新 —— 名人册里等他们长大）', icon: 'people',
     goal: 6, val: (_s, t) => t.citz.grownN },
@@ -826,6 +931,7 @@ export const TECH_GATE: Record<string, string> = {
   observatory: 'higher',
   university: 'higher',   // v22 大学城：与天文台同源「高等教育」
   aquarium: 'brand',
+  zoo: 'brand',           // v35 动物园：与水族馆同源「城市名片」（圈养保育需名声在外）
   opera: 'brand',         // v31 大剧院：文旅地标同源「城市名片」
   expo: 'struct',         // v31 会展中心：大跨度拱棚需「建筑工程学」
   dock: 'logistic',
@@ -989,6 +1095,13 @@ export type QS = {
   fireOut: number;      // 消防盲区栋数（商铺+住宅+工业）
   fireMissRes: number;  // 盲区住宅栋数（幸福惩罚源：睡不安稳）
   hydrants: number;     // 消防栓座数
+  // ---- v36 公共卫生空间化 ----
+  medCover: number;     // 医疗覆盖率 %（接诊圈内商铺+住宅 / 全部）
+  medIn: number;        // 接诊圈内建筑栋数（商铺+住宅）
+  medOut: number;       // 医疗盲区栋数（商铺+住宅）
+  medMissRes: number;   // 盲区住宅栋数（幸福惩罚源：求医无门；疫病偏爱现场）
+  clinics: number;      // 诊所座数
+  healthsts: number;    // 防疫站座数
   // ---- v26 生民列传 ----
   citzElders: number;   // 在册长者数（body=2）
   citzBorn: number;     // 累计本城出生数
@@ -1002,6 +1115,12 @@ export type QS = {
   lgPre: number;        // 比赛日预热中
   lgTourK: number;      // 比赛日游客乘数
   lgComK: number;       // 比赛日商业乘数
+  // ---- v35 百兽之园 ----
+  zoos: number;         // 动物园座数（任务口径）
+  zooN: number;         // 已入住物种数（任务口径）
+  zooAt: number;        // 物种吸引力加成
+  zooHap: number;       // 物种幸福加成（企鹅冬季另计）
+  zooK: number;         // 镇园之宝游客乘数
 };
 
 export type Quest = {
@@ -1117,6 +1236,9 @@ export const QUESTS: Quest[] = [
   // ---- v24 消防空间化 ----
   { id: 'fire1', title: '有备无患', hint: '建造 1 座消防栓（半径 2 格消防覆盖）：消防局的廉价延伸，把街区拐角补进水网 —— 盲区建筑一旦起火，火势蔓延更快、损失更重', goal: 1,
     val: s => s.hydrants, rG: 180, rXp: 90 },
+  // ---- v36 公共卫生空间化 ----
+  { id: 'med1', title: '悬壶济世', hint: '建造 1 座诊所（半径 3 格医疗覆盖）：街区里的白墙绿十字 —— 医疗盲区的住宅看病要跨半座城，疫病还偏爱在盲区爆发蔓延；诊所廉价便捷，医院接诊半径更大', goal: 1,
+    val: s => s.clinics + s.healthsts, rG: 220, rXp: 110 },
   // ---- v26 生民列传 ----
   { id: 'grown1', title: '长大成人', hint: '一位市民长大成人（本城出生/迁入的孩子到了年纪会行完成人礼：按学历择业安身 —— 名人册里等他长大）', goal: 1,
     val: s => s.citzGrown, rG: 240, rXp: 120 },
@@ -1126,6 +1248,9 @@ export const QUESTS: Quest[] = [
   // ---- v34 体育盛典 ----
   { id: 'lg1', title: '绿茵之城', hint: '建成体育场并赢下一场主场比赛（体育场落成后「市民联」联赛自动开张：每隔数日一场主场，比赛日商业游客双旺、赛后赢球全城沸腾 —— 顶栏「球」指标看赛程战绩与奖杯）', goal: 1,
     val: s => (s.stadiums > 0 && s.lgW > 0 ? 1 : 0), rG: 480, rXp: 210 },
+  // ---- v35 百兽之园 ----
+  { id: 'zoo3', title: '百兽之园', hint: '建成动物园并迎来 3 位动物住户（需先研究「城市名片」；巡查员定期进园评估 —— 吸引力与评级越高住户来得越勤，冬季企鹅最爱来、镇园之宝大熊猫要高评级才点头；顶栏「兽」指标翻物种图鉴）', goal: 3,
+    val: s => (s.zoos > 0 ? Math.min(3, s.zooN) : 0), rG: 520, rXp: 220 },
 ];
 
 // ------------------------------------------------------------
@@ -1160,7 +1285,7 @@ export type EconView = {
   hist: HistPoint[];
   // ---- v5：天气 / 事件 / 成就 ----
   weather: WeatherState;
-  events: Array<{ key: string; name: string; note: string; kind: 'good' | 'bad'; left: number; dur: number; spreadN?: number; heat?: number }>;
+  events: Array<{ key: string; name: string; note: string; kind: 'good' | 'bad'; left: number; dur: number; spreadN?: number; heat?: number; infN?: number }>;
   eventLog: EventLogItem[];
   achv: Array<{ id: string; name: string; desc: string; icon: string; got: boolean; cur: number; goal: number }>;
   achvGot: number;
@@ -1248,6 +1373,18 @@ export type EconView = {
     mood: number; moodT: number;                   // 赛后情绪与倒计时
   };
   gHours: number;         // 当前游戏时（赛程倒计时用）
+  // ---- v35：百兽之园（动物园与物种图鉴）----
+  zoo: {
+    on: boolean;          // 园区已开（动物园在城）
+    n: number;            // 已入住物种数
+    total: number;        // 物种总数（图鉴页数）
+    got: string[];        // 已入住物种 id（入住顺序）
+    next: number;         // 下次巡查游戏时（-1 未开园）
+    at: number;           // 物种吸引力加成
+    hap: number;          // 物种幸福加成
+    k: number;            // 镇园之宝游客乘数
+  };
+  zoos: number; zooN: number; zooAt: number; zooHap: number; zooK: number;
   // ---- v19：污染空间化 ----
   smogTiles: number;                // 雾霾格数（浓度 ≥45）
   smogBad: number;                  // 重污染格数（浓度 ≥75）
@@ -1293,6 +1430,14 @@ export type EconView = {
   fireOut: number;                  // 消防盲区栋数
   fireMissRes: number;              // 盲区住宅栋数
   hydrants: number;                 // 消防栓座数
+  // ---- v36 公共卫生空间化 ----
+  medCover: number;                 // 医疗覆盖率 %
+  medIn: number;                    // 接诊圈内建筑栋数（商铺+住宅）
+  medOut: number;                   // 医疗盲区栋数（商铺+住宅）
+  medMissRes: number;               // 盲区住宅栋数（幸福惩罚源：求医无门）
+  clinics: number;                  // 诊所座数
+  healthsts: number;                // 防疫站座数
+  medSaved: number;                 // 疫病零蔓延化解次数（成就口径）
   secIn: number;                    // 巡防内建筑栋数（商铺+住宅）
   secOut: number;                   // 盲区建筑栋数（商铺+住宅）
   crimeN: number;                   // 盲区商铺数（失窃目标池）
@@ -1475,6 +1620,14 @@ export class Tycoon {
   /** 体育场落成纪事（只写一次） */
   lgSeen = false;
 
+  // ---- v35：百兽之园（动物园与物种图鉴）----
+  /** 下次动物巡查时刻（游戏时；-1 = 园区未开张：城里还没有动物园） */
+  zooNext = -1;
+  /** 已入住物种 id 列表（图鉴口径；顺序即入住顺序） */
+  zooGot: string[] = [];
+  /** 动物园落成纪事（只写一次） */
+  zooSeen = false;
+
   // ---- v11：出口市场（随行就市 / 惜售囤货）----
   /** 出口市价系数（0.55..1.55；1 = 基准价；随机游走 + 均值回归） */
   mkt = 1;
@@ -1630,6 +1783,20 @@ export class Tycoon {
   rescuePolice = 0;
   /** v23 警察局数（engine 每帧读取折算巡逻编制） */
   policehqNow = 0;
+
+  // ---- v36：公共卫生空间化（悬壶济世 · 健康之城）----
+  /** 医疗覆盖内建筑锤点集合（商铺+住宅；引擎盲区渲染判定） */
+  medField = new Set<number>();
+  /** 医疗盲区建筑锤点集合（商铺+住宅；疫病偏爱现场 / 幸福与收入惩罚源） */
+  medMissField = new Set<number>();
+  /** 医疗场缓存版本（仅随 map.version 变化重算：摆盘即重算） */
+  private medVer = -1;
+  /** 盲区警告（一档一次，覆盖后复位） */
+  private medWarned = false;
+  /** v36 零蔓延化解计数（成就口径：救护车赶到时疫情尚未扩散） */
+  medSaved = 0;
+  /** v36 防疫站在城数（snapOf 每帧回写；疫病蔓延机率 ×0.6） */
+  private healthstN = 0;
 
   hasOrd(id: string): boolean { return this.ords.has(id); }
 
@@ -1850,6 +2017,8 @@ export class Tycoon {
     this.ensureSec(map);
     // v24：消防覆盖场先行（盲区商铺折扣 / 起火偏爱现场 / 幸福惩罚；仅随摆盘重算）
     this.ensureFire(map);
+    // v36：医疗覆盖场先行（盲区商铺折扣 / 疫病偏爱现场 / 幸福惩罚；仅随摆盘重算）
+    this.ensureMed(map);
     // v31：文化街区覆盖场先行（大剧院商圈商铺收入加成 / 统计判定源；仅随摆盘重算）
     this.ensureCult(map);
     // v32：滨水价值场先行（商铺收入加成 / 住宅幸福加成 / 统计判定源；随摆盘与涂地形重算）
@@ -1860,9 +2029,11 @@ export class Tycoon {
     let hasPower = 0, hasSchool = 0, hasHospital = 0, hasTower = 0;
     let hasLib = 0, hasGreen = 0, foodProd = 0, foodCap = FOOD_BASE_CAP, eduCap = 0, spRaw = 0, culSup = 0;
     let hospitals = 0, firestations = 0, kobans = 0;   // v12：交班计数
+    let clinics = 0, healthsts = 0;                     // v36：诊所 / 防疫站计数
     let operas = 0, expos = 0;                        // v31：地标双塔计数
     let wfRes = 0, marinas = 0;                       // v32：滨水住宅 / 码头计数
     let stadiums = 0;                                 // v34：体育场计数（联赛开张门槛）
+    let zoos = 0;                                     // v35：动物园计数（物种图鉴引擎）
     let levees = 0;                                     // v18：防洪堤计数
     let hasWaterTower = 0, waterCapT = 0;
     let busStops = 0, ferries = 0;
@@ -1878,6 +2049,8 @@ export class Tycoon {
     let secIn = 0, secOut = 0, crimeN = 0, secMissRes = 0, policehqN = 0;
     // v24：消防累计器
     let fireIn = 0, fireOut = 0, fireMissRes = 0, hydrants = 0;
+    // v36：医疗累计器
+    let medIn = 0, medOut = 0, medMissRes = 0;
     // v10：货物 / 旅游累计器
     let goodsP = 0, goodsC = 0, goodsCapV = GOODS_BASE_CAP;
     let hotelBeds = 0, attract = 0, ports = 0;
@@ -1906,6 +2079,9 @@ export class Tycoon {
         // v24：消防判定（盲区住宅 → 睡不安稳）
         if (this.fireField.has(map.idx(o.ax, o.ay))) fireIn++;
         else { fireOut++; fireMissRes++; }
+        // v36：医疗判定（盲区住宅 → 看病要跨半座城）
+        if (this.medField.has(map.idx(o.ax, o.ay))) medIn++;
+        else { medOut++; medMissRes++; }
       } else if (d.cat === 'com') {
         com++; jobs += d.pop;
         // 城市名片：文旅商业收入 +20%；v19 空间污染：雾霾区生意冷清 ×0.82
@@ -1918,12 +2094,16 @@ export class Tycoon {
         const secK = this.secField.has(map.idx(o.ax, o.ay)) ? 1 : SEC_EARN_K;
         // v24 消防：盲区商铺火险保费摊薄（收入 ×0.95）
         const fireK = this.fireField.has(map.idx(o.ax, o.ay)) ? 1 : FIRE_EARN_K;
+        // v36 医疗：盲区商铺店员病倒客人却步（收入 ×0.94）
+        const medK = this.medField.has(map.idx(o.ax, o.ay)) ? 1 : MED_EARN_K;
         // v31 文化街区：大剧院半径内的商铺看戏吃饭一条龙（收入 ×1.08）
         const cultK = this.cultShopField.has(map.idx(o.ax, o.ay)) ? CULT_EARN_K : 1;
         // v32 滨水：水岸景色的店生意更好（码头在城时氛围更浓 ×1.10）
         const wfK = this.nearWater.has(map.idx(o.ax, o.ay)) ? (this.marinaN > 0 ? WF_EARN_K_MARINA : WF_EARN_K) : 1;
         // v20 电网：断电商铺收入归零（黑暗的店谁也进不去）；未断电才计入
-        if (!offGrid) earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK * wasteK * secK * fireK * cultK * wfK;
+        if (!offGrid) earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK * wasteK * secK * fireK * medK * cultK * wfK;
+        // v36 医疗判定（覆盖 → 员工顾客小病不出街区；盲区 → 疫病偏爱的巷子）
+        if (this.medField.has(map.idx(o.ax, o.ay))) medIn++; else medOut++;
         // v23 巡防判定（覆盖 → 安心做买卖；盲区 → 失窃目标池）
         if (this.secField.has(map.idx(o.ax, o.ay))) secIn++; else { secOut++; crimeN++; }
         // v24 消防判定（覆盖 → 水枪够得着；盲区 → 起火偏爱现场）
@@ -1945,6 +2125,8 @@ export class Tycoon {
         if (o.id === 'hospital') { hasHospital = 1; hospitals++; }
         if (o.id === 'firestation') firestations++;
         if (o.id === 'hydrant') hydrants++;                    // v24 消防栓
+        if (o.id === 'clinic') clinics++;                     // v36 诊所
+        if (o.id === 'healthst') healthsts++;                  // v36 防疫站
         if (o.id === 'koban') kobans++;                     // v12
         if (o.id === 'policehq') policehqN++;               // v23 警察局
         if (o.id === 'levee') levees++;                     // v18 防洪堤
@@ -1952,6 +2134,7 @@ export class Tycoon {
         if (o.id === 'expo') expos++;                       // v31 会展中心
         if (o.id === 'marina') marinas++;                   // v32 游船码头
         if (o.id === 'stadium') stadiums++;                 // v34 体育场
+        if (o.id === 'zoo') zoos++;                         // v35 动物园
       }
       // v6 水务设施：登记覆盖圆心（半径含足迹）
       if (e?.waterR) {
@@ -2095,6 +2278,9 @@ export class Tycoon {
     const lgComK = lgPre ? LG_COM_K : 1;
     const lgTourK = lgPre ? LG_TOUR_K : 1;
     const lgHap = (lgPre ? LG_HAP : 0) + (this.lgMoodT > 0 ? this.lgMood : 0);
+    // v35 百兽之园：物种住户加成（吸引力并入 attract；幸福与游客乘数单算；企鹅冬季另有加成）
+    const zooB = zooBonusOf(this.zooGot, this.season);
+    attract += zooB.at;
     // v22 人力资本：在册市民平均学历 → hrIdx（空册兑底 50）；超过基线才有加成
     //   （只 buff 不打折：老城不因新玩法亏钱，大学城工业/科研至多 +16%/+20%）
     const hrIdx = this.citz.hrIdx();
@@ -2161,9 +2347,12 @@ export class Tycoon {
     //   v19：再叠加空间雾霾修正（重污染格 −0.5/格 · 重污染住宅 −3/栋 —— 工业挨着住宅盖会现世报）
     const envIdx = Math.max(0, Math.min(100, Math.round(
       100 - polluteNet * 9 - smogBad * 0.5 - smogRes * 3 - wasteN * 0.8 - wasteBad * 0.8)));
-    // 健康：病床覆盖（每院 450 床 + 市政厅 50；公共医疗 +20%）
-    const beds = (hospitals * 450 + 50) * (this.has('health') ? 1.2 : 1);
+    // 健康：病床覆盖（每院 450 床 + 每诊所 120 + 每防疫站 260 + 市政厅 50；公共医疗 +20%）
+    //   v36：诊所/防疫站也计入健康指数 —— 小病小痛社区就能看，不必都挤到大医院
+    const beds = (hospitals * 450 + clinics * 120 + healthsts * 260 + 50) * (this.has('health') ? 1.2 : 1);
     const healthIdx = pop < 8 ? 80 : Math.max(0, Math.min(100, Math.round(100 * Math.min(1, beds / pop))));
+    // v36：防疫站在城数回写（疫病蔓延判定用）
+    this.healthstN = healthsts;
     // 安全：消防救援覆盖（每站 550 人 + 基础 100）
     const shields = firestations * 550 + kobans * 220 + 100;   // v12：交班治安护盾
     const safetyIdx = pop < 8 ? 80 : Math.max(0, Math.min(100, Math.round(100 * Math.min(1, shields / pop)) + (this.hasOrd('patrol') ? 15 : 0)));
@@ -2254,13 +2443,15 @@ export class Tycoon {
     const secHap = Math.min(SEC_HAP_MAX, Math.round(secMissRes * 1.2));
     // v24：夜不能寐 —— 每栋消防盲区住宅 −1.0，至多 −5（建消防局/消防栓可解）
     const fireHap = Math.min(FIRE_HAP_MAX, Math.round(fireMissRes * 1.0));
+    // v36：求医无门 —— 每栋医疗盲区住宅 −1.4，至多 −7（建诊所/医院/防疫站可解）
+    const medHap = Math.min(MED_HAP_MAX, Math.round(medMissRes * 1.4));
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
-      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap + this.docHap + cycHap + lgHap
+      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap + this.docHap + cycHap + lgHap + zooB.hap
       + (operas > 0 ? 2 : 0)
       + Math.min(WF_HAP_MAX, wfRes)
-      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区扣减；v29 朱批民心增益；v31 大剧院全市幸福 +2；v32 滨水住宅每栋 +1；v33 市况荣枯 ±2/0/+1/+3；v34 比赛日沸腾 + 赛后情绪
+      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap - medHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区/v36 医疗盲区扣减；v29 朱批民心增益；v31 大剧院全市幸福 +2；v32 滨水住宅每栋 +1；v33 市况荣枯 ±2/0/+1/+3；v34 比赛日沸腾 + 赛后情绪；v35 物种住户幸福（企鹅冬季加成）
     const happyMult = 0.6 + happiness / 125;
 
     // ---- v10 旅游：景点吸引力 × 文化/幸福 × 季节/天气 → 游客（酒店床位为接待上限）----
@@ -2269,7 +2460,7 @@ export class Tycoon {
     const appeal = attract * (0.6 + 0.4 * cultureIdx / 100) * (0.5 + 0.5 * happiness / 100);
     const capVisit = hotelBeds * 2 + 30;
     const tourists = attract < 1 ? 0
-      : Math.min(capVisit, appeal * seasonTourK * weatherTourK * multTour * cycTourK * lgTourK);   // v33：市况荣枯也牵动游客的出行计划；v34：比赛日客队球迷远道而来
+      : Math.min(capVisit, appeal * seasonTourK * weatherTourK * multTour * cycTourK * lgTourK * zooB.tourK);   // v33：市况荣枯也牵动游客的出行计划；v34：比赛日客队球迷远道而来；v35：镇园之宝的招牌效应
     const tourIdx = Math.max(0, Math.min(100, Math.round(attract * 2.4)));
 
     // ---- v10 货物供应链：工业产货 → 零售上货 → 港口外销 ----
@@ -2331,10 +2522,14 @@ export class Tycoon {
       rescuePolice: this.rescuePolice,                                              // v23 巡逻车破案
       fireCover: (fireIn + fireOut) > 0 ? Math.round(100 * fireIn / (fireIn + fireOut)) : 100,
       fireIn, fireOut, fireMissRes, hydrants,                                       // v24 消防空间化
+      medCover: (medIn + medOut) > 0 ? Math.round(100 * medIn / (medIn + medOut)) : 100,
+      medIn, medOut, medMissRes, clinics, healthsts,                                // v36 公共卫生空间化
       operas, expos, cultShops: this.cultShopField.size,                             // v31 都会名片
       wfN: this.wfField.size, wfRes, marinas,                                        // v32 滨水都市
       // ---- v34 绿茵之城 ----
       stadiums, lgPre, lgTourK, lgComK, lgW: this.lgW,
+      // ---- v35 百兽之园 ----
+      zoos, zooN: this.zooGot.length, zooAt: zooB.at, zooHap: zooB.hap, zooK: zooB.tourK,
       // ---- v33 经济周期 ----
       cycIdx: Math.round(this.cycIdx), cycPhase: this.cycPhase, cycHap,
       cycComK, cycTourK, cycIndK, cycMigK,
@@ -2712,6 +2907,38 @@ export class Tycoon {
     this.fireMissField = miss;
   }
 
+  // ---------------- v36：医疗覆盖场（悬壶济世 · 健康之城） ----------------
+
+  /** 重算医疗覆盖（版本缓存：仅 map.version 变化才重算，摆盘/拆迁即触发）。
+   *  Pass A：登记医疗设施（MED_R 半径表：诊所 3 / 医院 6 / 防疫站 4 / 市政厅 2 附设义诊棚）；
+   *  Pass B：商铺与住宅锤点落在任一设施半径内（切比雪夫）→ medField（小病不出社区），
+   *          否则 → medMissField（医疗盲区：看病要跨半座城 · 疫病偏爱现场）。
+   *  生病的是人 —— 医疗覆盖看商铺与住宅（厂房设医务室，不在接诊清单） */
+  private ensureMed(map: CityMap): void {
+    if (map.version === this.medVer) return;
+    this.medVer = map.version;
+    const facs: Array<{ x: number; y: number; r: number }> = [];
+    for (const o of map.objs.values()) {
+      const r = MED_R[o.id];
+      if (r !== undefined) facs.push({ x: o.ax, y: o.ay, r });
+    }
+    const inside = new Set<number>();
+    const miss = new Set<number>();
+    for (const o of map.objs.values()) {
+      const cat = defById(o.id).cat;
+      if (cat !== 'com' && cat !== 'res') continue;
+      const i = map.idx(o.ax, o.ay);
+      let hit = false;
+      for (const f of facs) {
+        if (Math.max(Math.abs(o.ax - f.x), Math.abs(o.ay - f.y)) <= f.r) { hit = true; break; }
+      }
+      if (hit) inside.add(i);
+      else miss.add(i);
+    }
+    this.medField = inside;
+    this.medMissField = miss;
+  }
+
   // ---------------- v29 市长公署：朱批公文 ----------------
 
   /** 条件上下文（快照 + 本档状态组装；公文池据此筛「谁会来呈报」） */
@@ -2992,6 +3219,75 @@ export class Tycoon {
     this.lgScheduleOpp();
   }
 
+  // ---------------- v35：百兽之园（动物园与物种图鉴） ----------------
+
+  /** 动物园开园：排定首次动物巡查（4 游戏时后巡查员进园评估栖息环境） */
+  private zooFound(): void {
+    this.zooNext = this.gHours + 4;
+    this.msg?.('动物园开园 —— 动物巡查员已进园评估栖息环境，第一批动物住户最快明天抵达（物种图鉴已开册）');
+  }
+
+  /** 每帧心跳：开园判定 + 巡查入住（在 tick 中调用；动物需要 snap 的吸引力/评级/游客） */
+  private stepZoo(): void {
+    // 动物园落成 → 开园
+    if (this.zooNext < 0 && (this.snap?.zoos ?? 0) > 0) this.zooFound();
+    // 开园后动物园被拆光 → 巡查暂停（已入住动物寄养城中，加成保留；重建即恢复巡查）
+    if (this.zooNext >= 0 && (this.snap?.zoos ?? 0) === 0) return;
+    // 巡查判定
+    if (this.zooNext >= 0 && this.gHours >= this.zooNext) {
+      this.zooNext = this.gHours + ZOO_ROLL_GAP;
+      if (this.zooGot.length >= ZOO_SPECIES.length) return;   // 图鉴已满
+      const s = this.snap;
+      if (!s) return;
+      // 入住概率：基础 + 吸引力/500 + 评级/600（封顶 0.8 —— 好园子声名远播）
+      const p = Math.min(0.8, ZOO_BASE_P + s.attract / 500 + s.rating / 600);
+      if (Math.random() >= p) return;
+      // 按权重抽一位新住户（季节联动：冬企鹅夏锦鲤；镇园之宝看评级与游客门槛）
+      const remaining = ZOO_SPECIES.filter(sp => !this.zooGot.includes(sp.id));
+      const pool = remaining.map(sp => ({ sp, w: zooWeightOf(sp, s.rating, s.season, s.tourists) }))
+        .filter(x => x.w > 0);
+      if (!pool.length) return;   // 剩余全是暂时不可来的（如熊猫门槛未到）
+      let sum = 0;
+      for (const x of pool) sum += x.w;
+      let r = Math.random() * sum;
+      let pick = pool[0].sp;
+      for (const x of pool) { r -= x.w; if (r <= 0) { pick = x.sp; break; } }
+      this.zooArrive(pick.id);
+    }
+  }
+
+  /** 新住户入住：图鉴登记 + 编年史 + 播报（沙盒/测试也走这条） */
+  private zooArrive(id: string): void {
+    const sp = ZOO_SPECIES.find(x => x.id === id);
+    if (!sp || this.zooGot.includes(id)) return;
+    this.zooGot.push(id);
+    const n = this.zooGot.length;
+    if (sp.rare === 2) {
+      this.chron.write('mile', 'big', 'fest', '镇园之宝驾到',
+        `${sp.name}踏进百兽之园的那一刻，看台上的欢呼声浪几乎掀翻屋顶 —— 全城为之骄傲的排面，${n} 号住户落定。`, this.gHours);
+      this.msg?.(`✦ 镇园之宝「${sp.name}」入住！物种图鉴 ${n}/${ZOO_SPECIES.length} —— 游客 ×${sp.tourK?.toFixed(2)} · 幸福 +${sp.hap}`);
+      this.sfx?.('achieve');
+    } else if (sp.rare === 1) {
+      this.chron.write('event', 'good', 'fest', '稀有住户入住',
+        `百兽之园迎来稀有住户「${sp.name}」。${sp.note} —— 图鉴第 ${n} 页翻开。`, this.gHours);
+      this.msg?.(`✦ 稀有住户「${sp.name}」入住动物园（图鉴 ${n}/${ZOO_SPECIES.length} · 吸引力 +${sp.at}）`);
+      this.sfx?.('bell');
+    } else {
+      this.chron.write('event', 'info', 'fest', '动物园新住户',
+        `百兽之园搬来了新邻居「${sp.name}」。${sp.note}。`, this.gHours);
+      this.msg?.(`· 动物园新住户「${sp.name}」（图鉴 ${n}/${ZOO_SPECIES.length} · 吸引力 +${sp.at}）`);
+      this.sfx?.('bell');
+    }
+  }
+
+  /** 沙盒/测试：强制指定物种入住（绕开巡查与随机；图鉴登记照常） */
+  zooTest(id: string): boolean {
+    if (!ZOO_SPECIES.some(x => x.id === id)) return false;
+    if (this.zooGot.includes(id)) return false;
+    this.zooArrive(id);
+    return true;
+  }
+
   // ---------------- 每帧心跳 ----------------
 
   tick(dt: number, map: CityMap): void {
@@ -3025,6 +3321,8 @@ export class Tycoon {
     this.stepCycle(dt);
     // v34 绿茵之城：联赛开张判定 + 赛后情绪/彩带倒计时 + 开赛哨（比赛日经济已在 snapOf 生效）
     this.stepLeague(dt);
+    // v35 百兽之园：开园判定 + 动物巡查入住（物种加成已在 snapOf 生效）
+    this.stepZoo();
     // 收入 − 维护（G/分 → 按秒累积；可能为负 = 赤字，需拆除减负）
     // 税收 v4：可调税率（0-20%）驱动，高税多金但市民不满
     const tax = this.pop * (this.taxRate / 100) * (this.has('taxref') ? 1.15 : 1) * s.happyMult * s.powerMult;
@@ -3082,6 +3380,12 @@ export class Tycoon {
       this.msg?.(`治安盲区：${s.crimeN} 家商铺不在巡防半径内 —— 夜里容易遭梁上君子光顾；建交班（半径 3）或警察局（半径 6）护住商街`);
     } else if (s.crimeN === 0) this.secWarned = false;
 
+    // v36 医疗警告：医疗盲区出现时一档一次（覆盖后复位）
+    if (s.medMissRes > 0 && !this.medWarned) {
+      this.medWarned = true;
+      this.msg?.(`求医无门：${s.medMissRes} 栋住宅看病要跨半座城 —— 建诊所（半径 3）或医院（半径 6）把街区接进医疗网，疫病也偏爱盲区`);
+    } else if (s.medMissRes === 0) this.medWarned = false;
+
     // 科技点累积（教育设施 × 智慧加成）
     this.sp += s.spRaw * (0.5 + s.wisdom / 100) * (this.has('higher') ? 1.35 : 1) * dt / 60;
 
@@ -3120,8 +3424,10 @@ export class Tycoon {
       eduOut: s.eduOut,                        // v22：学区外住宅心声
       crime: s.crimeN,                         // v23：盲区商铺心声（街坊议论失窃）
       fireOut: s.fireOut,                      // v24：消防盲区心声（火险保贵的街区）
+      medOut: s.medMissRes,                    // v36：医疗盲区心声（看病要跨半座城）
       cyc: s.cycPhase,                         // v33：市况相位心声（衰退抱怨生意淡 / 繁荣夸市道）
       lg: this.lgMoodT > 0 ? (this.lgMood > 0 ? 2 : 3) : s.lgPre,   // v34：绿茵心声（比赛日预热 / 赢球余温 / 输球低落）
+      zooN: s.zooN,                            // v35：动物园住户数（住户在园时市民谈动物）
       day: Math.floor(this.gHours / 24) + 1,   // v30：开埠天数（书信合集收信日）
       inEdu: (x, y) => this.eduField.has(map.idx(x, y)),   // v22：升学判定（学区内市民会随时间求学深造）
     }, this.playtime);
@@ -3163,6 +3469,7 @@ export class Tycoon {
       eduOut: s.eduOut, eduCover: s.eduCover, universities: s.universities,   // v22 文教里程碑
       crimeN: s.crimeN, secCover: s.secCover, policehqN: s.policehqN,   // v23 治安里程碑
       fireOut: s.fireOut, fireCover: s.fireCover, firestations: s.firestations,   // v24 消防里程碑
+      medMissRes: s.medMissRes, medCover: s.medCover, clinics: s.clinics,   // v36 医疗里程碑
     }, this.gHours);
     if (eraUp >= 1) {
       const ERAS_NAME = ['炊烟村庄', '市井小镇', '一方城市', '摩登都会'];
@@ -3204,6 +3511,14 @@ export class Tycoon {
       this.msg?.('体育场落成 ——「市民联」联赛开张：比赛日全城沸腾，战绩与奖杯进城市编年史');
       this.sfx?.('achieve');
     }
+    // ---- v35：动物园落成纪事（只写一次；开园由 stepZoo 另行播报） ----
+    if (s.zoos > 0 && !this.zooSeen) {
+      this.zooSeen = true;
+      this.chron.write('mile', 'good', 'fest', '百兽开园',
+        '围栏里的草皮还是新的，兽舍的木门也才上过漆。开园那天市民扶老携幼地涌进来 —— 这座城从此有了一本自己的物种图鉴，等兽一笔一页地写满。', this.gHours);
+      this.msg?.('动物园落成 —— 物种图鉴开册：动物巡查员将定期进园评估，住户越多吸引力越高');
+      this.sfx?.('achieve');
+    }
 
     // ---- v29：市长公署 —— 每日清晨八点公文送抵（一次一份，批完再等明晨）----
     if (this.docHapLeft > 0) {
@@ -3232,6 +3547,16 @@ export class Tycoon {
           if (Math.random() < p) this.spreadFire(map, ev);
         }
       }
+      // v36 疫病实景：周期蔓延判定（医疗覆盖区消毒有序 · 盲区串门闲聊 · 防疫站全城压制；救护到场即隔离）
+      if (ev.key === 'plague' && ev.fx && !ev.resolved) {
+        ev.infT = (ev.infT ?? PLAGUE_SPREAD_T) - dt;
+        if (ev.infT <= 0) {
+          ev.infT = PLAGUE_SPREAD_T;
+          const covered = this.medField.has(map.idx(ev.fx.x, ev.fx.y));
+          const p = (covered ? PLAGUE_P_IN : PLAGUE_P_OUT) * (this.healthstN > 0 ? 0.6 : 1);
+          if (Math.random() < p) this.spreadPlague(map, ev);
+        }
+      }
       ev.left -= dt;
       if (ev.left <= 0) {
         // v24：火灾收尾文案带过火栋数
@@ -3247,6 +3572,20 @@ export class Tycoon {
             ev.pendP = 0;
           }
           this.msg?.(`「${ev.name}」终被扑灭，累计过火 ${ev.spreadN! + 1} 栋 —— 城市恢复如常`);
+          continue;
+        }
+        // v36：疫病收尾文案带累计感染栋数（与火灾对称）
+        if (ev.key === 'plague' && (ev.infN ?? 0) > 0) {
+          this.events.splice(i, 1);
+          if (ev.pendG && ev.pendG > 0) {
+            this.coins = Math.max(0, this.coins - ev.pendG);
+            ev.pendG = 0;
+          }
+          if (ev.pendP && ev.pendP > 0) {
+            this.pop = Math.max(0, this.pop - ev.pendP);
+            ev.pendP = 0;
+          }
+          this.msg?.(`「${ev.name}」渐渐平息，累计 ${ev.infN! + 1} 栋住宅受累 —— 消毒队挨家挨户走了一遍`);
           continue;
         }
         this.events.splice(i, 1);
@@ -3429,6 +3768,28 @@ export class Tycoon {
       `烈焰借着风势窜过街巷，又吞了${defById(o.id).name} —— 累计过火 ${ev.spreadN + 1} 栋。`, this.gHours);
   }
 
+  /** v36 疫病蔓延：疫点跳邻栋住宅（切比雪夫 ≤2），即时病退 + 亲历者史册。
+   *  与火灾蔓延对称：蔓延即换疫点（救护车 destination 随之转移），累计感染栋数随档保存 */
+  private spreadPlague(map: CityMap, ev: ActiveEvent): void {
+    if (!ev.fx) return;
+    const fx = ev.fx;
+    const cands = [...map.objs.values()].filter(o =>
+      defById(o.id).cat === 'res' && this.ownedAt(o.ax, o.ay) &&
+      Math.max(Math.abs(o.ax - fx.x), Math.abs(o.ay - fx.y)) <= PLAGUE_SPREAD_R &&
+      (o.ax !== fx.x || o.ay !== fx.y));
+    if (!cands.length) return;
+    const o = cands[(Math.random() * cands.length) | 0];
+    ev.fx = { x: o.ax, y: o.ay };
+    ev.infN = (ev.infN ?? 0) + 1;
+    const sick = Math.max(1, Math.round(this.pop * 0.012));
+    this.pop = Math.max(0, this.pop - sick);
+    this.msg?.(`疫情蔓延到隔壁街坊！又有 ${sick} 人病倒 —— 救护车快些到场`);
+    this.sfx?.('alarm');
+    this.citz.onPlagueAt(o.ax, o.ay, this.playtime);   // v36：新感染宅住户写入史册
+    this.chron.write('event', 'bad', 'heart', '疫情蔓延',
+      `疫病顺着巷子串门，${defById(o.id).name} 也有人病倒 —— 累计感染 ${ev.infN + 1} 栋。`, this.gHours);
+  }
+
   /** UI 视图（未 tick 前用缓存） */
   view(): EconView {
     const s = this.snap;
@@ -3501,6 +3862,7 @@ export class Tycoon {
         key: e.key, name: e.name, note: e.note, kind: e.kind,
         left: Math.ceil(e.left), dur: e.dur,
         spreadN: e.spreadN, heat: e.heat !== undefined ? Math.round(e.heat * 100) / 100 : undefined,   // v24 火灾实景
+        infN: e.infN,   // v36 疫病实景：累计感染栋数
       })),
       eventLog: this.eventLog.slice(-8),
       achv: ACHIEVEMENTS.map(a => ({
@@ -3593,6 +3955,19 @@ export class Tycoon {
       stadiums: s?.stadiums ?? 0, lgPre: s?.lgPre ?? 0,
       lgTourK: s?.lgTourK ?? 1, lgComK: s?.lgComK ?? 1, lgW: this.lgW,
       gHours: Math.round(this.gHours * 10) / 10,
+      // ---- v35：百兽之园 ----
+      zoo: {
+        on: this.zooNext >= 0,
+        n: this.zooGot.length,
+        total: ZOO_SPECIES.length,
+        got: [...this.zooGot],
+        next: this.zooNext,
+        at: s?.zooAt ?? 0,
+        hap: s?.zooHap ?? 0,
+        k: s?.zooK ?? 1,
+      },
+      zoos: s?.zoos ?? 0, zooN: this.zooGot.length,
+      zooAt: s?.zooAt ?? 0, zooHap: s?.zooHap ?? 0, zooK: s?.zooK ?? 1,
       // ---- v18：灾害链 ----
       quakes: this.quakes, floods: this.floods,
       levees: s?.levees ?? 0, waterNear: s?.waterNear ?? 0,
@@ -3639,6 +4014,11 @@ export class Tycoon {
       fireCover: s?.fireCover ?? 100,
       fireIn: s?.fireIn ?? 0, fireOut: s?.fireOut ?? 0,
       fireMissRes: s?.fireMissRes ?? 0, hydrants: s?.hydrants ?? 0,
+      // ---- v36 公共卫生空间化 ----
+      medCover: s?.medCover ?? 100,
+      medIn: s?.medIn ?? 0, medOut: s?.medOut ?? 0,
+      medMissRes: s?.medMissRes ?? 0, clinics: s?.clinics ?? 0, healthsts: s?.healthsts ?? 0,
+      medSaved: this.medSaved,
       secIn: s?.secIn ?? 0,
       secOut: s?.secOut ?? 0,
       crimeN: s?.crimeN ?? 0,
@@ -3717,6 +4097,10 @@ export class Tycoon {
     // v23：巡防场同样复位
     this.secWarned = false;
     this.secVer = -1;
+    // v36：医疗场同样复位
+    this.medWarned = false;
+    this.medVer = -1;
+    this.medSaved = 0;
     this.rescuePolice = 0;
     this.dayLight = 1;
     // v12：应急联动重置
@@ -3746,6 +4130,8 @@ export class Tycoon {
     this.lgT1 = 0; this.lgT2 = 0; this.lgT3 = 0; this.lgBP = 0;
     this.lgForm = []; this.lgLast = '';
     this.lgMood = 0; this.lgMoodT = 0; this.lgFxT = 0; this.lgSeen = false;
+    // v35：百兽之园重置（园区未开张 —— 动物园落成后 stepZoo 自动开园）
+    this.zooNext = -1; this.zooGot = []; this.zooSeen = false;
     // v29：市长公署重置（首份公文在开埠首日清晨 8 点）
     this.docPending = null; this.docNext = DOC_FIRST_H; this.docN = 0;
     this.docUsed = []; this.docLog = []; this.docHap = 0; this.docHapLeft = 0;
@@ -3786,6 +4172,8 @@ export class Tycoon {
         heat: e.heat !== undefined ? Math.round(e.heat * 100) / 100 : undefined,   // v24 火势
         spreadN: e.spreadN,                                          // v24 过火栋数
         spreadT: e.key === 'fire' && e.spreadT !== undefined ? Math.round(e.spreadT * 10) / 10 : undefined,   // v24 蔓延计时（读档不误判）
+        infN: e.infN,                                                // v36 感染栋数
+        infT: e.key === 'plague' && e.infT !== undefined ? Math.round(e.infT * 10) / 10 : undefined,   // v36 蔓延计时
         resolved: e.resolved || undefined,                           // v24 到场标记
       })),
       eventLog: this.eventLog.slice(-12),
@@ -3802,6 +4190,7 @@ export class Tycoon {
       // v12：应急出动计数
       rescueFire: this.rescueFire, rescueAid: this.rescueAid,
       rescuePolice: this.rescuePolice,   // v23：巡逻车破案计数
+      medSaved: this.medSaved,           // v36：疫病零蔓延化解计数
       // v18：灾害链计数（地震 / 洪水场次）
       quakes: this.quakes, floods: this.floods,
       // v13：市民列传
@@ -3835,6 +4224,10 @@ export class Tycoon {
       lgLast: this.lgLast,
       lgMT: Math.round(this.lgMoodT), lgMd: this.lgMood,
       lgSeen: this.lgSeen ? 1 : 0,
+      // v35：百兽之园档（图鉴 / 巡查时刻 —— 旧档缺省 → 未开园，动物园落成后自动开园）
+      zooT: Math.round(this.zooNext * 10) / 10,
+      zooG: this.zooGot.join(','),
+      zooS: this.zooSeen ? 1 : 0,
       // v29：市长公署档（待批公文 / 已批数 / 用过池 / 朱批存档 / 民心增益）
       docP: this.docPending, docNext: this.docNext, docN: this.docN,
       docUsed: this.docUsed, docLog: this.docLog,
@@ -3890,7 +4283,7 @@ export class Tycoon {
     if (this.hist.length > HIST_MAX) this.hist.splice(0, this.hist.length - HIST_MAX);
     // v5 事件档：进行中事件（从模板找回参数）/ 日志 / 成就（旧档给空）
     this.events = [];
-    for (const e of (d.events as Array<{ key: string; left: number; fx?: [number, number]; pendG?: number; pendP?: number; heat?: number; spreadN?: number; spreadT?: number; resolved?: boolean }>) ?? []) {
+    for (const e of (d.events as Array<{ key: string; left: number; fx?: [number, number]; pendG?: number; pendP?: number; heat?: number; spreadN?: number; spreadT?: number; resolved?: boolean; infN?: number; infT?: number }>) ?? []) {
       const tpl = EVENT_TPLS.find(t => t.key === e.key);
       if (!tpl || !tpl.dur) continue;
       this.events.push({
@@ -3902,6 +4295,8 @@ export class Tycoon {
         heat: e.heat !== undefined ? Math.max(0.1, Math.min(1.6, Number(e.heat) || FIRE_HEAT0)) : undefined,   // v24 火势（旧档缺省）
         spreadN: Math.max(0, Math.floor(Number(e.spreadN) || 0)) || undefined,      // v24 过火栋数
         spreadT: e.key === 'fire' ? Math.max(0.1, Math.min(999, Number(e.spreadT) || FIRE_SPREAD_T / 2)) : undefined,   // v24 蔓延计时（存档值优先，旧档半周期）
+        infN: Math.max(0, Math.floor(Number(e.infN) || 0)) || undefined,            // v36 感染栋数
+        infT: e.key === 'plague' ? Math.max(0.1, Math.min(999, Number(e.infT) || PLAGUE_SPREAD_T / 2)) : undefined,   // v36 蔓延计时（旧档半周期）
         resolved: e.resolved === true ? true : undefined,                           // v24 到场标记
       });
     }
@@ -3937,6 +4332,7 @@ export class Tycoon {
     this.rescueFire = Math.max(0, Math.floor(Number(d.rescueFire) || 0));
     this.rescueAid = Math.max(0, Math.floor(Number(d.rescueAid) || 0));
     this.rescuePolice = Math.max(0, Math.floor(Number(d.rescuePolice) || 0));   // v23（老档归零）
+    this.medSaved = Math.max(0, Math.floor(Number(d.medSaved) || 0));           // v36（老档归零）
     // v18：灾害链计数（老档无字段则归零）
     this.quakes = Math.max(0, Math.floor(Number(d.quakes) || 0));
     this.floods = Math.max(0, Math.floor(Number(d.floods) || 0));
@@ -4001,6 +4397,12 @@ export class Tycoon {
     this.lgMood = this.lgMoodT > 0 ? ([-2, 1, 3].includes(Number(d.lgMd)) ? Number(d.lgMd) : 0) : 0;
     this.lgFxT = 0;   // 彩带纯视觉，不进存档
     this.lgSeen = d.lgSeen === 1;
+    // v35：百兽之园档恢复（旧档无字段 → 未开园；动物园在城时首个 tick 由 stepZoo 自动开园）
+    this.zooNext = Number.isFinite(Number(d.zooT)) ? Number(d.zooT) : -1;
+    this.zooGot = typeof d.zooG === 'string'
+      ? d.zooG.split(',').filter(id => ZOO_SPECIES.some(x => x.id === id))
+      : [];
+    this.zooSeen = d.zooS === 1;
     // v29：市长公署档恢复（旧档无字段 → 首份公文从下一个清晨八点起算；在批公文原样回到案头）
     this.docN = Math.max(0, Math.floor(Number(d.docN) || 0));
     this.docNext = Number(d.docNext) > 0 ? Number(d.docNext) : nextMorningH(this.gHours);
@@ -4101,6 +4503,7 @@ export class Tycoon {
       eduOut: s?.eduOut ?? 0,                   // v22：学区外住宅心声
       crime: s?.crimeN ?? 0,                    // v23：盲区商铺心声
       fireOut: s?.fireOut ?? 0,                 // v24：消防盲区心声
+      medOut: s?.medMissRes ?? 0,               // v36：医疗盲区心声（看病要跨半座城）
       cyc: s?.cycPhase ?? 1,                    // v33：市况相位心声（衰退抱怨生意淡 / 繁荣夸市道）
     });
   }
@@ -4153,7 +4556,16 @@ export class Tycoon {
       ev.resolved = true;   // v24：火势冻结、蔓延停止
       if (ev.fx) this.citz.onFireSaved(ev.fx.x, ev.fx.y, this.playtime);   // v24：起火宅住户感恩
     }
-    if (key === 'plague') this.rescueAid++;
+    if (key === 'plague') {
+      this.rescueAid++;
+      ev.resolved = true;   // v36：蔓延冻结（与火灾对称）
+      // v36：零蔓延化解计数（疫情尚未扩散即被收治 —— 成就「仁心妙术」口径）
+      if ((ev.infN ?? 0) === 0) {
+        this.medSaved++;
+        this.msg?.('疫病在扩散前被及时收治 —— 零蔓延！');
+      }
+      if (ev.fx) this.citz.onPlagueSaved(ev.fx.x, ev.fx.y, this.playtime);   // v36：疫点宅住户感恩
+    }
     if (key === 'crime') {
       this.rescuePolice++;   // v23：巡逻车破案计数
       // v25：失窃追回感恩（店主「货款如数追回」写入史册；与火灾对称）

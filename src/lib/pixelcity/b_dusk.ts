@@ -791,3 +791,81 @@ export function genMarina(seed: number): BuildResult {
   }
   return { model: buildModel(faces, 32, 32) };
 }
+
+// ============================================================
+// v35 百兽之园：动物园（3×3 物种图鉴引擎）
+//   木围栏游园 + 红顶兽舍 + 观赏水池 + 静态小兽点缀 —— 住户由 tycoon 物种图鉴逐步迎入
+// ============================================================
+
+/** 动物园（3×3）：木围栏兽舍与游园小径 */
+export function genZoo(seed: number): BuildResult {
+  const r = mulberry32(seed);
+  const faces: Face[] = [];
+  const barnRoof = r() < 0.5 ? P.RFRED : P.RFTEAL;   // 变体：兽舍屋顶色
+  const pondX = r() < 0.5;                            // 变体：水池左右对调
+  // 草地广场（全幅草皮，斑驳两色）
+  box(faces, 2, 2, 46, 46, 0, 0.5, {
+    top: (u, v, px, py) => (bayer(px, py, 0.18) ? cell(P.GRASS, 1) : cell(P.GRASS, 0)),
+    right: pWall(P.DIRT), left: pWall(P.DIRT),
+  });
+  // 游园小径（+Y 入口直通园心：浅棕土路 + 碎石斑）
+  box(faces, 19, 4, 29, 45, 0.5, 0.9, {
+    top: (u, v, px, py) => (bayer(px, py, 0.22) ? cell(P.SAND, 1) : cell(P.SAND, 0)),
+    right: pWall(P.DIRT), left: pWall(P.DIRT),
+  });
+  // 木围栏（左/右/后三边整段 + 前侧留入口 19..29）
+  const post = (x0: number, y0: number, x1: number, y1: number) => {
+    box(faces, x0, y0, x1, y1, 0.5, 3.6, {
+      right: pWall(P.TAN), left: pWall(P.TAN), top: pWall(P.BRICK),
+    });
+  };
+  for (let x = 3.5; x <= 44.5; x += 5.2) {
+    post(x - 0.7, 2.3, x + 0.7, 3.7);                 // 后边
+    if (x < 18 || x > 30) post(x - 0.7, 44.3, x + 0.7, 45.7);   // 前边（避开门柱）
+    post(2.3, Math.min(x, 44.5) - 0.7, 3.7, Math.min(x, 44.5) + 0.7);   // 左边
+    post(44.3, Math.min(x, 44.5) - 0.7, 45.7, Math.min(x, 44.5) + 0.7); // 右边
+  }
+  // 围栏横杆（三边一档）
+  box(faces, 2.3, 2.3, 45.7, 3.0, 1.8, 2.6, { right: pWall(P.TAN), left: pWall(P.TAN), top: pWall(P.TAN) });
+  box(faces, 2.3, 45.0, 18.6, 45.7, 1.8, 2.6, { right: pWall(P.TAN), left: pWall(P.TAN), top: pWall(P.TAN) });
+  box(faces, 29.4, 45.0, 45.7, 45.7, 1.8, 2.6, { right: pWall(P.TAN), left: pWall(P.TAN), top: pWall(P.TAN) });
+  box(faces, 2.3, 2.3, 3.0, 45.7, 1.8, 2.6, { right: pWall(P.TAN), left: pWall(P.TAN), top: pWall(P.TAN) });
+  box(faces, 45.0, 2.3, 45.7, 45.7, 1.8, 2.6, { right: pWall(P.TAN), left: pWall(P.TAN), top: pWall(P.TAN) });
+  // 兽舍（左后：奶油墙 + 红/青顶坡屋 + 舍门）
+  const bx0 = 6, by0 = 26, bx1 = 20, by1 = 38;
+  box(faces, bx0, by0, bx1, by1, 0.5, 9, {
+    right: pWindows(P.CREAM, { seed: seed ^ 3, lit: 0.35, floorH: 5, gapX: 3.4, winH: 2.6, winW: 2 }),
+    left: pWindows(P.CREAM, { seed: seed ^ 7, lit: 0.35, floorH: 5, gapX: 3.4, winH: 2.6, winW: 2 }),
+  });
+  hipRoof(faces, bx0 - 1.4, by0 - 1.4, bx1 + 1.4, by1 + 1.4, 9, 13.5, 0.62, {
+    slope: pShingle(barnRoof),
+  });
+  box(faces, 11.5, 37.6, 14.5, 40.4, 0.5, 5.5, { right: pWall(P.BRICK), left: pWall(P.BRICK) });   // 舍门框
+  box(faces, 12.2, 40.2, 13.8, 41.6, 0.5, 4.2, { right: pWall(P.TAN), left: pWall(P.TAN) });       // 内开舍门
+  // 观赏水池（右中：浅蓝池面 + 石沿 —— 火烈鸟与锦鲤的家）
+  const px0 = pondX ? 28 : 6, px1 = pondX ? 42 : 20, py0 = 9, py1 = 21;
+  box(faces, px0 - 1, py0 - 1, px1 + 1, py1 + 1, 0.5, 1.3, {
+    top: pStone(P.SIDE), right: pStone(P.SIDE), left: pStone(P.SIDE),
+  });
+  box(faces, px0, py0, px1, py1, 0.9, 1.1, {
+    top: (u, v, px, py) => (bayer(px, py, 0.14) ? cell(P.WATER, 1) : cell(P.WATER, 0)),
+  });
+  // 观景台（园心右侧：木平台 + 栏杆）
+  box(faces, 30, 28, 42, 38, 0.9, 2.2, { top: pWall(P.TAN), right: pWall(P.TAN), left: pWall(P.TAN) });
+  box(faces, 30, 37.6, 42, 38.4, 2.2, 4.2, { right: pWall(P.TAN), left: pWall(P.TAN), top: pWall(P.TAN) });
+  // 静态小兽点缀（迷你体积：熊猫黑白小兽 / 火烈鸟粉点 / 兔子白点 —— 图鉴动态由 tycoon 层呈现）
+  box(faces, 23.0, 23.0, 24.6, 24.6, 0.9, 1.9, { right: pWall(P.WHITE), left: pWall(P.WHITE), top: pWall(P.WHITE) });     // 熊猫身
+  box(faces, 23.3, 23.0, 24.3, 23.6, 1.9, 2.4, { right: pWall(P.OUTLINE), left: pWall(P.OUTLINE) });                      // 熊猫耳
+  box(faces, pondX ? 31.6 : 9.6, 13.8, pondX ? 32.4 : 10.4, 14.6, 1.1, 2.0, { right: pWall(P.SAKURA), left: pWall(P.SAKURA) });  // 火烈鸟
+  box(faces, 9.0, 41.4, 10.0, 42.4, 0.9, 1.5, { right: pWall(P.WHITE), left: pWall(P.WHITE) });                           // 兔子
+  // 入口门柱 ×2 + 园名牌
+  box(faces, 17.4, 43.6, 19.4, 45.6, 0.5, 6, { right: pWall(P.BRICK), left: pWall(P.BRICK), top: pWall(P.BRICK) });
+  box(faces, 28.6, 43.6, 30.6, 45.6, 0.5, 6, { right: pWall(P.BRICK), left: pWall(P.BRICK), top: pWall(P.BRICK) });
+  box(faces, 18.5, 44.2, 29.5, 45.0, 6, 8.2, { right: pSign(pick([P.NEONC, P.NEONR], r())), left: pWall(P.CREAM), top: pWall(P.CREAM) });
+  // 园林树 ×3（笼舍间的绿荫）
+  for (const [tx, ty] of [[5.5, 6.5], [40.5, 30.5], [24, 8.5]] as const) {
+    box(faces, tx - 0.7, ty - 0.7, tx + 0.7, ty + 0.7, 0.5, 4.5, { right: pWall(P.BRICK), left: pWall(P.BRICK) });
+    cone(faces, tx, ty, 2.0, 4.5, 8.5, () => cell(P.LEAF, (Math.random() * 2) | 0), 7);
+  }
+  return { model: buildModel(faces, 48, 48) };
+}

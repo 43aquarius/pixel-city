@@ -21,7 +21,7 @@ import {
 import {
   genManor, genResTower, genConvenience, genHotel, genMall, genParking,
   genRefinery, genPower, genChurch, genMuseum, genFireStation, genKoban,
-  genLighthouse, genCastle, genPoliceHQ, genHydrant,
+  genLighthouse, genCastle, genPoliceHQ, genHydrant, genClinic, genHealthst,
 } from './b_extra';
 import {
   genMachiya, genDanchi, genIzakaya, genCinema, genMarket,
@@ -32,7 +32,7 @@ import {
   genHiapart, genNagaya, genMinshuku, genElectown, genFerris,
   genBakery, genGas, genFerry, genWindmill, genGreenhouse,
   genBrewery, genPavilion, genAquarium, genCellmast,
-  genOpera, genExpo, genBoardwalk, genMarina,
+  genOpera, genExpo, genBoardwalk, genMarina, genZoo,
 } from './b_dusk';
 import { genWatertower, genWaterplant, genLevee } from './b_water';
 import { genBinshed, genRecycle, genIncin } from './b_waste';
@@ -178,6 +178,10 @@ export const CATALOG: Def[] = [
     gen: genFireStation, desc: '红色卷闸门与瞭望塔：火灾损失降至 35%，消防车可出动扑救（需道路连通）' },
   { id: 'hydrant', name: '消防栓', cat: 'civ', w: 1, h: 1, variants: 2, pop: 1,
     gen: genHydrant, desc: '红栓桩与黄警示圈：半径 2 格消防覆盖 —— 消防局的廉价延伸，把街区拐角补进水网（覆盖区起火火势减半）' },
+  { id: 'clinic', name: '社区诊所', cat: 'civ', w: 1, h: 1, variants: 2, pop: 6,
+    gen: genClinic, desc: '白墙绿十字的街区诊所：半径 3 格医疗覆盖 —— 感冒发烧不必再跨半座城（健康指数 +120 病床 · 早期办医的实惠之选）' },
+  { id: 'healthst', name: '防疫站', cat: 'civ', w: 1, h: 1, variants: 2, pop: 8,
+    gen: genHealthst, desc: '白十字旗的公共卫生哨所：半径 4 格医疗覆盖 · 疫病蔓延机率 ×0.6（全城消毒网络）· 健康指数 +260 病床' },
   { id: 'koban', name: '交番', cat: 'civ', w: 1, h: 1, variants: 1, pop: 8,
     gen: genKoban, desc: '警务岗亭：巡防半径 3 格 + 安全护盾 +220 人 · 常驻一辆巡逻警车（治安巡逻令再 +1 辆）' },
   { id: 'policehq', name: '警察局', cat: 'civ', w: 2, h: 2, variants: 2, pop: 30,
@@ -224,6 +228,9 @@ export const CATALOG: Def[] = [
     gen: genBoardwalk, desc: '木栈道白栏杆遮阳伞：临水摆放串成水岸风景线，景点吸引力 +1.5/座' },
   { id: 'marina', name: '游船码头', cat: 'civ', w: 2, h: 2, variants: 1, pop: 12,
     gen: genMarina, desc: 'T 字栈桥与双桅游船：码头周围 3 格也算滨水带（水岸氛围外推）· 游客与收入兼得' },
+  // ---- v35 百兽之园 ----
+  { id: 'zoo', name: '动物园', cat: 'civ', w: 3, h: 3, variants: 2, pop: 30,
+    gen: genZoo, desc: '木围栏兽舍与游园小径：动物巡查员定期进园评估，住户逐步入住 —— 每种动物给吸引力/幸福加成，集齐 9 种翻满物种图鉴（需「城市名片」）' },
   // ---- 剧情（经营模式专属，不可直接建造）----
   { id: 'cityhall', name: '市政厅', cat: 'civ', w: 2, h: 2, variants: 1, pop: 0,
     gen: genCityhall, hidden: true, desc: '城市的心脏：金顶钟塔与旗帜' },
@@ -237,6 +244,7 @@ export function defById(id: string): Def {
  *  数值 = 景点档位：5 地标级 / 4 大型 / 3 中型 / 2 小型 / 1 点缀 / 0.5 市井 */
 export const ATTRACT: Record<string, number> = {
   ferris: 5, aquarium: 5, castle: 5, opera: 5,
+  zoo: 5,   // v35 动物园基础吸引力（住户加成另计：zooBonusOf）
   museum: 4, stadium: 4, expo: 4,
   temple: 3, observatory: 3, marina: 3,
   church: 2, monument: 2, lighthouse: 2, torii: 2,

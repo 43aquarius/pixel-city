@@ -272,10 +272,14 @@ export type CitzCtx = {
   crime: number;
   /** v24 消防盲区栋数（消防心声：火险保贵的街区） */
   fireOut: number;
+  /** v36 医疗盲区住宅栋数（就医心声：看病要跨半座城的街区） */
+  medOut?: number;
   /** v33 市况相位（0衰退/1平稳/2复苏/3繁荣；缺省 1 —— 衰退抱怨生意淡，繁荣夸市道好） */
   cyc?: number;
   /** v34 绿茵心声（0 无 / 1 比赛日预热 / 2 赢球余温 / 3 输球低落；缺省 0） */
   lg?: number;
+  /** v35 动物园已入住物种数（>0 时市民聊动物住户；缺省 0） */
+  zooN?: number;
   /** v22 学区判定回调（tycoon 闭包捕获 eduField：升学事件只举学区内市民） */
   inEdu?: (x: number, y: number) => boolean;
 };
@@ -321,7 +325,7 @@ export class CitizenRegistry {
   private bdayTimer = 40;
   /** v26 高寿离世回调（tycoon 接线 → 编年史「寿星安眠」） */
   onPass: ((name: string, age: number) => void) | null = null;
-  private lastCtx: CitzCtx = { pop: 0, happiness: 60, taxRate: 8, season: 0, famine: 0, events: [], fest: -1, smog: 0, dark: 0, waste: 0, eduOut: 0, crime: 0, fireOut: 0 };
+  private lastCtx: CitzCtx = { pop: 0, happiness: 60, taxRate: 8, season: 0, famine: 0, events: [], fest: -1, smog: 0, dark: 0, waste: 0, eduOut: 0, crime: 0, fireOut: 0, medOut: 0 };
   private lastT = 0;
   /** 消息回调（tycoon.msg 接线） */
   onMsg: ((s: string) => void) | null = null;
@@ -1032,6 +1036,40 @@ export class CitizenRegistry {
     }
   }
 
+  /** v36 疫病亲历者写入个人史册（与 onFireAt/onCrimeAt 对称：疫落在具体人家的记忆里）。
+   *  疫点住宅锤点同格/相邻（homeAt 距 ≤1）＝病倒住户：「家人病倒」心情 −12；
+   *  三格内街坊（≤3）＝隔离街坊：「巷里有人病倒」心情 −6。 */
+  onPlagueAt(x: number, y: number, t: number): void {
+    let hitHome = 0, hitNear = 0;
+    for (const c of this.roster) {
+      if (!c.homeAt) continue;
+      const d = Math.max(Math.abs(c.homeAt[0] - x), Math.abs(c.homeAt[1] - y));
+      if (d <= 1) {
+        this.pushLog(c, t, '家里有人病倒了，医护上门把全家隔离了个严实');
+        c.mood = clamp(c.mood - 12, 5, 100);
+        hitHome++;
+      } else if (d <= 3) {
+        this.pushLog(c, t, '隔壁那条巷有人病倒，这些日子谁也不串门了');
+        c.mood = clamp(c.mood - 6, 5, 100);
+        hitNear++;
+      }
+    }
+    if (hitHome + hitNear > 0 && this.onMsg) {
+      this.onMsg(`疫情亲历者：${hitHome} 户有人病倒、${hitNear} 户自觉隔离 —— 都写进了他们的史册`);
+    }
+  }
+
+  /** v36 疫点收治感恩：当前疫点住宅的住户写「医护连夜收治」（心情 +10） */
+  onPlagueSaved(x: number, y: number, t: number): void {
+    for (const c of this.roster) {
+      if (!c.homeAt) continue;
+      if (Math.max(Math.abs(c.homeAt[0] - x), Math.abs(c.homeAt[1] - y)) <= 1) {
+        this.pushLog(c, t, '救护车连夜把病人接走收治，这份恩情记一辈子');
+        c.mood = clamp(c.mood + 10, 5, 100);
+      }
+    }
+  }
+
   // ---------------- 市民之声（街头偶遇） ----------------
 
   /** 按城市状态挑一句市民心声（面板滚动条/行人偶遇共用） */
@@ -1090,6 +1128,13 @@ export class CitizenRegistry {
       '上回邻街着火，消防车绕了半座城才接上水 —— 盼着咱这也铺上栓',
       '孩子们放学路过消防局总要驻脚看，回家问我：咱们街为啥没有红桩子',
     ]);
+    // v36 就医心声：医疗盲区的街区（优先级在消防之后：火烧起来要命，病拖下去也麻烦）
+    else if ((ctx.medOut ?? 0) >= 3) text = rnd([
+      '上个礼拜娃发高烧，抱着他跑了半座城才挂上号',
+      '巷口的诊所影子都看不见，老人量个血压都要坐车',
+      '听说隔壁街区新建了社区诊所，咱这片啥时候也能有一家',
+      '大夫说小病别拖，可咱这儿看个小病比赶集还远',
+    ]);
     // v33 衰退心声：市道低迷全城感同（优先级在消防之后：生意难做，比火险保费更常挂嘴边）
     else if (ctx.cyc === 0) text = rnd([
       '这条街的铺子关了两家了，连招牌灯都不亮了',
@@ -1115,6 +1160,13 @@ export class CitizenRegistry {
       '客队那脚任意球是真刁，门将已经尽力了',
       '教练说防守还得再练练 —— 咱们球迷等得起',
       '球场外卖热茶的阿婆说得对：胜败乃兵家常事',
+    ]);
+    // v35 动物园心声：住户在园时全城都爱去遛弯（优先级在绿茵之后：周末带娃看动物）
+    else if ((ctx.zooN ?? 0) > 0) text = rnd([
+      '周末带娃去动物园，小家伙在孔雀笼前蹲了一下午',
+      '园里那位新住户上瘾了 —— 我上周去了三趟',
+      '巡查员说园子越大越体面，动物住的越舒坦来的越多',
+      '动物看多了，人都变得心软 —— 这园子是全城的宝贝',
     ]);
     else if (ctx.taxRate > 12) text = rnd(['税越收越狠，肉摊都少割两斤了', '这税率，攒钱的速度赶不上市政厅收的']);
     else if (ctx.taxRate <= 5) text = rnd(['低税的日子里，钱包都胖了一圈', '市政厅这个月大方，下馆子加了个鸡腿']);

@@ -613,3 +613,93 @@ export function genCastle(_seed: number): BuildResult {
   }, 8);
   return { model: buildModel(faces, 32, 32) };
 }
+
+// ============================================================
+// v36 公共卫生空间化：悬壶济世 · 健康之城
+// ============================================================
+
+/** v36 社区诊所（1×1）：白墙小楼 + 绿十字招牌 + 条纹雨棚挂号窗 + 门前候诊长椅。
+ *  变体 2：墙色（青白 / 米白）与雨棚漆色 —— 与大医院（白楼红十字）拉开身位：
+ *  绿十字＝社区医疗的符号，雨棚下是排队挂号的小窗口 */
+export function genClinic(seed: number): BuildResult {
+  const r = mulberry32(seed);
+  const wall = pick([P.PBLUE, P.CREAM], r());
+  const awn = pick([P.RFTEAL, P.RFSLATE], r());
+  const h = 11.5;
+  const faces: Face[] = [];
+  // 主楼（白墙两层小楼）
+  box(faces, 2.6, 2.6, 13.4, 13.4, 0, h, {
+    right: pWindows(wall, { seed, lit: 0.3, floorH: 5.8, gapX: 4.2, winH: 2.4 }),
+    left: pWindows(wall, { seed: seed ^ 5, lit: 0.3, floorH: 5.8, gapX: 4.2, winH: 2.4, door: true, doorW: 2.2 }),
+  });
+  // 绿十字招牌（+Y 门脸上方 —— 与医院红十字区分的社区绿）
+  box(faces, 4.6, 13.4, 9.4, 14.2, h - 3.4, h - 0.6, {
+    left: (u, v) => {
+      // 绿底白十字：边长 4.8 的面中央十字
+      const s = 4.8, c = s / 2, bar = s * 0.2;
+      const uu = u - 0.6, vv = v - 0.9;
+      if (uu >= 0 && uu < s && vv >= 0 && vv < s) {
+        if (Math.abs(uu - c) < bar || Math.abs(vv - c) < bar) return cell(P.WHITE, 0);
+        return cell(P.CYAN, 0);
+      }
+      return cell(P.WHITE, 0);
+    },
+    right: pWall(P.WHITE), top: pWall(awn),
+  });
+  // 青瓦缓坡顶
+  hipRoof(faces, 1.6, 1.6, 14.4, 14.4, h - 0.4, h + 3.8, 0.55, { slope: pShingle(awn) });
+  // 门前雨棚 + 挂号小窗（+Y）
+  box(faces, 3.0, 13.4, 9.8, 15.4, 4.6, 5.6, {
+    top: pAwning(awn), right: pWall(awn), left: pWall(awn),
+  });
+  box(faces, 3.6, 14.4, 6.6, 15.2, 5.6, 7.4, {
+    left: pSign(P.CYAN, seed), right: pWall(P.WHITE),
+  });
+  // 候诊长椅（门前贴街）
+  box(faces, 9.0, 14.2, 12.6, 15.4, 0.4, 1.6, {
+    top: () => cell(P.RFTEAL, 0), right: pWall(P.RFTEAL), left: pWall(P.RFTEAL),
+  });
+  // 药箱木箱堆（侧墙边）
+  box(faces, 1.0, 4.2, 2.6, 6.0, 0.3, 2.3, {
+    top: () => cell(P.TAN, 0), right: pWall(P.TAN), left: pWall(P.TAN),
+  });
+  box(faces, 1.0, 6.2, 2.6, 7.6, 0.3, 1.8, {
+    top: () => cell(P.SIDE, 0), right: pWall(P.SIDE), left: pWall(P.SIDE),
+  });
+  return { model: buildModel(faces, 16, 16) };
+}
+
+/** v36 防疫站（1×1）：青灰哨所 + 白十字旗杆 + 消毒药剂罐排 + 顶置警报灯。
+ *  变体 2：主墙漆色（青白 / 青绿瓦）—— 公共卫生的哨兵意象：
+ *  白旗十字迎风，罐排里码着消毒水，警报灯一闪「全城防疫网在此值守」 */
+export function genHealthst(seed: number): BuildResult {
+  const r = mulberry32(seed);
+  const wall = pick([P.PBLUE, P.RFSLATE], r());
+  const h = 13.2;
+  const faces: Face[] = [];
+  // 哨所主楼（方正矮墩，黄黑警示基线）
+  box(faces, 2.4, 2.4, 13.6, 13.6, 0, h, {
+    right: pWindows(wall, { seed, lit: 0.2, floorH: 6.6, gapX: 4.4, winH: 2.4 }),
+    left: pWindows(wall, { seed: seed ^ 7, lit: 0.2, floorH: 6.6, gapX: 4.4, winH: 2.4, door: true, doorW: 2.4 }),
+  });
+  // 基线黄黑警示圈（防疫重地的门槛意象）
+  box(faces, 2.4, 2.4, 13.6, 13.6, 0.9, 1.5, {
+    right: pBands(P.YELLOW, 1.6), left: pBands(P.YELLOW, 1.6),
+  });
+  // 平顶 + 女儿墙
+  roofDeck(faces, 2.4, 2.4, 13.6, 13.6, h, P.RFGRAY, pWall(wall));
+  // 顶置警报灯（琥珀灯罩 —— 疫情警报就亮它）
+  box(faces, 7.0, 7.0, 9.4, 9.4, h, h + 2.2, {
+    right: pWall(P.SIDE), left: pWall(P.SIDE), top: () => cell(P.YELLOW, 0),
+  });
+  // 消毒药剂罐排（前院贴墙：三只青瓶白盖）
+  for (const [x0, y0] of [[10.6, 14.6], [12.0, 14.6], [13.4, 14.6]] as const) {
+    frustum(faces, (x0 + x0 + 1.2) / 2, y0 + 0.6, 0.62, 0.5, 0.2, 2.6, {
+      side: (u, v, px, py) => pWall(P.CYAN)(u, v, px, py),
+    }, 6);
+    box(faces, x0 + 0.1, y0, x0 + 1.1, y0 + 1.2, 2.6, 3.0, { top: () => cell(P.WHITE, 0) });
+  }
+  // 白十字旗杆（侧角：白底红十字旗 —— 公共卫生的哨旗）
+  flagPole(faces, 3.4, 3.4, h + 8.5, P.WHITE);
+  return { model: buildModel(faces, 16, 16) };
+}
