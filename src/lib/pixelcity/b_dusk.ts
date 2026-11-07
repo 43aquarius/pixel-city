@@ -687,3 +687,107 @@ export function genExpo(seed: number): BuildResult {
   }, 8);
   return { model: buildModel(faces, 48, 48) };
 }
+
+// ============================================================
+// v32 滨水都市：滨水步道 / 游船码头（临水而兴）
+// ============================================================
+
+/** 滨水步道（1×1）：木栈道 + 白栏杆 + 遮阳伞长椅 —— 水岸风景线的最小单元 */
+export function genBoardwalk(seed: number): BuildResult {
+  const faces: Face[] = [];
+  // 木栈道面（横条纹木板）
+  box(faces, 0.6, 0.6, 15.4, 15.4, 0, 1.2, {
+    top: (u, v, px, py) => (bayer(px, py, 0.3) ? cell(P.TAN, 1) : cell(P.TAN, 0)),
+    right: pWall(P.BRICK), left: pWall(P.BRICK),
+  });
+  // 临水侧白栏杆（+Y 边：立柱 + 扶手）
+  for (const px of [1.6, 5.5, 9.4, 13.3]) {
+    box(faces, px - 0.35, 13.8, px + 0.35, 14.5, 1.2, 4.2, {
+      right: pWall(P.WHITE), left: pWall(P.WHITE),
+    });
+  }
+  box(faces, 0.8, 14.1, 15.2, 14.7, 4.2, 5.0, {
+    right: pWall(P.WHITE), left: pWall(P.WHITE), top: pWall(P.WHITE),
+  });
+  // 遮阳伞（红白条纹锥顶 + 白伞柱）
+  cone(faces, 4.6, 6.2, 2.6, 5.2, 8.6, (u, v, px, py) =>
+    bayer(px, py, 0.5) ? cell(P.RED, 0) : cell(P.WHITE, 0), 8);
+  box(faces, 4.4, 6.0, 4.8, 6.4, 1.2, 5.4, { right: pWall(P.WHITE), left: pWall(P.WHITE) });
+  cone(faces, 11.4, 9.8, 2.6, 5.2, 8.6, (u, v, px, py) =>
+    bayer(px, py, 0.5) ? cell(P.NEONC, 0) : cell(P.WHITE, 0), 8);
+  box(faces, 11.2, 9.6, 11.6, 10.0, 1.2, 5.4, { right: pWall(P.WHITE), left: pWall(P.WHITE) });
+  // 长椅 ×2（木条椅面 + 靠背）
+  for (const [bx, by] of [[8.6, 4.4], [3.0, 11.6]] as const) {
+    box(faces, bx - 2.2, by - 0.8, bx + 2.2, by + 0.8, 1.2, 2.0, {
+      top: pWall(P.TAN), right: pWall(P.BRICK), left: pWall(P.BRICK),
+    });
+    box(faces, bx - 2.2, by - 0.8, bx + 2.2, by - 0.3, 2.0, 3.0, {
+      right: pWall(P.BRICK), left: pWall(P.BRICK),
+    });
+  }
+  // 盆栽（陶盆 + 绿球）
+  box(faces, 13.2, 2.0, 14.6, 3.4, 1.2, 2.4, { right: pWall(P.BRICK), left: pWall(P.BRICK) });
+  cone(faces, 13.9, 2.7, 1.3, 2.4, 4.6, () => cell(P.LEAF, 0), 6);
+  return { model: buildModel(faces, 16, 16) };
+}
+
+/** 游船码头（2×2）：T 字栈桥 + 双桅游船 + 售票亭 —— 水岸的门面 */
+export function genMarina(seed: number): BuildResult {
+  const faces: Face[] = [];
+  // 岸侧石板广场
+  box(faces, 2, 2, 30, 18, 0, 0.8, {
+    top: (u, v, px, py) => (bayer(px, py, 0.14) ? cell(P.SIDE, 1) : cell(P.SIDE, 0)),
+    right: pStone(P.SIDE), left: pStone(P.SIDE),
+  });
+  // T 字木栈桥（伸向水面：主桥 + 横向泊位桥）
+  box(faces, 13, 14, 19, 30, 0.8, 2.0, {
+    top: (u, v, px, py) => (bayer(px, py, 0.3) ? cell(P.TAN, 1) : cell(P.TAN, 0)),
+    right: pWall(P.BRICK), left: pWall(P.BRICK),
+  });
+  box(faces, 5, 24, 27, 28.4, 0.8, 2.0, {
+    top: (u, v, px, py) => (bayer(px, py, 0.3) ? cell(P.TAN, 1) : cell(P.TAN, 0)),
+    right: pWall(P.BRICK), left: pWall(P.BRICK),
+  });
+  // 栈桥桩 ×6
+  for (const [px, py] of [[13.6, 15.2], [18.2, 15.2], [13.6, 28.6], [18.2, 28.6], [5.6, 24.6], [26.2, 24.6]] as const) {
+    box(faces, px - 0.5, py - 0.5, px + 0.5, py + 0.5, 0, 2.6, { right: pWall(P.BRICK), left: pWall(P.BRICK) });
+  }
+  // 游船一号（泊位左：白船身 + 蓝舷窗带 + 白帆桅）
+  box(faces, 7, 25.2, 15, 27.6, 2.0, 3.6, {
+    right: pWall(P.WHITE), left: pWall(P.WHITE), top: pWall(P.PBLUE),
+  });
+  box(faces, 8.4, 25.4, 13.6, 27.4, 3.6, 4.6, {
+    right: pWall(P.PBLUE), left: pWall(P.PBLUE),
+  });
+  cone(faces, 11, 26.4, 0.5, 4.6, 10.5, () => cell(P.WHITE, 0), 4);
+  box(faces, 10.8, 26.2, 11.2, 26.6, 2.0, 4.8, { right: pWall(P.METAL), left: pWall(P.METAL) });
+  // 游船二号（泊位右：木色船身 + 烟囱）
+  box(faces, 17, 25.2, 25, 27.6, 2.0, 3.8, {
+    right: pWall(P.TAN), left: pWall(P.TAN), top: pWall(P.CREAM),
+  });
+  box(faces, 20, 25.6, 22.4, 27.2, 3.8, 5.2, {
+    right: pWall(P.CREAM), left: pWall(P.CREAM),
+  });
+  box(faces, 20.8, 26.0, 21.6, 26.8, 5.2, 6.8, { right: pWall(P.METAL), left: pWall(P.METAL) });
+  // 售票亭（岸侧：绿顶小亭 + 霓虹「乘」招）
+  box(faces, 4, 4.5, 10, 10, 0.8, 6.5, {
+    right: pWindows(P.CREAM, { seed, lit: 0.5, floorH: 5.2, gapX: 3.4, winH: 2.4, winW: 2 }),
+    left: pWindows(P.CREAM, { seed: seed ^ 5, lit: 0.5, floorH: 5.2, gapX: 3.4, winH: 2.4, winW: 2 }),
+  });
+  pyramid(faces, 3.2, 3.8, 10.8, 10.8, 6.5, 9.0, pShingle(P.RFTEAL));
+  box(faces, 5.6, 10.2, 8.4, 10.7, 4.0, 5.6, {
+    right: pWall(P.NEONC), left: pWall(P.NEONC),
+  });
+  // 救生圈与系船柱（栈桥细节）
+  for (const [bx, by] of [[19.6, 20.5], [14.2, 22.8]] as const) {
+    box(faces, bx - 0.7, by - 0.7, bx + 0.7, by + 0.7, 2.0, 2.9, {
+      right: pWall(P.NEONR), left: pWall(P.RED), top: pWall(P.WHITE),
+    });
+  }
+  // 盆栽迎宾 ×2
+  for (const [px, py] of [[2.8, 12.5], [11.8, 12.5]] as const) {
+    box(faces, px - 0.8, py - 0.8, px + 0.8, py + 0.8, 0.8, 1.8, { right: pWall(P.BRICK), left: pWall(P.BRICK) });
+    cone(faces, px, py, 1.1, 1.8, 3.8, () => cell(P.LEAF, 0), 6);
+  }
+  return { model: buildModel(faces, 32, 32) };
+}

@@ -5,7 +5,7 @@
 // ============================================================
 
 import { defById, CATALOG, ATTRACT } from './catalog';
-import { CityMap, TERR_GRASS } from './map';
+import { CityMap, TERR_GRASS, TERR_WATER } from './map';
 import { CitizenRegistry, type CitzView, type MailView, type AnthView } from './citizens';
 import { Chronicle, EV_ICON, eraOfPop, type ChronView } from './chronicle';
 import { DOCS, pickDoc, nextMorningH, DOC_FIRST_H, fxSummary, type DocCtx, type DocDef } from './decisions';
@@ -115,6 +115,16 @@ export const CULT_R: Record<string, number> = {
 };
 /** 文化街区商铺收入乘数（只 buff 不打折：没有剧院的老商圈照旧营生） */
 export const CULT_EARN_K = 1.08;
+// ---- v32 滨水都市：临水而兴 ----
+/** 滨水带宽度（水面切比雪夫外推格数）：踱出阳台就是一片波光 */
+export const WF_R = 2;
+/** 滨水商铺收入乘数（景色加成）；有游船码头时升到 1.10（水岸氛围更浓） */
+export const WF_EARN_K = 1.06;
+export const WF_EARN_K_MARINA = 1.10;
+/** 滨水住宅幸福加成上限（每栋 +1，全城至多 +6 —— 波光里的窗，不换钱了） */
+export const WF_HAP_MAX = 6;
+/** 游船码头的水岸氛围外推半径（码头周围 3 格也算滨水带） */
+export const MARINA_R = 3;
 /** 火灾起火热势（火头初燃） */
 export const FIRE_HEAT0 = 0.35;
 /** 火势增速/秒：水网覆盖区（消防栓水压压制）与盲区 */
@@ -293,6 +303,9 @@ export const ECON: Record<string, EconDef> = {
   torii: D(115, 5, { amenity: 2, upk: 1, cul: 1.5 }),
   pavilion: D(75, 2, { amenity: 2, upk: 1, cul: 1 }),
   aquarium: D(880, 8, { power: 10, amenity: 4, upk: 2, edu: 10, sp: 0.5, cul: 3 }),
+  // ---- v32 滨水都市 ----
+  boardwalk: D(90, 3, { power: 1, amenity: 3, upk: 0.4, cul: 1 }),   // 水岸风景线单元：吸引力 +1.5
+  marina: D(620, 6, { power: 4, earn: 6.4, amenity: 3, upk: 1.6, cul: 2 }),   // 滨水带外推 3 格 + 吸引力 3
   // ---- v31 都会名片：地标双塔 ----
   opera: D(1800, 7, { power: 14, amenity: 6, upk: 4, cul: 6 }),   // 半径 6 文化街区 + 全市幸福 +2（首座落成入编年史）
   expo: D(2400, 8, { power: 16, amenity: 5, upk: 5, cul: 4, sp: 1 }),   // 节庆引擎：历时+30% 冷却−20% 节庆期游客+30%
@@ -676,6 +689,11 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 10, val: s => s.cultShops },
   { id: 'fest12', name: '万商云集', desc: '会展中心在城时累计举办 12 场节庆（展馆加场、冷却更短，节庆期游客再 +30%）', icon: 'fest',
     goal: 12, val: (s, t) => (s.expos > 0 ? t.festCount : 0) },
+  // ---- v32 滨水都市 ----
+  { id: 'wf20', name: '水岸天际线', desc: '滨水建筑达到 20 栋（临水 2 格内 / 码头外推带内：推窗见水的店与家）', icon: 'drop',
+    goal: 20, val: s => s.wfN },
+  { id: 'tour80w', name: '碧波揽客', desc: '滨水建筑 ≥ 12 栋时游客达到 80（水岸风景线与游船码头把游客留在河边）', icon: 'drop',
+    goal: 80, val: s => (s.wfN >= 12 ? s.tourists : 0) },
   // ---- v17 城市编年史 ----
   { id: 'chron60', name: '汗青永续', desc: '编年史累计记下 60 笔城市纪事（开埠/时代跃迁/事件/科技/节庆/法令/里程碑皆入册）', icon: 'book',
     goal: 60, val: (_s, t) => t.chron.total },
@@ -854,6 +872,8 @@ export type QS = {
   waterNear: number; levees: number;
   // ---- v31 都会名片 ----
   operas: number; expos: number; cultShops: number;
+  // ---- v32 滨水都市 ----
+  wfN: number; wfRes: number; marinas: number;
   // ---- v19 污染空间化 ----
   smogTiles: number; smogBad: number; smogRes: number; ecotowers: number;
   // ---- v20 电网空间化 ----
@@ -1381,6 +1401,20 @@ export class Tycoon {
   private operaSeen = false;
   private expoSeen = false;
 
+  // ---- v32：滨水都市（临水而兴）----
+  /** 滨水带格集合（水面 + 码头外推，切比雪夫 WF_R 内；建筑锤点据此判定） */
+  nearWater = new Set<number>();
+  /** 滨水建筑锤点集合（商铺 + 住宅；统计与判定用） */
+  wfField = new Set<number>();
+  /** 滨水住宅栋数（幸福加成源） */
+  private wfResN = 0;
+  /** 游船码头数（滨水加成升档 + 码头外推源） */
+  private marinaN = 0;
+  /** 滨水场缓存版本 */
+  private wfVer = -1;
+  /** 游船码头首建纪事旗 */
+  private marinaSeen = false;
+
   // ---- v23：治安空间化（守望相助 · 平安之城）----
   /** 巡防内建筑锤点集合（商铺+住宅；engine 巡防渲染判定） */
   secField = new Set<number>();
@@ -1625,6 +1659,8 @@ export class Tycoon {
     this.ensureFire(map);
     // v31：文化街区覆盖场先行（大剧院商圈商铺收入加成 / 统计判定源；仅随摆盘重算）
     this.ensureCult(map);
+    // v32：滨水价值场先行（商铺收入加成 / 住宅幸福加成 / 统计判定源；随摆盘与涂地形重算）
+    this.ensureWater(map);
     let cap = 0, jobs = 0, earnCom = 0, earnInd = 0, upk = 0;
     let powerSup = 0, powerDem = 0, amenitySup = 0, pollute = 0;
     let res = 0, com = 0, ind = 0, civ = 0, park = 0, buildings = 0;
@@ -1632,6 +1668,7 @@ export class Tycoon {
     let hasLib = 0, hasGreen = 0, foodProd = 0, foodCap = FOOD_BASE_CAP, eduCap = 0, spRaw = 0, culSup = 0;
     let hospitals = 0, firestations = 0, kobans = 0;   // v12：交班计数
     let operas = 0, expos = 0;                        // v31：地标双塔计数
+    let wfRes = 0, marinas = 0;                       // v32：滨水住宅 / 码头计数
     let levees = 0;                                     // v18：防洪堤计数
     let hasWaterTower = 0, waterCapT = 0;
     let busStops = 0, ferries = 0;
@@ -1665,6 +1702,8 @@ export class Tycoon {
         res++; cap += d.pop;
         resList.push({ x: o.ax + d.w / 2, y: o.ay + d.h / 2, pop: d.pop });
         if (offGrid) powerRes++;   // v20：断电住宅（幸福惩罚，夜里黑着）
+        // v32：滨水住宅（推窗见水 —— 幸福加成源）
+        if (this.nearWater.has(map.idx(o.ax, o.ay))) wfRes++;
         // v22：学区房判定（学区内 → 书声琅琅；学区外 → 上学翻山）
         if (this.eduField.has(map.idx(o.ax, o.ay))) eduIn++; else eduOut++;
         // v23：巡防判定（盲区住宅 → 住得提心吊胆）
@@ -1687,8 +1726,10 @@ export class Tycoon {
         const fireK = this.fireField.has(map.idx(o.ax, o.ay)) ? 1 : FIRE_EARN_K;
         // v31 文化街区：大剧院半径内的商铺看戏吃饭一条龙（收入 ×1.08）
         const cultK = this.cultShopField.has(map.idx(o.ax, o.ay)) ? CULT_EARN_K : 1;
+        // v32 滨水：水岸景色的店生意更好（码头在城时氛围更浓 ×1.10）
+        const wfK = this.nearWater.has(map.idx(o.ax, o.ay)) ? (this.marinaN > 0 ? WF_EARN_K_MARINA : WF_EARN_K) : 1;
         // v20 电网：断电商铺收入归零（黑暗的店谁也进不去）；未断电才计入
-        if (!offGrid) earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK * wasteK * secK * fireK * cultK;
+        if (!offGrid) earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK * wasteK * secK * fireK * cultK * wfK;
         // v23 巡防判定（覆盖 → 安心做买卖；盲区 → 失窃目标池）
         if (this.secField.has(map.idx(o.ax, o.ay))) secIn++; else { secOut++; crimeN++; }
         // v24 消防判定（覆盖 → 水枪够得着；盲区 → 起火偏爱现场）
@@ -1715,6 +1756,7 @@ export class Tycoon {
         if (o.id === 'levee') levees++;                     // v18 防洪堤
         if (o.id === 'opera') operas++;                     // v31 大剧院
         if (o.id === 'expo') expos++;                       // v31 会展中心
+        if (o.id === 'marina') marinas++;                   // v32 游船码头
       }
       // v6 水务设施：登记覆盖圆心（半径含足迹）
       if (e?.waterR) {
@@ -2008,7 +2050,8 @@ export class Tycoon {
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
       0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap + this.docHap
       + (operas > 0 ? 2 : 0)
-      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区扣减；v29 朱批民心增益；v31 大剧院全市幸福 +2
+      + Math.min(WF_HAP_MAX, wfRes)
+      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区扣减；v29 朱批民心增益；v31 大剧院全市幸福 +2；v32 滨水住宅每栋 +1
     const happyMult = 0.6 + happiness / 125;
 
     // ---- v10 旅游：景点吸引力 × 文化/幸福 × 季节/天气 → 游客（酒店床位为接待上限）----
@@ -2080,6 +2123,7 @@ export class Tycoon {
       fireCover: (fireIn + fireOut) > 0 ? Math.round(100 * fireIn / (fireIn + fireOut)) : 100,
       fireIn, fireOut, fireMissRes, hydrants,                                       // v24 消防空间化
       operas, expos, cultShops: this.cultShopField.size,                             // v31 都会名片
+      wfN: this.wfField.size, wfRes, marinas,                                        // v32 滨水都市
       ecotowers: this.smogTowerN,
       eventHap, eventAmenity, multCom, multInd, multFood, multPower, multTraffic, multSp,
       weather: { kind: wt.kind, t: wt.t },
@@ -2304,6 +2348,56 @@ export class Tycoon {
     }
     this.eduField = inside;
     this.eduMissField = outside;
+  }
+
+  // ---------------- v32：滨水价值场（临水而兴） ----------------
+
+  /** 重算滨水场（版本缓存：仅 map.version 变化才重算，摆盘/涂地形即触发）。
+   *  Pass A：水面源（自然水面逐格 + 游船码头锚点外推 MARINA_R=3）；
+   *  Pass B：滨水带膨胀（源切比雪夫 WF_R=2 内 → nearWater）；
+   *  Pass C：滨水建筑登记（商铺/住宅锤点落带内 → wfField；住宅另计 wfResN）。
+   *  滨水商铺收入 ×1.06（有码头 ×1.10）· 滨水住宅每栋幸福 +1（全城至多 +6）—— 只 buff 不打折 */
+  private ensureWater(map: CityMap): void {
+    if (map.version === this.wfVer) return;
+    this.wfVer = map.version;
+    const n = map.n;
+    const src = new Set<number>();
+    for (let i = 0; i < n * n; i++) if (map.terr[i] === TERR_WATER) src.add(i);
+    this.marinaN = 0;
+    for (const o of map.objs.values()) {
+      if (o.id !== 'marina') continue;
+      this.marinaN++;
+      for (let dy = -MARINA_R; dy <= MARINA_R; dy++) {
+        for (let dx = -MARINA_R; dx <= MARINA_R; dx++) {
+          const x = o.ax + dx, y = o.ay + dy;
+          if (x >= 0 && y >= 0 && x < n && y < n) src.add(map.idx(x, y));
+        }
+      }
+    }
+    const near = new Set<number>();
+    for (const i of src) {
+      const x = i % n, y = (i / n) | 0;
+      for (let dy = -WF_R; dy <= WF_R; dy++) {
+        for (let dx = -WF_R; dx <= WF_R; dx++) {
+          const nx = x + dx, ny = y + dy;
+          if (nx >= 0 && ny >= 0 && nx < n && ny < n) near.add(map.idx(nx, ny));
+        }
+      }
+    }
+    this.nearWater = near;
+    const wf = new Set<number>();
+    let resN = 0;
+    for (const o of map.objs.values()) {
+      const cat = defById(o.id).cat;
+      if (cat !== 'res' && cat !== 'com') continue;
+      const i = map.idx(o.ax, o.ay);
+      if (near.has(i)) {
+        wf.add(i);
+        if (cat === 'res') resN++;
+      }
+    }
+    this.wfField = wf;
+    this.wfResN = resN;
   }
 
   // ---------------- v31：文化街区覆盖场（都会名片） ----------------
@@ -2677,6 +2771,14 @@ export class Tycoon {
       this.chron.write('mile', 'good', 'fest', '会展中心开馆',
         '玻璃拱棚下万国旗一齐升起。各地客商的展台连夜布展，节庆与博览会从此有了主场。', this.gHours);
       this.msg?.('会展中心开馆 —— 节庆历时 +30% · 冷却 −20% · 节庆期游客 +30%');
+      this.sfx?.('achieve');
+    }
+    // ---- v32：游船码头首建纪事 ----
+    if (s.marinas > 0 && !this.marinaSeen) {
+      this.marinaSeen = true;
+      this.chron.write('mile', 'good', 'drop', '游船启航',
+        '第一班游船鸣着汽笛离岸，甲板上的游客朝岸边的步道挥手。水不再只是城的边界，而是城的风景。', this.gHours);
+      this.msg?.('游船码头启用 —— 周围 3 格并入滨水带（滨水商铺收入升档 ×1.10）');
       this.sfx?.('achieve');
     }
 

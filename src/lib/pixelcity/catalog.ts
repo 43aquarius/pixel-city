@@ -32,7 +32,7 @@ import {
   genHiapart, genNagaya, genMinshuku, genElectown, genFerris,
   genBakery, genGas, genFerry, genWindmill, genGreenhouse,
   genBrewery, genPavilion, genAquarium, genCellmast,
-  genOpera, genExpo,
+  genOpera, genExpo, genBoardwalk, genMarina,
 } from './b_dusk';
 import { genWatertower, genWaterplant, genLevee } from './b_water';
 import { genBinshed, genRecycle, genIncin } from './b_waste';
@@ -219,6 +219,11 @@ export const CATALOG: Def[] = [
     gen: genOpera, desc: '金穹顶与柱廊山花的都会名片：半径 6 格商圈商铺收入 +8%（文化街区）· 全市幸福 +2（需「城市名片」）' },
   { id: 'expo', name: '会展中心', cat: 'civ', w: 3, h: 3, variants: 1, pop: 40,
     gen: genExpo, desc: '玻璃拱棚展馆与万国旗广场：节庆历时 +30% · 冷却 −20% · 节庆期游客再 +30%（需「建筑工程学」）' },
+  // ---- v32 滨水都市：临水而兴 ----
+  { id: 'boardwalk', name: '滨水步道', cat: 'civ', w: 1, h: 1, variants: 2, pop: 0,
+    gen: genBoardwalk, desc: '木栈道白栏杆遮阳伞：临水摆放串成水岸风景线，景点吸引力 +1.5/座' },
+  { id: 'marina', name: '游船码头', cat: 'civ', w: 2, h: 2, variants: 1, pop: 12,
+    gen: genMarina, desc: 'T 字栈桥与双桅游船：码头周围 3 格也算滨水带（水岸氛围外推）· 游客与收入兼得' },
   // ---- 剧情（经营模式专属，不可直接建造）----
   { id: 'cityhall', name: '市政厅', cat: 'civ', w: 2, h: 2, variants: 1, pop: 0,
     gen: genCityhall, hidden: true, desc: '城市的心脏：金顶钟塔与旗帜' },
@@ -233,9 +238,9 @@ export function defById(id: string): Def {
 export const ATTRACT: Record<string, number> = {
   ferris: 5, aquarium: 5, castle: 5, opera: 5,
   museum: 4, stadium: 4, expo: 4,
-  temple: 3, observatory: 3,
+  temple: 3, observatory: 3, marina: 3,
   church: 2, monument: 2, lighthouse: 2, torii: 2,
-  cinema: 1.5, clocktower: 1,
+  cinema: 1.5, clocktower: 1, boardwalk: 1.5,
   park: 0.5, plaza: 0.5, pavilion: 0.5, market: 0.5,
 };
 
