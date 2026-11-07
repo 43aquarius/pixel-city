@@ -269,7 +269,7 @@ export default function PixelCity() {
   /** v27 移动端卷目横条：左右渐隐暗示（滚动感知） */
   const [cwNavMore, setCwNavMore] = useState({ l: false, r: false });
   const cwNavScrollRef = useRef<HTMLDivElement | null>(null);
-  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'fest' | 'chron'>('none');
+  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'fest' | 'chron' | 'gov'>('none');
   const [econ, setEcon] = useState<EconView | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
@@ -280,6 +280,9 @@ export default function PixelCity() {
   const [mailSel, setMailSel] = useState<number | null>(null);
   /** v15 信箱视图版本号（回信后强制刷新） */
   const [mailVer, setMailVer] = useState(0);
+  /** v29 市长公署：视图版本号（朱批后强制刷新）+ 盖章动画（seal 字 + 时间戳为 key） */
+  const [govVer, setGovVer] = useState(0);
+  const [govSeal, setGovSeal] = useState<{ seal: string; k: number } | null>(null);
   const [citzVoice, setCitzVoice] = useState<{ name: string; text: string; mood: number } | null>(null);
   /** v14 新手引导：状态机实例（ref）+ 渲染快照（state） */
   const tutRef = useRef<Tutorial | null>(null);
@@ -625,13 +628,14 @@ export default function PixelCity() {
     }
   }, [say]);
 
-  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'fest' | 'chron') => {
+  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'fest' | 'chron' | 'gov') => {
     if (m === 'save') {
       setSlotMeta([0, 1, 2].map(i => Engine.slotMeta(i)));
     }
-    if (m === 'citz' || m === 'mail') setCitzEng(engineRef.current);   // 捕获引擎句柄到 state（头像/信箱视图用）
+    if (m === 'citz' || m === 'mail' || m === 'gov') setCitzEng(engineRef.current);   // 捕获引擎句柄到 state（头像/信箱/公署视图用）
     if (m !== 'citz') { setCitzSel(null); setCitzSpot(null); }
     if (m !== 'mail') setMailSel(null);
+    if (m !== 'gov') setGovSeal(null);
     setModal(m);
     beeperRef.current?.play('click');
   }, []);
@@ -1260,6 +1264,13 @@ export default function PixelCity() {
               <button className="chip" onClick={() => openModal('chron')}
                 title={`城市编年史：在册 ${econ.chron.n} 笔纪事（累计 ${econ.chron.total} 笔）· 当前纪元「${econ.chron.eraName}」—— 开埠奠基、时代跃迁、灾祸喜讯、科技节庆与里程碑，都记在这本城市之书里`}>
                 <img src={iu('scroll')} alt="" /><b>{econ.chron.n}</b><i>史</i>
+              </button>
+              <button className={`chip gov${econ.gov.pending ? ' has' : ''}`} onClick={() => openModal('gov')}
+                title={econ.gov.pending
+                  ? `市长公署：${econ.gov.pending.from}呈「${econ.gov.pending.title}」待您朱批 —— 每道批注都有代价与回响，并记入编年史「政令」卷`
+                  : `市长公署：已批 ${econ.gov.n} 份公文 · 案头清简（明晨八点再有公文送抵）`}>
+                <img src={iu('medal')} alt="" /><b>{econ.gov.n}</b><i>批</i>
+                {econ.gov.pending && <em className="chip-dot">待</em>}
               </button>
               <div className={`chip${econ.powerDem > econ.powerSup ? ' warn' : ''}`}
                 title={`电力：供给 ${econ.powerSup}MW / 需求 ${econ.powerDem}MW${econ.powerDem > econ.powerSup ? ' —— 缺电！收入大幅打折' : ''}`}>
@@ -2159,6 +2170,78 @@ export default function PixelCity() {
         </div>
       )}
 
+      {/* v29 市长公署模态（朱批公文） */}
+      {modal === 'gov' && econ && (() => {
+        const eng = citzEng;   // 打开模态时捕获的引擎句柄（state，不读 ref）
+        const g = econ.gov;
+        void govVer;   // 朱批后 setGovVer 触发重渲染
+        const p = g.pending;
+        const nextDay = Math.floor(g.next / 24) + 1;
+        return (
+          <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
+            <div className="pxc-modal pxc-gov" role="dialog" aria-label="市长公署">
+              <header>
+                市 长 公 署
+                <button className="pxc-x" onClick={() => setModal('none')} aria-label="关闭">×</button>
+              </header>
+              <div className="pxc-body">
+                {p ? (
+                  <div className="gov-doc" data-doc={p.id}>
+                    <div className="gd-head">
+                      <img src={iu(p.icon)} alt="" width={22} height={22} />
+                      <div className="gd-meta">
+                        <b>{p.title}</b>
+                        <span>{p.from} 呈 · 开埠第 {p.day} 天清晨送抵</span>
+                      </div>
+                      <em className="gd-wait">待批</em>
+                    </div>
+                    <p className="gd-body">{p.body}</p>
+                    <p className="gd-tip">如何朱批？—— 每道批注都有代价与回响，落笔即记入编年史「政令」卷。</p>
+                    <div className="gd-opts" role="group" aria-label="朱批选项">
+                      {p.opts.map((o, i) => (
+                        <button key={i} className={`gd-opt ${o.tone}${o.disabled ? ' off' : ''}`}
+                          disabled={o.disabled}
+                          title={o.disabled ? '府库不足 —— 这道批暂时下不去笔' : `朱批「${o.label}」：${o.note}`}
+                          onClick={() => {
+                            if (!eng?.tycoon?.decideDoc(i)) return;
+                            setGovSeal({ seal: o.seal, k: Date.now() });
+                            setGovVer(v => v + 1);
+                          }}>
+                          <i className="gd-seal" aria-hidden>{o.seal}</i>
+                          <span className="gd-label">{o.label}</span>
+                          <span className="gd-note">{o.disabled ? '府库不足' : o.note}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="gov-empty">
+                    <b>案头清简</b>
+                    <span>下一份公文将在<b>开埠第 {nextDay} 天清晨</b>送抵 —— 批过的每一道朱批，都成了这座城的一部分。</span>
+                  </div>
+                )}
+                <div className="gov-log">
+                  <b className="gl-title">朱批存档（已批 {g.n} 份）</b>
+                  {g.log.length === 0 && <p className="gl-empty">尚无批注 —— 等第一份公文送抵案头。</p>}
+                  {g.log.map((l, i) => (
+                    <div key={i} className="gl-row" data-seal={l.seal}>
+                      <i className="gd-seal sm" aria-hidden>{l.seal}</i>
+                      <span className="gl-name">{l.title}</span>
+                      <span className="gl-opt">「{l.label}」</span>
+                      <span className="gl-day">第{l.day}天</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {govSeal && (
+                <div key={govSeal.k} className="gov-stamp" data-seal={govSeal.seal}
+                  onAnimationEnd={() => setGovSeal(null)}>{govSeal.seal}</div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* v27 城史长卷：全景编年史阅读页（全屏立轴 · 按纪元分卷；v28 增「大事年表」横轴总览） */}
       {chronWide && econ && (() => {
         const entries = econ.chron.entries;
@@ -2782,6 +2865,7 @@ export default function PixelCity() {
                     <tr><td>经营</td><td>顶部 HUD 看金币/人口/电力/幸福；点迷雾金框购地；点市政厅开财政报告；工业产货供商业、缺货打折，景点招游客消费；两座电车站开通电车干线，铁路货运站让内陆城市出口；出口市价随行就市波动，可惜售囤货低吸高抛；财政报告里可进市政法令厅颁布政策</td></tr>
                     <tr><td>市民</td><td>顶栏「民」指标开<b>市民列传</b>：人口迁入迎来有名有姓的市民（传记/性格/住所/大事记），还能「去家里看看」；观察工具点击街上的行人也能遇到他们（在册市民就是本人，脸生的则是过路人）；成婚添丁会组成<b>家族谱系</b></td></tr>
                     <tr><td>信箱</td><td>顶栏「邮」指标开<b>市长信箱</b>：市民随城市状态来信（求助/吐槽/感谢/见闻），挑一种口吻回信会影响 TA 的心情；红点亮起就是有人盼着回信，回满 8 封解锁成就「见字如面」</td></tr>
+                    <tr><td>公署</td><td>顶栏「批」指标开<b>市长公署</b>：每日清晨公文送抵案头（请愿/联名/风闻/献策…），每份两三道朱批各有代价与回响 —— 府库、人口、粮仓、民心随之而动，批注都落笔编年史「政令」卷；府库不足的批注会暂时下不去笔</td></tr>
                     <tr><td>节庆</td><td>顶栏「庆」指标开<b>城市节庆</b>：随季节举办樱花祭/花火大会/丰收节/暖灯节（市政厅 LV3 起），90 秒全城增益 —— 春天樱吹雪加密、夏天夜空花火、秋天金叶满街、冬天孔明灯升空；节日会写进市民大事记，累计 8 场解锁成就「节庆之都」、四季各办一场解锁「四季轮庆」</td></tr>
                     <tr><td>引导</td><td>首次进入经营模式自动展开新手引导横幅（修路→建房→迎市民→开业→看面板→认市民）；随时可跳过，也可在这里点「重新查看新手引导」重看</td></tr>
                     <tr><td>音效</td><td>顶栏喇叭图标：音效开关 + 主音量滑杆（本地记忆）；建造/金币/灾害警报/警笛/电车铃/成就凯旋各有专属 8-bit 音色</td></tr>
@@ -2800,7 +2884,7 @@ export default function PixelCity() {
                     <tr><td>地形</td><td>真实海拔起伏：抬升造山、降低挖谷（挖到 0 化为水域）；山坡建房自动整地（另付小额费用）；行人车辆会爬坡</td></tr>
                     <tr><td>桥梁</td><td>道路工具拖过水面自动架桥（15G/格，物流网络科技打折），桥面与岸上路面齐平，行人车辆畅通无阻</td></tr>
                     <tr><td>四季</td><td>春樱/夏绿/秋红/冬雪随时钟轮转（每季 4 分钟×1）：春季樱花瓣飘落、冬季水面封冻大地积雪；粮产/商业/用电随季节联动</td></tr>
-                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>城市卫士应急联动</b>（交番驻巡逻警车·治安+220 护盾；火灾/疫病来袭消防车救护车沿路驰援——到场喷水/接载并免余损，设施邻路是关键）· <b>消防水网与火势蔓延</b>（消防局半径 5 格·消防栓半径 2 格织成水网：覆盖区火势减半；盲区起火蔓延更快且会蹿烧邻栋——受灾住户与街坊都写进个人史册，消防员到场还可能成为你家恩人）· <b>市民列传</b>（人口迁入迎来有名有姓的市民：顶栏「民」指标开名人册看传记与大事记，观察工具点击街上行人打招呼——在册市民就是本人、脸生的则是过路人，成婚添丁组成家族谱系，市民之声随城市状态轮播）· <b>市长信箱</b>（顶栏「邮」指标：市民随城市状态来信——求助/吐槽/感谢/见闻，回信影响他们的心情，回满 8 封解锁成就「见字如面」）· <b>城市节庆</b>（顶栏「庆」指标：随季节办节 —— 樱花祭/花火大会/丰收节/暖灯节，90 秒全城增益配专属街景特效）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
+                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>城市卫士应急联动</b>（交番驻巡逻警车·治安+220 护盾；火灾/疫病来袭消防车救护车沿路驰援——到场喷水/接载并免余损，设施邻路是关键）· <b>消防水网与火势蔓延</b>（消防局半径 5 格·消防栓半径 2 格织成水网：覆盖区火势减半；盲区起火蔓延更快且会蹿烧邻栋——受灾住户与街坊都写进个人史册，消防员到场还可能成为你家恩人）· <b>市民列传</b>（人口迁入迎来有名有姓的市民：顶栏「民」指标开名人册看传记与大事记，观察工具点击街上行人打招呼——在册市民就是本人、脸生的则是过路人，成婚添丁组成家族谱系，市民之声随城市状态轮播）· <b>市长信箱</b>（顶栏「邮」指标：市民随城市状态来信——求助/吐槽/感谢/见闻，回信影响他们的心情，回满 8 封解锁成就「见字如面」）· <b>市长公署</b>（顶栏「批」指标：每日清晨公文送抵案头——请愿/联名/风闻/献策，每份两三道朱批各有代价与回响，府库/人口/粮仓/民心随之而动，批注落笔编年史「政令」卷）· <b>城市节庆</b>（顶栏「庆」指标：随季节办节 —— 樱花祭/花火大会/丰收节/暖灯节，90 秒全城增益配专属街景特效）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
                     <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
                     <tr><td>引导</td><td>首次进入经营模式自动展开新手引导横幅（修路→建房→迎市民→开业→看面板→认市民）；随时可跳过，也可在这里点「重新查看新手引导」重看</td></tr>
                     <tr><td>音效</td><td>顶栏喇叭图标：音效开关 + 主音量滑杆（本地记忆偏好）；建造/金币/灾害警报/应急警笛/电车铃/季节钟声/成就凯旋等 21 种专属 8-bit 音色</td></tr>

@@ -8,6 +8,7 @@ import { defById, CATALOG, ATTRACT } from './catalog';
 import { CityMap, TERR_GRASS } from './map';
 import { CitizenRegistry, type CitzView, type MailView } from './citizens';
 import { Chronicle, EV_ICON, eraOfPop, type ChronView } from './chronicle';
+import { DOCS, pickDoc, nextMorningH, DOC_FIRST_H, fxSummary, type DocCtx, type DocDef } from './decisions';
 
 export const CHUNK = 16;                 // 领地块边长（格）
 export const CHUNKS = 16;                // 256 / 16 = 16×16 块领地
@@ -1068,6 +1069,17 @@ export type EconView = {
   festLv: number;        // 门槛等级
   // ---- v17：城市编年史 ----
   chron: ChronView;
+  // ---- v29：市长公署（朱批公文）----
+  gov: {
+    pending: null | {
+      id: string; title: string; icon: string; from: string; body: string;
+      day: number; h: number;
+      opts: Array<{ label: string; seal: string; note: string; tone: string; disabled: boolean }>;
+    };
+    next: number;    // 下一份公文送抵的游戏时
+    n: number;       // 已批数
+    log: Array<{ id: string; title: string; seal: string; label: string; day: number; h: number }>;
+  };
   // ---- v18：灾害链 ----
   quakes: number; floods: number;   // 累计地震 / 洪水场次
   levees: number;                   // 防洪堤数
@@ -1272,6 +1284,21 @@ export class Tycoon {
   revN = 0;
   /** 上一期回望时的城市快照（算本期增减；null = 尚未写过，首期回顾开埠以来） */
   revLast: { pop: number; bld: number; coins: number; id: number } | null = null;
+
+  // ---- v29：市长公署（朱批公文：每日清晨送抵，一次一份，批完再等明晨）----
+  /** 案头待批公文（null = 案头清简）；h 为送抵游戏时（展示与存档用） */
+  docPending: { id: string; h: number } | null = null;
+  /** 下一份公文送抵的游戏时阈值（首份在开埠首日清晨 8 点） */
+  docNext = DOC_FIRST_H;
+  /** 已批份数 */
+  docN = 0;
+  /** 本轮已送抵过的公文 id（全池用尽则清空重开一轮） */
+  docUsed: string[] = [];
+  /** 朱批存档（最新在前，至多 30 条；title 冗余存卷面，免得回查定义表） */
+  docLog: Array<{ id: string; title: string; seal: string; label: string; day: number; h: number }> = [];
+  /** 朱批民心增益（即时生效，随时间衰减归零） */
+  docHap = 0;
+  private docHapLeft = 0;
 
   // ---- v13：市民列传（名人册 / 生活大事记 / 市民之声）----
   citz = new CitizenRegistry();
@@ -1935,8 +1962,8 @@ export class Tycoon {
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
-      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap
-      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区扣减
+      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap + this.docHap
+      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区扣减；v29 朱批民心增益
     const happyMult = 0.6 + happiness / 125;
 
     // ---- v10 旅游：景点吸引力 × 文化/幸福 × 季节/天气 → 游客（酒店床位为接待上限）----
@@ -2302,6 +2329,62 @@ export class Tycoon {
     this.fireMissField = miss;
   }
 
+  // ---------------- v29 市长公署：朱批公文 ----------------
+
+  /** 条件上下文（快照 + 本档状态组装；公文池据此筛「谁会来呈报」） */
+  private docCtx(s: Snap): DocCtx {
+    return {
+      pop: Math.floor(this.pop), cap: s.cap, coins: Math.floor(this.coins),
+      era: this.chron.era, season: this.season,
+      buildings: s.buildings, shops: s.com, parks: s.park,
+      goods: Math.floor(this.goods), food: Math.floor(this.food),
+      powerDem: s.powerDem, safetyIdx: s.safetyIdx, healthIdx: s.healthIdx,
+      festCount: this.festCount, floods: this.floods,
+    };
+  }
+
+  /** 公文送抵案头（tick 阈值触发；一次一份，未批不再送） */
+  private arriveDoc(s: Snap): void {
+    if (this.docUsed.length >= DOCS.length) this.docUsed = [];   // 全池用尽：新一轮（旧事重演，世道如此）
+    const def = pickDoc(DOCS, this.docUsed, this.docCtx(s));
+    if (!def) {                                                  // 无人呈报：顺延明晨再试
+      this.docNext = nextMorningH(this.gHours);
+      return;
+    }
+    if (!this.docUsed.includes(def.id)) this.docUsed.push(def.id);   // 去重占用（新一轮重抽同一份不重复计数）
+    this.docPending = { id: def.id, h: Math.max(0, this.gHours) };
+    this.sfx?.('quest');
+    this.msg?.(`公文送抵：${def.from}呈「${def.title}」—— 顶栏「批」待您朱批`);
+  }
+
+  /** 朱批落笔（UI 调用；府库不足的选项批不动，返回是否批成） */
+  decideDoc(optIdx: number): boolean {
+    const p = this.docPending;
+    if (!p) return false;
+    const def: DocDef | undefined = DOCS.find(d => d.id === p.id);
+    if (!def || optIdx < 0 || optIdx >= def.opts.length) return false;
+    const o = def.opts[optIdx];
+    const fx = o.fx;
+    if ((fx.coins ?? 0) < 0 && this.coins < -(fx.coins as number)) return false;   // 引擎侧再拦一次（UI 已置灰）
+    if (fx.coins) this.coins = Math.max(0, this.coins + fx.coins);
+    if (fx.pop) this.pop = Math.max(0, this.pop + fx.pop);
+    if (fx.xp) this.addXp(fx.xp);
+    if (fx.food) this.food = Math.max(0, this.food + fx.food);
+    if (fx.goods) this.goods = Math.max(0, this.goods + fx.goods);
+    if (fx.hap) { this.docHap = fx.hap; this.docHapLeft = fx.hapSec ?? 90; }
+    this.chron.write('ord', o.tone, def.icon, def.title,
+      `${def.from}呈报：${def.body}市长朱批「${o.label}」—— ${o.outcome}`, this.gHours);
+    this.docLog.unshift({ id: def.id, title: def.title, seal: o.seal, label: o.label,
+      day: Chronicle.dayOf(this.gHours), h: Math.max(0, this.gHours) });
+    if (this.docLog.length > 30) this.docLog.length = 30;
+    this.docN++;
+    this.docPending = null;
+    this.docNext = nextMorningH(this.gHours);   // 批完即约明晨
+    this.sfx?.('achieve');
+    this.msg?.(`朱批已下「${o.label}」（${fxSummary(fx)}）—— 已记入编年史「政令」卷`);
+    return true;
+  }
+
   /** v28 城事回望：一季一篇的自传体小结（季节开头语 + 人口增减 + 新屋 + 府库 + 本期大事） */
   private writeReview(s: Snap): void {
     const last = this.revLast;
@@ -2507,6 +2590,13 @@ export class Tycoon {
 
     // ---- v28：城事回望（一季一篇；季节每 12 游戏时更替，回望恰在换季整点落笔）----
     if (this.gHours >= this.revNext) this.writeReview(s);
+
+    // ---- v29：市长公署 —— 每日清晨八点公文送抵（一次一份，批完再等明晨）----
+    if (this.docHapLeft > 0) {
+      this.docHapLeft = Math.max(0, this.docHapLeft - dt);
+      if (this.docHapLeft === 0) this.docHap = 0;   // 增益到期归零
+    }
+    if (!this.docPending && this.gHours >= this.docNext) this.arriveDoc(s);
 
     // ---- v5：随机事件调度（人口 ≥ 30 后启动；最多同时 2 个）----
     this.eventTimer -= dt;
@@ -2721,6 +2811,20 @@ export class Tycoon {
   view(): EconView {
     const s = this.snap;
     const done = this.questIdx >= QUESTS.length;
+    // v29 市长公署视图（待批公文 + 概算提示；府库不足的选项置灰）
+    const govDef = this.docPending ? DOCS.find(d => d.id === this.docPending!.id) : null;
+    const gov = {
+      pending: govDef && this.docPending ? {
+        id: govDef.id, title: govDef.title, icon: govDef.icon,
+        from: govDef.from, body: govDef.body,
+        day: Chronicle.dayOf(this.docPending.h), h: this.docPending.h,
+        opts: govDef.opts.map(o => ({
+          label: o.label, seal: o.seal, note: o.note, tone: o.tone,
+          disabled: (o.fx.coins ?? 0) < 0 && this.coins < -(o.fx.coins as number),
+        })),
+      } : null,
+      next: this.docNext, n: this.docN, log: this.docLog.slice(0, 12),
+    };
     const q = QUESTS[Math.min(this.questIdx, QUESTS.length - 1)];
     const qcur = done || !s ? (done ? q.goal : 0) : Math.min(q.goal, q.val(s));
     const spRate = s ? s.spRaw * (0.5 + s.wisdom / 100) * (this.has('higher') ? 1.35 : 1) : 0;
@@ -2833,6 +2937,8 @@ export class Tycoon {
       festLv: FEST_LV,
       // ---- v17：城市编年史 ----
       chron: this.chron.view(),
+      // ---- v29：市长公署 ----
+      gov,
       // ---- v18：灾害链 ----
       quakes: this.quakes, floods: this.floods,
       levees: s?.levees ?? 0, waterNear: s?.waterNear ?? 0,
@@ -2974,6 +3080,9 @@ export class Tycoon {
     this.gHours = 0;
     // v28：城事回望重置（首期在第 12 游戏时——第一个换季点）
     this.revNext = 12; this.revN = 0; this.revLast = null;
+    // v29：市长公署重置（首份公文在开埠首日清晨 8 点）
+    this.docPending = null; this.docNext = DOC_FIRST_H; this.docN = 0;
+    this.docUsed = []; this.docLog = []; this.docHap = 0; this.docHapLeft = 0;
     this.chron.reset();
     this.chron.write('era', 'big', 'city', '开埠建城',
       '拓荒者抵达这片无名之地，在荒原正中竖起市政厅的第一根梁柱。城市的故事，从此落笔。', 0);
@@ -3042,6 +3151,10 @@ export class Tycoon {
       gHours: Math.round(this.gHours * 10) / 10,
       // v28：城事回望档
       revN: this.revN, revNext: this.revNext, revLast: this.revLast,
+      // v29：市长公署档（待批公文 / 已批数 / 用过池 / 朱批存档 / 民心增益）
+      docP: this.docPending, docNext: this.docNext, docN: this.docN,
+      docUsed: this.docUsed, docLog: this.docLog,
+      docHap: this.docHap, docHapL: this.docHapLeft,
       hall: [this.hall.x, this.hall.y],
       own, last: Date.now(),
       map: map.serialize(),
@@ -3167,6 +3280,34 @@ export class Tycoon {
       ? { pop: Number(rl.pop), bld: Number(rl.bld), coins: Math.floor(Number(rl.coins) || 0),
           id: Math.max(0, Math.floor(Number(rl.id) || 0)) }
       : null;
+    // v29：市长公署档恢复（旧档无字段 → 首份公文从下一个清晨八点起算；在批公文原样回到案头）
+    this.docN = Math.max(0, Math.floor(Number(d.docN) || 0));
+    this.docNext = Number(d.docNext) > 0 ? Number(d.docNext) : nextMorningH(this.gHours);
+    this.docUsed = [];
+    for (const id of (d.docUsed as string[]) ?? []) {
+      if (typeof id === 'string' && DOCS.some(x => x.id === id) && !this.docUsed.includes(id)) this.docUsed.push(id);
+    }
+    this.docLog = [];
+    if (Array.isArray(d.docLog)) {
+      for (const l of d.docLog as Array<{ id?: unknown; title?: unknown; seal?: unknown; label?: unknown; day?: unknown; h?: unknown }>) {
+        if (l && typeof l.title === 'string' && typeof l.label === 'string') {
+          this.docLog.push({
+            id: String(l.id ?? ''), title: l.title.slice(0, 24),
+            seal: ['准', '驳', '缓', '辞'].includes(String(l.seal)) ? String(l.seal) : '准',
+            label: l.label.slice(0, 24),
+            day: Math.max(1, Math.floor(Number(l.day) || 1)),
+            h: Math.max(0, Number(l.h) || 0),
+          });
+        }
+      }
+      if (this.docLog.length > 30) this.docLog.length = 30;
+    }
+    const dp = d.docP as { id?: unknown; h?: unknown } | null | undefined;
+    this.docPending = dp && typeof dp.id === 'string' && DOCS.some(x => x.id === dp.id)
+      ? { id: dp.id, h: Math.max(0, Number(dp.h) || 0) } : null;
+    this.docHap = Math.max(-10, Math.min(10, Number(d.docHap) || 0));
+    this.docHapLeft = Math.max(0, Math.min(600, Number(d.docHapL) || 0));
+    if (this.docHapLeft === 0) this.docHap = 0;
     if (!this.chron.restore(d.chron)) {
       this.chron.reset();
       this.chron.era = eraOfPop(this.pop);

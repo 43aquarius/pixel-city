@@ -2438,3 +2438,116 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 .pxc.m .cw-dot { width: 11px; height: 11px; }
 .pxc.m .cw-dot.big { width: 13px; height: 13px; }
 .pxc.m .cw-tip { display: none; }
+
+/* ---------------- v29 市长公署：朱批公文 ---------------- */
+
+/* HUD 批芯片 + 待批红点（沿用邮点脉冲） */
+.chip.gov { position: relative; }
+.chip.gov.has { border-color: #E05548; }
+.chip.gov .chip-dot {
+  position: absolute; top: -6px; right: -7px; z-index: 3;
+  min-width: 15px; height: 15px; padding: 0 3px;
+  font-size: 9px; line-height: 15px; font-style: normal; font-weight: 700;
+  color: #F4F2E8; text-align: center;
+  background: #E05548; border: 1px solid #8C2F26; border-radius: 8px;
+  animation: mailPulse 1.6s ease-in-out infinite;
+}
+
+/* 公署模态（公文纸美学：米黄纸面 + 朱红界栏） */
+.pxc-gov { width: min(540px, calc(100vw - 32px)); }
+
+/* 待批公文卡 */
+.gov-doc {
+  background: rgba(255, 252, 240, 0.92);
+  border: 1px solid #C9B98A;
+  border-left: 4px solid #B03A2E;
+  border-radius: 4px;
+  padding: 12px 13px 13px;
+  box-shadow: 0 1px 0 rgba(120, 100, 60, 0.15);
+}
+.gd-head { display: flex; align-items: center; gap: 10px; }
+.gd-head img { image-rendering: pixelated; flex: 0 0 auto; }
+.gd-meta { flex: 1; min-width: 0; }
+.gd-meta b { display: block; font-size: 15px; letter-spacing: 2px; color: #3A3020; }
+.gd-meta span { display: block; margin-top: 2px; font-size: 11px; color: #8A7F63; }
+.gd-wait {
+  flex: 0 0 auto; font-size: 10px; font-style: normal; font-weight: 700;
+  color: #B03A2E; border: 1px solid #B03A2E; border-radius: 3px;
+  padding: 1px 6px; letter-spacing: 2px; text-indent: 2px;
+}
+.gd-body { margin: 10px 2px 8px; font-size: 13px; line-height: 1.8; color: #3A3630; }
+.gd-tip { margin: 0 2px 9px; font-size: 11px; color: #8A7F63; }
+
+/* 朱批选项（准/驳/缓/辞） */
+.gd-opts { display: flex; flex-direction: column; gap: 7px; }
+.gd-opt {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; text-align: left; cursor: pointer;
+  background: #FFFDF6;
+  border: 1px solid #C9B98A; border-radius: 4px;
+  color: #3A3020; font-family: inherit;
+}
+.gd-opt:hover:not(:disabled) { border-color: #B03A2E; background: #FFF6E8; }
+.gd-opt:active:not(:disabled) { transform: translateY(1px); }
+.gd-opt.off { opacity: 0.45; cursor: not-allowed; }
+.gd-seal {
+  flex: 0 0 auto; width: 26px; height: 26px;
+  display: grid; place-items: center;
+  font-size: 14px; font-weight: 700; font-style: normal;
+  color: #B03A2E; background: rgba(176, 58, 46, 0.07);
+  border: 2px solid #B03A2E; border-radius: 4px;
+  transform: rotate(-6deg);
+}
+.gd-seal.sm { width: 20px; height: 20px; font-size: 11px; border-width: 1.5px; }
+.gd-opt.good .gd-seal { border-color: #4E9040; color: #4E9040; background: rgba(78, 144, 64, 0.07); }
+.gd-opt.bad .gd-seal { border-color: #8C2F26; color: #8C2F26; background: rgba(140, 47, 38, 0.08); }
+.gd-label { font-weight: 700; font-size: 12.5px; }
+.gd-note { margin-left: auto; font-size: 11px; color: #8A7F63; text-align: right; }
+
+/* 案头清简 */
+.gov-empty { text-align: center; padding: 20px 12px 16px; color: #6B6353; }
+.gov-empty b {
+  display: block; font-size: 16px; letter-spacing: 6px; text-indent: 6px;
+  color: #3A3020; margin-bottom: 8px;
+}
+.gov-empty span { display: block; font-size: 12px; line-height: 1.8; }
+.gov-empty span b { display: inline; font-size: 12px; letter-spacing: 0; text-indent: 0; color: #B03A2E; }
+
+/* 朱批存档列表 */
+.gov-log { margin-top: 14px; border-top: 1px dashed #C9B98A; padding-top: 9px; }
+.gl-title { display: block; font-size: 11px; color: #8A7F63; letter-spacing: 1px; margin-bottom: 5px; }
+.gl-empty { margin: 2px 0 6px; font-size: 11.5px; color: #8A7F63; line-height: 1.7; }
+.gl-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 2px; font-size: 12px; color: #3A3020;
+}
+.gl-row + .gl-row { border-top: 1px solid rgba(201, 185, 138, 0.35); }
+.gl-name { font-weight: 700; letter-spacing: 1px; }
+.gl-opt { color: #6B6353; }
+.gl-day { margin-left: auto; font-size: 10.5px; color: #8A7F63; }
+
+/* 盖章动画：朱印砸落（缩放 + 旋转 + 渐隐） */
+.gov-stamp {
+  position: absolute; left: 50%; top: 38%;
+  transform: translate(-50%, -50%) rotate(-14deg);
+  font-size: 84px; line-height: 1; font-weight: 700;
+  padding: 8px 26px; letter-spacing: 4px; text-indent: 4px;
+  color: #B03A2E;
+  background: rgba(255, 252, 240, 0.94);
+  border: 6px double #B03A2E; border-radius: 14px;
+  pointer-events: none; z-index: 5;
+  animation: govStamp 1.5s ease-out forwards;
+}
+@keyframes govStamp {
+  0%   { opacity: 0; transform: translate(-50%, -50%) rotate(-14deg) scale(2.6); }
+  16%  { opacity: 1; transform: translate(-50%, -50%) rotate(-14deg) scale(1); }
+  80%  { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -50%) rotate(-14deg) scale(1.05); }
+}
+
+/* 移动端公署：全宽 + 选项概算换行 */
+.pxc.m .pxc-gov { width: calc(100vw - 14px); }
+.pxc.m .gd-body { font-size: 12.5px; }
+.pxc.m .gd-opt { flex-wrap: wrap; padding: 9px 10px; }
+.pxc.m .gd-note { margin-left: 36px; text-align: left; flex-basis: calc(100% - 36px); }
+.pxc.m .gov-stamp { font-size: 60px; padding: 6px 18px; border-width: 5px; }
