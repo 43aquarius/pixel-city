@@ -11,7 +11,7 @@
 export const CHRON_MAX = 140;
 
 /** 纪事分类（筛选器用） */
-export type ChronCat = 'era' | 'event' | 'tech' | 'fest' | 'ord' | 'mile';
+export type ChronCat = 'era' | 'event' | 'tech' | 'fest' | 'ord' | 'mile' | 'rev';
 
 /** 纪事色调：good 喜 / bad 忧 / big 大事记（纪元级）/ info 日常政务 */
 export type ChronTone = 'good' | 'bad' | 'big' | 'info';
@@ -19,12 +19,18 @@ export type ChronTone = 'good' | 'bad' | 'big' | 'info';
 export type ChronEntry = {
   id: number;        // 自增序号（滑窗内排序依据）
   day: number;       // 游戏日（开埠第 N 天）
+  h?: number;        // 游戏时锚点（v28 年表精确定位；旧档缺省回退当日正午）
   cat: ChronCat;
   tone: ChronTone;
   icon: string;      // 图标名（icons.ts）
   title: string;     // 四字标题
   text: string;      // 纪事正文（一至两句）
 };
+
+/** 纪事的游戏时锚点（旧档无 h → 按当日正午回退，年表不丢点） */
+export function hOf(e: ChronEntry): number {
+  return Number.isFinite(e.h) ? (e.h as number) : (e.day - 1) * 24 + 12;
+}
 
 // ------------------------------------------------------------
 // 五纪元（按人口晋升；编年史的「卷」）
@@ -108,6 +114,72 @@ export function statsOf(entries: ChronEntry[]):
   const span = entries.length
     ? Math.max(0, entries[entries.length - 1].day - entries[0].day) : 0;
   return { good, bad, big, info, span };
+}
+
+// ------------------------------------------------------------
+// v28 大事年表：时间轴总览（纯派生，不入档；轴为游戏时，一天 24h）
+// ------------------------------------------------------------
+
+/** 纪元带：年表的背景分段（游戏时粒度，左闭右开） */
+export type TlBand = { era: number; from: number; to: number };
+
+/** 年表锚点：一枚可点跳转的纪事点（x 为 0..1 轴上位置分数） */
+export type TlDot = { e: ChronEntry; i: number; lane: number; x: number };
+
+/**
+ * 纪元带切分（游戏时轴）：每遇「迈入「X」」跃迁纪事即开新带（跃迁锚点归新带首），
+ * 末带延伸到 toH；与 chaptersOf 同源语义（早年残卷归开埠带），保证年表与长卷分卷对齐。
+ */
+export function eraBandsOf(entries: ChronEntry[], toH: number): TlBand[] {
+  const bands: TlBand[] = [];
+  if (!entries.length) return bands;
+  let last = 0;
+  for (const x of entries) last = Math.max(last, hOf(x));
+  const end = Math.max(toH, last);
+  let cur: TlBand = { era: 0, from: 0, to: end };
+  for (const x of entries) {
+    if (x.cat === 'era' && x.tone === 'big' && x.title.startsWith('迈入')) {
+      const name = x.title.slice(x.title.indexOf('「') + 1, x.title.lastIndexOf('」'));
+      const k = ERAS.findIndex(e => e.name === name);
+      if (k > cur.era) {
+        cur.to = Math.max(cur.from, hOf(x) - 0.01);   // 跃迁锚点归新带首
+        bands.push(cur);
+        cur = { era: k, from: hOf(x), to: end };
+      }
+    }
+  }
+  bands.push(cur);
+  return bands;
+}
+
+/**
+ * 轴上布点（游戏时定位：x = (h - fromH) / span），相邻过近的点依次上叠（lane 0 最贴轴）；
+ * minDx 为最小间距分数（调用方按实际像素宽折算传入，纯函数保持可测）。
+ */
+export function timelineOf(entries: ChronEntry[], fromH: number, toH: number, minDx: number):
+    { dots: TlDot[]; lanes: number } {
+  const span = Math.max(1, toH - fromH);
+  const laneEnd: number[] = [];   // 每车道已占到的 x 位置
+  const dots: TlDot[] = [];
+  entries.forEach((e, i) => {
+    const x = Math.min(1, Math.max(0, (hOf(e) - fromH) / span));
+    let lane = laneEnd.findIndex(end => end + minDx <= x);
+    if (lane < 0) { lane = laneEnd.length; laneEnd.push(0); }
+    laneEnd[lane] = x;
+    dots.push({ e, i, lane, x });
+  });
+  return { dots, lanes: Math.max(1, laneEnd.length) };
+}
+
+/** 密度直方图：把 [fromH, toH] 均分 buckets 桶，返回每桶纪事数（多事之秋一眼可辨） */
+export function densityOf(entries: ChronEntry[], fromH: number, toH: number, buckets: number): number[] {
+  const out = new Array(Math.max(1, buckets)).fill(0);
+  const span = Math.max(1, toH - fromH);
+  for (const e of entries) {
+    const k = Math.min(out.length - 1, Math.max(0, Math.floor((hOf(e) - fromH) / span * out.length)));
+    out[k]++;
+  }
+  return out;
 }
 
 // ------------------------------------------------------------
@@ -209,7 +281,8 @@ export class Chronicle {
   /** 追加一笔纪事（滑窗：超过 CHRON_MAX 挤掉最早） */
   write(cat: ChronCat, tone: ChronTone, icon: string, title: string, text: string, gHours: number): void {
     this.entries.push({
-      id: this.nextId++, day: Chronicle.dayOf(gHours), cat, tone, icon, title, text,
+      id: this.nextId++, day: Chronicle.dayOf(gHours), h: Math.max(0, gHours),
+      cat, tone, icon, title, text,
     });
     if (this.entries.length > CHRON_MAX) {
       this.entries.splice(0, this.entries.length - CHRON_MAX);
@@ -401,7 +474,7 @@ export class Chronicle {
         };
       };
       if (!Array.isArray(d.e)) return false;
-      const CATS = ['era', 'event', 'tech', 'fest', 'ord', 'mile'];
+      const CATS = ['era', 'event', 'tech', 'fest', 'ord', 'mile', 'rev'];
       const TONES = ['good', 'bad', 'big', 'info'];
       let nid = 1;
       for (const it of d.e) {
@@ -410,9 +483,11 @@ export class Chronicle {
         const cat = CATS.includes(String(x.cat)) ? x.cat as ChronCat : 'mile';
         const tone = TONES.includes(String(x.tone)) ? x.tone as ChronTone : 'info';
         const id = Number(x.id);
+        const hv = Number(x.h);
         this.entries.push({
           id: Number.isFinite(id) && id > 0 ? id : nid,
           day: Math.max(1, Math.floor(Number(x.day) || 1)),
+          h: Number.isFinite(hv) && hv >= 0 ? hv : undefined,   // v28 年表锚点（旧档回退当日正午）
           cat, tone,
           icon: typeof x.icon === 'string' && x.icon ? x.icon : 'book',
           title: x.title.slice(0, 24), text: x.text.slice(0, 200),

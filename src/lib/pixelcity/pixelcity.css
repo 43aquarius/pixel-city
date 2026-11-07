@@ -2289,6 +2289,101 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
   font-size: 11px; letter-spacing: 4px; color: #9a8f72;
 }
 
+/* ---- v28 大事年表：卷/表切换 + 横轴总览（纪元带 · 四色点阵 · 日轴 · 密度条） ---- */
+.cw-tabs { display: flex; gap: 4px; flex: 0 0 auto; }
+.cw-tab {
+  font-family: inherit; cursor: pointer;
+  padding: 4px 10px; font-size: 11px; letter-spacing: 1px;
+  border: 1px solid #7a6a45; border-radius: 2px;
+  background: transparent; color: #8f7f57;
+}
+.cw-tab:hover { color: #4a3d28; border-color: #8a6d1a; }
+.cw-tab.on {
+  background: #8a6d1a; border-color: #8a6d1a; color: #f7efd8;
+  box-shadow: inset 0 0 0 1px rgba(255, 244, 200, 0.4);
+}
+.cw-tl {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; flex-direction: column;
+  background: #efe9d4; position: relative;
+}
+.cw-tl-scroll { flex: 1 1 auto; overflow-x: auto; overflow-y: hidden; padding: 26px 30px 12px; }
+.cw-tl-scroll::-webkit-scrollbar { height: 8px; }
+.cw-tl-scroll::-webkit-scrollbar-thumb { background: #b7a770; }
+.cw-tl-inner { position: relative; display: flex; flex-direction: column; min-height: 200px; }
+/* 纪元带（背景层：交替底色 + 左侧虚线界栏，与长卷分卷同源语义） */
+.cw-bands { position: absolute; inset: 0; z-index: 0; }
+.cw-band {
+  position: absolute; top: 0; bottom: 0;
+  background: rgba(138, 109, 26, 0.05);
+  border-left: 2px dashed rgba(138, 109, 26, 0.45);
+}
+.cw-band.alt { background: rgba(102, 121, 142, 0.07); }
+.cw-band b {
+  position: absolute; top: 5px; left: 8px;
+  font-size: 10.5px; letter-spacing: 3px; color: #8a6d1a;
+  white-space: nowrap; opacity: 0.75;
+}
+.cw-band.alt b { color: #66798E; }
+/* 四色纪事点（菱形；big 放大金锭；rev 回望为圆环书卷点） */
+.cw-dots { position: relative; z-index: 1; }
+.cw-dot {
+  position: absolute; width: 9px; height: 9px; padding: 0;
+  transform: translateX(-50%) rotate(45deg);
+  border: 1px solid rgba(60, 45, 20, 0.5);
+  cursor: pointer; border-radius: 0;
+}
+.cw-dot::after { content: ''; position: absolute; inset: -6px; }   /* 扩大热区 */
+.cw-dot.good { background: #4E9040; }
+.cw-dot.bad { background: #B03A2E; }
+.cw-dot.info { background: #66798E; }
+.cw-dot.big { background: #f2d24b; border-color: #8a6d1a; width: 12px; height: 12px; margin-top: -2px; }
+.cw-dot.rev {
+  background: #efe9d4; border: 2px solid #8a6d1a;
+  width: 11px; height: 11px; border-radius: 50%;
+  transform: translateX(-50%);
+}
+.cw-dot.dim { opacity: 0.18; }
+.cw-dot:hover { z-index: 5; box-shadow: 0 0 0 3px rgba(242, 210, 75, 0.6); }
+/* 日轴（刻度自适应疏密） */
+.cw-axis { position: relative; z-index: 1; height: 24px; border-top: 2px solid #6b5a35; margin-top: 2px; }
+.cw-tick {
+  position: absolute; top: 0; transform: translateX(-50%);
+  font-size: 9.5px; color: #6b5a35; white-space: nowrap;
+  padding-top: 4px; font-variant-numeric: tabular-nums;
+}
+.cw-tick i { position: absolute; top: -2px; left: 50%; width: 1px; height: 6px; background: #6b5a35; }
+/* 密度条（多事之秋一眼可辨） */
+.cw-dens {
+  position: relative; z-index: 1;
+  display: flex; align-items: flex-end; gap: 1px;
+  height: 34px; margin-top: 6px; padding-bottom: 2px;
+}
+.cw-dens i { flex: 1 1 0; min-width: 2px; background: rgba(107, 90, 53, 0.55); border-top: 1px solid #6b5a35; }
+/* 悬停卡（跟随鼠标；点击点跳回长卷） */
+.cw-tip {
+  position: fixed; z-index: 70; max-width: 280px;
+  padding: 8px 11px; pointer-events: none;
+  background: #2b2318; color: #e8d9b0;
+  border: 1px solid #8a6d1a; border-radius: 3px;
+  box-shadow: 0 4px 14px rgba(20, 14, 6, 0.4);
+  font-size: 11px; line-height: 1.6;
+}
+.cw-tip b { display: block; font-size: 12px; margin-bottom: 3px; letter-spacing: 0.5px; }
+.cw-tip.good b { color: #8fd06f; }
+.cw-tip.bad b { color: #ff8a76; }
+.cw-tip.big b { color: #f2d24b; }
+.cw-tip.info b { color: #a9bdd6; }
+.cw-tip p { margin: 0 0 5px; color: #cbbd97; }
+.cw-tip span { font-size: 9.5px; color: #8f7f57; }
+/* 年表跳卷闪亮定位 */
+.cw-e.flash { animation: cwFlash 1.9s ease 1; }
+@keyframes cwFlash {
+  0% { background: rgba(242, 210, 75, 0.85); box-shadow: 0 0 0 3px rgba(242, 210, 75, 0.8); }
+  60% { background: rgba(242, 210, 75, 0.35); }
+  100% { background: rgba(255, 252, 240, 0.72); }
+}
+
 /* ---- 移动端：卷目折叠为顶部横条 ---- */
 .pxc.m .cw-root { flex-direction: column; }
 .pxc.m .cw-nav {
@@ -2334,3 +2429,12 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 .pxc.m .cw-e { gap: 7px; padding: 7px 9px; }
 .pxc.m .cw-tx b { font-size: 12.5px; }
 .pxc.m .cw-tx p { font-size: 11.5px; line-height: 1.65; }
+/* v28 移动端年表：点放大好点按、悬停卡隐藏（点击直达）、切签缩小 */
+.pxc.m .cw-tabs { gap: 3px; }
+.pxc.m .cw-tab { padding: 4px 7px; font-size: 10px; letter-spacing: 0; }
+.pxc.m .cw-tl-scroll { padding: 14px 16px 10px; }
+.pxc.m .cw-tl-inner { min-height: 168px; }
+.pxc.m .cw-band b { font-size: 9px; letter-spacing: 1px; left: 4px; }
+.pxc.m .cw-dot { width: 11px; height: 11px; }
+.pxc.m .cw-dot.big { width: 13px; height: 13px; }
+.pxc.m .cw-tip { display: none; }

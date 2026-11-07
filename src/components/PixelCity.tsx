@@ -22,7 +22,7 @@ import {
   type EconView, type HistPoint,
 } from '@/lib/pixelcity/tycoon';
 import type { CitzCard } from '@/lib/pixelcity/citizens';
-import { ERAS, chaptersOf, statsOf, volName } from '@/lib/pixelcity/chronicle';
+import { ERAS, chaptersOf, statsOf, volName, eraBandsOf, timelineOf, densityOf, hOf } from '@/lib/pixelcity/chronicle';
 import { Tutorial, TUT_STEPS } from '@/lib/pixelcity/tutorial';
 
 const ICON_NAMES = [
@@ -260,6 +260,10 @@ export default function PixelCity() {
   const [chronWide, setChronWide] = useState(false);
   const [cwQuery, setCwQuery] = useState('');
   const [cwEra, setCwEra] = useState(0);
+  /** v28 阅读方式：scroll 分卷长卷 / tl 大事年表 */
+  const [cwMode, setCwMode] = useState<'scroll' | 'tl'>('scroll');
+  /** v28 年表悬停卡（fixed 定位跟随鼠标） */
+  const [cwTip, setCwTip] = useState<{ x: number; y: number; day: number; title: string; text: string; tone: string } | null>(null);
   const cwScrollRef = useRef<HTMLDivElement | null>(null);
   const cwChapRefs = useRef<Array<HTMLElement | null>>([]);
   /** v27 移动端卷目横条：左右渐隐暗示（滚动感知） */
@@ -545,17 +549,37 @@ export default function PixelCity() {
   }, []);
   useEffect(() => {
     if (!chronWide) return;
-    const t = window.setTimeout(cwNavCheck, 0);          // 开卷/检索变更后重测
+    const t = window.setTimeout(cwNavCheck, 0);          // 开卷/检索/切模式后重测
     const el = cwNavScrollRef.current;                    // 盒尺随布局切换（桌面侧栏↔移动横条）必变，RO 兜住视口切换
     const ro = el ? new ResizeObserver(() => cwNavCheck()) : null;
     if (el && ro) ro.observe(el);
     return () => { window.clearTimeout(t); ro?.disconnect(); };
-  }, [chronWide, cwQuery, cwNavCheck]);
+  }, [chronWide, cwQuery, cwMode, cwNavCheck]);
 
-  /** v27 打开城史长卷（编年史模态入口；检索与卷号复位） */
+  /** v28 年表跳卷：点纪事点 → 切回分卷长卷 → 滚到该笔并闪亮定位 */
+  const cwJump = useCallback((id: number) => {
+    setCwTip(null);
+    setCwQuery('');            // 清检索，防目标笔被过滤掉
+    setCwMode('scroll');
+    beeperRef.current?.play('click');
+    window.setTimeout(() => {
+      const el = document.querySelector(`.cw-e[data-id="${id}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.remove('flash');
+        void (el as HTMLElement).offsetWidth;   // 强制回流，重启动画
+        el.classList.add('flash');
+        window.setTimeout(() => el.classList.remove('flash'), 1900);
+      }
+    }, 120);
+  }, []);
+
+  /** v27 打开城史长卷（编年史模态入口；检索/卷号/阅读方式复位） */
   const openChronWide = useCallback(() => {
     setCwQuery('');
     setCwEra(0);
+    setCwMode('scroll');
+    setCwTip(null);
     setModal('none');
     setChronWide(true);
     beeperRef.current?.play('open');
@@ -2093,7 +2117,7 @@ export default function PixelCity() {
               <div className="chron-filters" role="tablist" aria-label="纪事筛选">
                 {[
                   ['all', '全部'], ['era', '纪元'], ['bad', '灾祸'], ['good', '喜讯'],
-                  ['tech', '科技'], ['fest', '节庆'], ['ord', '政令'], ['mile', '里程碑'],
+                  ['tech', '科技'], ['fest', '节庆'], ['ord', '政令'], ['mile', '里程碑'], ['rev', '回望'],
                 ].map(([k, label]) => {
                   const on = chronFilter === k;
                   const n = econ.chron.entries.filter(x => chronMatch(x, k)).length;
@@ -2135,19 +2159,61 @@ export default function PixelCity() {
         </div>
       )}
 
-      {/* v27 城史长卷：全景编年史阅读页（全屏立轴 · 按纪元分卷） */}
+      {/* v27 城史长卷：全景编年史阅读页（全屏立轴 · 按纪元分卷；v28 增「大事年表」横轴总览） */}
       {chronWide && econ && (() => {
-        const chaps = chaptersOf(econ.chron.entries);           // 全量分卷（导航与 ref 基准）
-        const st = statsOf(econ.chron.entries);
+        const entries = econ.chron.entries;
+        const chaps = chaptersOf(entries);           // 全量分卷（导航与 ref 基准）
+        const st = statsOf(entries);
         const q = cwQuery.trim();
         const visible = q                                      // 检索：逐卷过滤，空卷隐藏
           ? chaps.map(c => ({ ...c, entries: c.entries.filter(x => x.title.includes(q) || x.text.includes(q)) }))
               .filter(c => c.entries.length)
           : chaps;
-        const hitN = q ? visible.reduce((a, c) => a + c.entries.length, 0) : -1;
+        const hitAll = q ? entries.filter(x => x.title.includes(q) || x.text.includes(q)).length : -1;
         const lastEra = chaps.length ? chaps[chaps.length - 1].era : econ.chron.era;
+        // ---- v28 大事年表派生（游戏时轴：开埠 0h .. 末笔 h，一天 24h；纪元带 + 四色点阵 + 密度条）----
+        const tFromH = 0;
+        const tToH = entries.length ? hOf(entries[entries.length - 1]) : 24;
+        const tSpanH = Math.max(24, tToH - tFromH);
+        const bands = eraBandsOf(entries, tToH);
+        const pxPerDay = Math.max(9, Math.min(60, 1180 / (tSpanH / 24)));
+        const innerPx = (tSpanH / 24) * pxPerDay;
+        const tl = timelineOf(entries, tFromH, tFromH + tSpanH, 15 / innerPx);
+        const dens = densityOf(entries, tFromH, tFromH + tSpanH, 48);
+        const maxDens = Math.max(1, ...dens);
+        const peakK = dens.indexOf(maxDens);
+        const peakA = Math.floor(peakK * tSpanH / 48 / 24) + 1;
+        const peakB = Math.max(peakA, Math.floor((peakK + 1) * tSpanH / 48 / 24));
+        const stepDays = [1, 2, 5, 10, 25, 50, 100, 200].find(k => tSpanH / 24 / k * pxPerDay >= 72) ?? 200;
+        const head = (
+          <header className="cw-head">
+            <div className="cw-head-l">
+              <b className="cw-title">城 史 长 卷</b>
+              <span className="cw-sub">
+                {cwMode === 'tl'
+                  ? `大事年表 · ${entries.length} 笔纪事 · 开埠第 ${Math.floor(tToH / 24) + 1} 天 · 最密 第${peakA}–${peakB}天（${maxDens} 笔）`
+                  : `「${econ.chron.eraName}」 · 开埠第 ${econ.chron.day} 天 · 在册 ${econ.chron.n} 笔 · 累计落笔 ${econ.chron.total} 笔${q ? '' : ` · 读至第${volName(cwEra)}卷`}`}
+              </span>
+            </div>
+            <div className="cw-head-r">
+              <div className="cw-tabs" role="tablist" aria-label="阅读方式">
+                <button role="tab" aria-selected={cwMode === 'scroll'}
+                  className={`cw-tab${cwMode === 'scroll' ? ' on' : ''}`}
+                  onClick={() => { setCwMode('scroll'); setCwTip(null); beeperRef.current?.play('click'); }}>分卷长卷</button>
+                <button role="tab" aria-selected={cwMode === 'tl'}
+                  className={`cw-tab${cwMode === 'tl' ? ' on' : ''}`}
+                  onClick={() => { setCwMode('tl'); setCwTip(null); beeperRef.current?.play('click'); }}>大事年表</button>
+              </div>
+              <input className="cw-search" value={cwQuery} placeholder="检索纪事标题或正文…"
+                onChange={e => setCwQuery(e.target.value)} />
+              {q && <span className="cw-hit">「{q}」命中 {hitAll} 笔</span>}
+              <button className="cw-close" aria-label="收起长卷" onClick={() => setChronWide(false)}>×</button>
+            </div>
+          </header>
+        );
         return (
           <div className="cw-root" role="dialog" aria-label="城史长卷">
+            {cwMode === 'scroll' ? (<>
             {/* 卷目导航（移动端折叠为顶部横条，内层 .cw-nav-scroll 承载滚动） */}
             <aside className={`cw-nav${cwNavMore.l ? ' more-l' : ''}${cwNavMore.r ? ' more-r' : ''}`} aria-label="卷目">
               <div className="cw-nav-cap">卷 目</div>
@@ -2170,21 +2236,7 @@ export default function PixelCity() {
               </div>
             </aside>
             <div className="cw-main">
-              <header className="cw-head">
-                <div className="cw-head-l">
-                  <b className="cw-title">城 史 长 卷</b>
-                  <span className="cw-sub">
-                    「{econ.chron.eraName}」 · 开埠第 {econ.chron.day} 天 · 在册 {econ.chron.n} 笔 · 累计落笔 {econ.chron.total} 笔
-                    {q ? '' : ` · 读至第${volName(cwEra)}卷`}
-                  </span>
-                </div>
-                <div className="cw-head-r">
-                  <input className="cw-search" value={cwQuery} placeholder="检索纪事标题或正文…"
-                    onChange={e => setCwQuery(e.target.value)} />
-                  {q && <span className="cw-hit">「{q}」命中 {hitN} 笔</span>}
-                  <button className="cw-close" aria-label="收起长卷" onClick={() => setChronWide(false)}>×</button>
-                </div>
-              </header>
+              {head}
               <div className="cw-scroll" ref={cwScrollRef} onScroll={cwOnScroll}>
                 {visible.map(c => {
                   const k = chaps.findIndex(cc => cc.era === c.era);   // 回映射到全量卷号（ref 槽位）
@@ -2201,7 +2253,7 @@ export default function PixelCity() {
                         <p className="cw-chap-open">{ERAS[c.era].text}</p>
                       </div>
                       {c.entries.map(x => (
-                        <div key={x.id} className={`cw-e ${x.tone}`}>
+                        <div key={x.id} data-id={x.id} className={`cw-e ${x.tone}`}>
                           <span className="cw-day">第{String(x.day).padStart(2, '0')}天</span>
                           <img src={iu(x.icon)} alt="" width={16} height={16} />
                           <div className="cw-tx">
@@ -2221,6 +2273,65 @@ export default function PixelCity() {
                 <div className="cw-end">— 长卷至此 · 城市的故事仍在继续 —</div>
               </div>
             </div>
+            </>) : (
+              /* v28 大事年表：全宽横轴总览（纪元带背景 · 四色点阵 · 日轴刻度 · 密度条） */
+              <div className="cw-tl">
+                {head}
+                <div className="cw-tl-scroll">
+                  <div className="cw-tl-inner" style={{ minWidth: Math.round(innerPx) }}>
+                    <div className="cw-bands" aria-hidden="true">
+                      {bands.map(b => (
+                        <div key={b.era} className={`cw-band${b.era % 2 ? ' alt' : ''}`}
+                          style={{ left: `${(b.from / tSpanH * 100).toFixed(3)}%`, width: `${((b.to - b.from) / tSpanH * 100).toFixed(3)}%` }}>
+                          {(b.to - b.from) / tSpanH > 0.055 && <b>{ERAS[b.era].name}</b>}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="cw-dots" style={{ height: tl.lanes * 18 + 14 }}>
+                      {tl.dots.map(d => {
+                        const hit = !q || d.e.title.includes(q) || d.e.text.includes(q);
+                        return (
+                          <button key={d.e.id} data-id={d.e.id}
+                            className={`cw-dot ${d.e.tone}${d.e.cat === 'rev' ? ' rev' : ''}${hit ? '' : ' dim'}`}
+                            style={{ left: `${(d.x * 100).toFixed(3)}%`, bottom: 8 + d.lane * 18 }}
+                            aria-label={`第${d.e.day}天 ${d.e.title}`}
+                            onMouseEnter={ev => setCwTip({
+                              x: ev.clientX, y: ev.clientY, day: d.e.day,
+                              title: d.e.title, text: d.e.text, tone: d.e.tone,
+                            })}
+                            onMouseLeave={() => setCwTip(null)}
+                            onClick={() => cwJump(d.e.id)} />
+                        );
+                      })}
+                    </div>
+                    <div className="cw-axis" aria-hidden="true">
+                      {Array.from({ length: Math.floor(tSpanH / 24 / stepDays) + 1 },
+                        (_, k) => k * stepDays * 24).map(hh => (
+                        <span key={hh} className="cw-tick" style={{ left: `${(hh / tSpanH * 100).toFixed(3)}%` }}>
+                          <i />第{Math.floor(hh / 24) + 1}天
+                        </span>
+                      ))}
+                    </div>
+                    <div className="cw-dens" aria-hidden="true">
+                      {dens.map((n, k) => (
+                        <i key={k} style={{ height: `${Math.round(n / maxDens * 100)}%` }} />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {!entries.length && (
+                  <div className="cw-empty">年表尚是白纸 —— 这座城的故事，还在前面。</div>
+                )}
+                {cwTip && (
+                  <div className={`cw-tip ${cwTip.tone}`}
+                    style={{ left: Math.min(cwTip.x + 14, window.innerWidth - 300), top: Math.max(84, cwTip.y - 16) }}>
+                    <b>第{cwTip.day}天 · {cwTip.title}</b>
+                    <p>{cwTip.text}</p>
+                    <span>点击这枚点 → 跳到长卷里的这一笔</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         );
       })()}

@@ -1265,6 +1265,14 @@ export class Tycoon {
   /** 累计游戏小时（engine 每帧随昼夜时钟回写；编年史纪日用，随档保存） */
   gHours = 0;
 
+  // ---- v28：城事回望（每 12 游戏时一季一篇的回顾纪事）----
+  /** 下一期回望的游戏时阈值（12 的整数倍，恰与季节更替对齐：一季 12 游戏时） */
+  revNext = 12;
+  /** 已写期数 */
+  revN = 0;
+  /** 上一期回望时的城市快照（算本期增减；null = 尚未写过，首期回顾开埠以来） */
+  revLast: { pop: number; bld: number; coins: number; id: number } | null = null;
+
   // ---- v13：市民列传（名人册 / 生活大事记 / 市民之声）----
   citz = new CitizenRegistry();
 
@@ -2294,6 +2302,38 @@ export class Tycoon {
     this.fireMissField = miss;
   }
 
+  /** v28 城事回望：一季一篇的自传体小结（季节开头语 + 人口增减 + 新屋 + 府库 + 本期大事） */
+  private writeReview(s: Snap): void {
+    const last = this.revLast;
+    const dp = Math.round(this.pop - (last?.pop ?? this.pop));
+    const db = Math.max(0, Math.round(s.buildings - (last?.bld ?? s.buildings)));
+    const dep = (this.season + 3) % 4;   // 刚过去的季节（换季整点落笔，当前已是新季）
+    const open = [
+      '春事了，杨絮落尽 —— 账房先生合上这一季的账本。',
+      '蝉声歇了，暑气收进账缝里 —— 账房先生抹了把汗。',
+      '秋收入仓，算珠拨得噼啪响 —— 账房先生挑亮了灯芯。',
+      '雪化檐前，守了一冬的炉火封起来 —— 账房先生呵着白气。',
+    ][dep];
+    const grow = dp > 0 ? `人口添了 ${dp} 口` : dp < 0 ? `人口流走 ${-dp} 口` : '人口不增不减';
+    const bld = db > 0 ? `，城里起了 ${db} 栋新屋` : '';
+    // 本期大事（优先纪元级，其次灾祸，再次喜讯；回望自身不计；首期回顾开埠以来全部）
+    const since = (last ? this.chron.entries.filter(x => x.id > last.id) : this.chron.entries)
+      .filter(x => x.cat !== 'rev');
+    const rev = [...since].reverse();
+    const pick = rev.find(x => x.tone === 'big') ?? rev.find(x => x.tone === 'bad')
+      ?? rev.find(x => x.tone === 'good');
+    const spot = pick
+      ? `本期最值得记的一笔，是「${pick.title}」。`
+      : '这一季风平浪静，巷子里晾衣竿的吱呀声就是全部的新闻。';
+    this.chron.write('rev', 'info', 'book', `城事回望 · 第 ${this.revN + 1} 期`,
+      `${open}${grow}${bld}，府库结余 ${Math.floor(this.coins)}G。${spot}`, this.gHours);
+    this.revN++;
+    this.revLast = { pop: this.pop, bld: s.buildings, coins: Math.floor(this.coins),
+      id: this.chron.entries[this.chron.entries.length - 1].id };
+    // 下期阈值：至少 +12h；若游戏时已跳档（读档/离线/加速），直接跳到下一个 12h 整点，不回补错过的期数
+    this.revNext = Math.max(this.revNext + 12, Math.ceil((this.gHours + 0.001) / 12) * 12);
+  }
+
   // ---------------- 每帧心跳 ----------------
 
   tick(dt: number, map: CityMap): void {
@@ -2464,6 +2504,9 @@ export class Tycoon {
       this.sfx?.('achieve');
       this.msg?.(`城市迈入新纪元 ——「${ERAS_NAME[eraUp - 1]}」（编年史已记下这一笔）`);
     }
+
+    // ---- v28：城事回望（一季一篇；季节每 12 游戏时更替，回望恰在换季整点落笔）----
+    if (this.gHours >= this.revNext) this.writeReview(s);
 
     // ---- v5：随机事件调度（人口 ≥ 30 后启动；最多同时 2 个）----
     this.eventTimer -= dt;
@@ -2929,6 +2972,8 @@ export class Tycoon {
     this.festKinds.clear();
     // v17：城市编年史重置 + 开埠纪事
     this.gHours = 0;
+    // v28：城事回望重置（首期在第 12 游戏时——第一个换季点）
+    this.revNext = 12; this.revN = 0; this.revLast = null;
     this.chron.reset();
     this.chron.write('era', 'big', 'city', '开埠建城',
       '拓荒者抵达这片无名之地，在荒原正中竖起市政厅的第一根梁柱。城市的故事，从此落笔。', 0);
@@ -2995,6 +3040,8 @@ export class Tycoon {
       // v17：城市编年史
       chron: this.chron.serialize(),
       gHours: Math.round(this.gHours * 10) / 10,
+      // v28：城事回望档
+      revN: this.revN, revNext: this.revNext, revLast: this.revLast,
       hall: [this.hall.x, this.hall.y],
       own, last: Date.now(),
       map: map.serialize(),
@@ -3112,6 +3159,14 @@ export class Tycoon {
     }
     // v17：累计游戏小时恢复（旧档给 0；离线期间不计日）+ 编年史恢复（旧档无记录 → 补「旧卷续写」开篇）
     this.gHours = Math.max(0, Number(d.gHours) || 0);
+    // v28：城事回望档恢复（旧档从下一个 12 时整点起计，不回补历史期数）
+    this.revN = Math.max(0, Math.floor(Number(d.revN) || 0));
+    this.revNext = Number(d.revNext) > 0 ? Number(d.revNext) : Math.ceil((this.gHours + 1) / 12) * 12;
+    const rl = d.revLast as { pop?: unknown; bld?: unknown; coins?: unknown; id?: unknown } | undefined;
+    this.revLast = rl && Number.isFinite(Number(rl.pop)) && Number.isFinite(Number(rl.bld))
+      ? { pop: Number(rl.pop), bld: Number(rl.bld), coins: Math.floor(Number(rl.coins) || 0),
+          id: Math.max(0, Math.floor(Number(rl.id) || 0)) }
+      : null;
     if (!this.chron.restore(d.chron)) {
       this.chron.reset();
       this.chron.era = eraOfPop(this.pop);
