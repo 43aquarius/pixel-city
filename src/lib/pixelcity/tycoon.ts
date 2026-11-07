@@ -6,7 +6,7 @@
 
 import { defById, CATALOG, ATTRACT } from './catalog';
 import { CityMap, TERR_GRASS } from './map';
-import { CitizenRegistry, type CitzView, type MailView } from './citizens';
+import { CitizenRegistry, type CitzView, type MailView, type AnthView } from './citizens';
 import { Chronicle, EV_ICON, eraOfPop, type ChronView } from './chronicle';
 import { DOCS, pickDoc, nextMorningH, DOC_FIRST_H, fxSummary, type DocCtx, type DocDef } from './decisions';
 
@@ -657,6 +657,9 @@ export const ACHIEVEMENTS: AchvDef[] = [
   // ---- v15 家书馆 ----
   { id: 'penpal8', name: '见字如面', desc: '在市长信箱回信 8 封（顶栏「邮」——市民来信有求助有感谢，回信能影响他们的心情）', icon: 'mail',
     goal: 8, val: (_s, t) => t.citz.replyCount },
+  // ---- v30 书信合集 ----
+  { id: 'anth11', name: '鱼雁往还', desc: '集齐全部 11 种市民来信主题（书信合集里翻翻看：民生灾警颂声见闻，城里的每样心事都会写来）', icon: 'mail',
+    goal: 11, val: (_s, t) => t.citz.anthSubjects() },
   // ---- v17 城市编年史 ----
   { id: 'chron60', name: '汗青永续', desc: '编年史累计记下 60 笔城市纪事（开埠/时代跃迁/事件/科技/节庆/法令/里程碑皆入册）', icon: 'book',
     goal: 60, val: (_s, t) => t.chron.total },
@@ -1059,6 +1062,8 @@ export type EconView = {
   citz: CitzView;
   // ---- v15：市长信箱 ----
   mail: { unread: number; n: number };
+  /** v30 书信合集 */
+  anth: AnthView;
   // ---- v16：城市节庆 ----
   fest: { name: string; desc: string; left: number; dur: number } | null;   // 进行中节日（null = 无）
   festCd: number;        // 冷却剩余（秒）
@@ -2541,6 +2546,7 @@ export class Tycoon {
       eduOut: s.eduOut,                        // v22：学区外住宅心声
       crime: s.crimeN,                         // v23：盲区商铺心声（街坊议论失窃）
       fireOut: s.fireOut,                      // v24：消防盲区心声（火险保贵的街区）
+      day: Math.floor(this.gHours / 24) + 1,   // v30：开埠天数（书信合集收信日）
       inEdu: (x, y) => this.eduField.has(map.idx(x, y)),   // v22：升学判定（学区内市民会随时间求学深造）
     }, this.playtime);
     if (this.citz.total > citzTotalBefore) this.sfx?.('movein');
@@ -2870,6 +2876,7 @@ export class Tycoon {
       citz: this.citz.view(),
       // ---- v15 ----
       mail: this.citz.mailBrief(),
+      anth: this.citz.anthView(),   // v30 书信合集
       playtime: Math.floor(this.playtime),
       hist: this.hist,
       // ---- v5 ----
@@ -3403,6 +3410,11 @@ export class Tycoon {
   /** 标记信件已读（打开信时由 UI 调用） */
   markLetterRead(id: number): void {
     this.citz.markRead(id);
+  }
+
+  /** v30 书信合集视图（市民来信永久归档 · 主题图鉴） */
+  anthView(): AnthView {
+    return this.citz.anthView();
   }
 
   /** v12 应急车到场：豁免挂账余损 + 提前终结事件（返回是否生效）

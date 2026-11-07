@@ -170,6 +170,56 @@ export type MailView = {
   letters: Letter[];
 };
 
+/** v30 书信合集：归档条目（信箱满后被挤出的旧信永存于此；回信状态同步） */
+export type MailArc = {
+  id: number;                       // 原信 id（与信箱信件同号，回信同步用）
+  nm: string;                       // 发信人名
+  look: number; body: 0 | 1 | 2; role: Role;
+  sj: string;                       // 主题（分类与图鉴集齐的依据）
+  tx: string;                       // 正文
+  cat: string;                      // 分类（由主题映射）
+  day: number;                      // 收信日（开埠第 N 天）
+  rp: number;                       // 回复下标（-1 = 未回）
+  rl: string;                       // 已选批语（rp>=0 时非空）
+  rt: string;                       // 回信文案
+};
+
+/** v30 书信合集视图 */
+export type AnthView = {
+  n: number;                        // 归档总数
+  replied: number;                  // 已回信数
+  subjects: number;                 // 已集齐主题数（去重）
+  subjTotal: number;                // 主题总数（图鉴集齐口径）
+  cats: Array<{ cat: string; n: number }>;   // 四类计数（不含「全部」）
+  items: MailArc[];                 // 新信在前
+};
+
+/** v30 信笺四类（题签用二字词） */
+export const MAIL_CATS = ['民生', '灾警', '颂声', '见闻'] as const;
+
+/** v30 主题 → 分类（与 buildLetter 的 11 种主题一一对应；未知主题归「见闻」） */
+const SUBJECT_CAT: Record<string, string> = {
+  '市长，米缸见底了': '民生',
+  '关于这个月的税单': '民生',
+  '日子有点紧，想跟您聊聊': '民生',
+  '大火那晚，吓坏了': '灾警',
+  '铺子遭了贼': '灾警',
+  '疫病过去之后': '灾警',
+  '谢谢这座好城': '颂声',
+  '这阵子街上真热闹': '颂声',
+  '一条小建议': '见闻',
+  '巷口见闻': '见闻',
+  '新邻居来打听': '见闻',
+};
+
+/** v30 图鉴集齐口径：来信主题总数 */
+export const MAIL_SUBJECT_TOTAL = Object.keys(SUBJECT_CAT).length;
+
+/** 主题归类（未知主题兜底「见闻」——巷口来信，总归是些街坊见闻） */
+export function catOfSubject(sj: string): string {
+  return SUBJECT_CAT[sj] ?? '见闻';
+}
+
 /** v15 回信结果 */
 export type ReplyResult = {
   ok: boolean; reply?: string; dm?: number; from?: string;
@@ -216,6 +266,8 @@ export type CitzCtx = {
   waste: number;
   /** v22 学区外住宅栋数（望学心声） */
   eduOut: number;
+  /** v30 开埠天数（收信日记录用；缺省 1） */
+  day?: number;
   /** v23 盲区商铺数（治安心声：街坊议论失窃） */
   crime: number;
   /** v24 消防盲区栋数（消防心声：火险保贵的街区） */
@@ -239,6 +291,8 @@ export class CitizenRegistry {
   total = 0;
   /** v15 信箱（新信在前由 mailView 负责；这里按时间序追加） */
   letters: Letter[] = [];
+  /** v30 书信合集：所有来过的信永存于此（信箱满八封挤出已读旧信后，合集是唯一的去处） */
+  anth: MailArc[] = [];
   /** v15 累计回信数（成就口径） */
   replyCount = 0;
   private nextId = 1;
@@ -272,6 +326,7 @@ export class CitizenRegistry {
     this.roster = [];
     this.total = 0;
     this.letters = [];
+    this.anth = [];
     this.replyCount = 0;
     this.nextId = 1;
     this.lastPop = 0;
@@ -1164,6 +1219,42 @@ export class CitizenRegistry {
     if (L && !L.read) L.read = true;
   }
 
+  /** v30 归档入合集（送信即归档；上限 240 封，满了挤最旧 —— 卷帙有涯，纸墨有限） */
+  private archiveLetter(L: Letter, day: number): void {
+    this.anth.push({
+      id: L.id, nm: L.fromName, look: L.look, body: L.body, role: L.role,
+      sj: L.subject, tx: L.text, cat: catOfSubject(L.subject),
+      day: Math.max(1, Math.floor(day)),
+      rp: L.replied, rl: L.replied >= 0 ? (L.opts[L.replied]?.label ?? '') : '',
+      rt: L.replied >= 0 ? (L.opts[L.replied]?.reply ?? '') : '',
+    });
+    if (this.anth.length > 240) this.anth.splice(0, this.anth.length - 240);
+  }
+
+  /** v30 已集齐主题数（去重；成就「鱼雁往还」口径） */
+  anthSubjects(): number {
+    return new Set(this.anth.map(a => a.sj)).size;
+  }
+
+  /** v30 书信合集视图（新信在前；四类计数；浅拷贝供 React 渲染） */
+  anthView(): AnthView {
+    const items = this.anth.slice().reverse();
+    let replied = 0;
+    const catN = new Map<string, number>();
+    for (const a of items) {
+      if (a.rp >= 0) replied++;
+      catN.set(a.cat, (catN.get(a.cat) ?? 0) + 1);
+    }
+    return {
+      n: items.length,
+      replied,
+      subjects: this.anthSubjects(),
+      subjTotal: MAIL_SUBJECT_TOTAL,
+      cats: MAIL_CATS.map(cat => ({ cat, n: catN.get(cat) ?? 0 })),
+      items,
+    };
+  }
+
   /** 回信：选中一个选项 → 发件人心情变化 + 大事记写入；返回回信文案供 UI 展示 */
   replyLetter(id: number, optIdx: number): ReplyResult {
     const L = this.letters.find(l => l.id === id);
@@ -1171,6 +1262,8 @@ export class CitizenRegistry {
     const o = L.opts[optIdx];
     L.replied = optIdx;
     this.replyCount++;
+    const A = this.anth.find(a => a.id === L.id);   // v30：合集同步回信状态（挤出旧信也能追记）
+    if (A) { A.rp = optIdx; A.rl = o.label; A.rt = o.reply; }
     const c = this.roster.find(x => x.id === L.from);
     if (c) {
       c.mood = clamp(c.mood + o.dm, 5, 100);
@@ -1190,12 +1283,13 @@ export class CitizenRegistry {
     const c = rnd(this.roster);
     const L = this.buildLetter(c);
     this.letters.push(L);
+    this.archiveLetter(L, this.lastCtx.day ?? 1);   // v30：送信即归档（信箱挤出后永存合集）
     this.onMsg?.(`新来信：${c.name} 写给市长 —— 「${L.subject}」`);
   }
 
-  /** 按城市状态挑一种信（每种 2-3 个回信选项） */
-  private buildLetter(c: Citizen): Letter {
-    const ctx = this.lastCtx;
+  /** 按城市状态挑一种信（每种 2-3 个回信选项；ov 可覆写判定上下文） */
+  private buildLetter(c: Citizen, ov?: Partial<CitzCtx>): Letter {
+    const ctx = ov ? { ...this.lastCtx, ...ov } : this.lastCtx;
     let subject = '', text = '';
     let opts: Array<{ label: string; dm: number; reply: string }> = [];
     const seasonWord = ['春', '夏', '秋', '冬'][clamp(ctx.season, 0, 3)];
@@ -1300,12 +1394,33 @@ export class CitizenRegistry {
     };
   }
 
-  /** 测试钩子：强制送出一封信（忽略计时器与满箱限制） */
-  forceLetter(): Letter | null {
+  /** 测试钩子：强制送出一封信（忽略计时器与满箱限制）；subj 可指定主题（合集图鉴/成就验证用） */
+  forceLetter(subj?: string): Letter | null {
     if (!this.roster.length) return null;
+    // 主题 → 判定上下文覆写（把 buildLetter 的 if/else 链引到对应分支；随机三题用中性上下文掷中）
+    //   各覆写自含清理字段 —— 真实运行中的饥荒/事件/高幸福会抢先命中分支，必须一并钉死
+    const NEU: Partial<CitzCtx> = { famine: 0, taxRate: 8, events: [], happiness: 60, fest: -1, smog: 0, dark: 0, waste: 0, eduOut: 0, crime: 0, fireOut: 0 };
+    const OV: Record<string, Partial<CitzCtx>> = {
+      '市长，米缸见底了': { ...NEU, famine: 1 },
+      '关于这个月的税单': { ...NEU, taxRate: 14 },
+      '大火那晚，吓坏了': { ...NEU, events: ['fire'] },
+      '铺子遭了贼': { ...NEU, events: ['crime'] },
+      '疫病过去之后': { ...NEU, events: ['plague'] },
+      '谢谢这座好城': { ...NEU, happiness: 85 },
+      '这阵子街上真热闹': { ...NEU, events: ['festival'] },
+      '日子有点紧，想跟您聊聊': { ...NEU, happiness: 30 },
+    };
     const c = rnd(this.roster);
-    const L = this.buildLetter(c);
+    let L: Letter | null = null;
+    for (let i = 0; i < 24 && subj; i++) {
+      L = this.buildLetter(c, OV[subj] ?? NEU);
+      if (L.subject === subj) break;
+      L = null;   // 随机三题（建议/见闻/新邻居）无上下文可引，中性上下文下重试掷中（各 1/3）
+    }
+    if (subj && !L) return null;
+    if (!L) L = this.buildLetter(c);
     this.letters.push(L);
+    this.archiveLetter(L, this.lastCtx.day ?? 1);   // v30：送信即归档
     return L;
   }
 
@@ -1402,6 +1517,7 @@ export class CitizenRegistry {
       gradTotal: this.gradTotal,   // v22 累计升学人次
       bn: this.bornN, gn: this.grownN, pn: this.passedN, p9: this.passed90N,   // v26 生民计数
       pid: [...this.passedIds],    // v26 已故市民登记簿
+      anth: this.anth.map(a => [a.id, a.nm, a.look, a.body, a.role, a.sj, a.tx, a.cat, a.day, a.rp, a.rl, a.rt]),   // v30 书信合集
       letters: this.letters.map(l => ({
         id: l.id, from: l.from, fn: l.fromName,
         look: l.look, body: l.body, role: l.role,
@@ -1432,6 +1548,7 @@ export class CitizenRegistry {
       total?: number; nextId?: number; nextFam?: number;
       replyCount?: number; nextLid?: number; gradTotal?: number;
       bn?: unknown; gn?: unknown; pn?: unknown; p9?: unknown; pid?: unknown;   // v26
+      anth?: Array<unknown>;   // v30 书信合集
       letters?: Array<Record<string, unknown>>;
       roster?: Array<Record<string, unknown>>;
     } | null;
@@ -1470,6 +1587,30 @@ export class CitizenRegistry {
           read: r.read === true,
           replied: rep >= 0 && rep < opts.length ? rep : -1,
           t: Math.max(0, Math.floor(Number(r.t) || 0)),
+        });
+      }
+    }
+    // v30 书信合集恢复（旧档无 anth 字段 → 空册；逐条清洗：字符串截长/day 下限 1/rp 白名单/分类按主题重校）
+    if (Array.isArray(o.anth)) {
+      for (const r of o.anth.slice(0, 240)) {
+        if (!Array.isArray(r) || r.length < 10) continue;
+        const [id, nm, look, body, role, sj, tx, cat, day, rp, rl, rt] = r as
+          [number, string, number, 0 | 1 | 2, Role, string, string, string, number, number, string, string];
+        if (typeof sj !== 'string' || typeof tx !== 'string' || !sj) continue;
+        const rpN = Math.floor(Number(rp) ?? -1);
+        this.anth.push({
+          id: Math.max(0, Math.floor(Number(id) || 0)),
+          nm: String(nm ?? '市民').slice(0, 12),
+          look: ((Math.floor(Number(look) || 0) % 14) + 14) % 14,
+          body: ([0, 1, 2].includes(Number(body)) ? Number(body) : 0) as 0 | 1 | 2,
+          role: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].includes(Number(role)) ? Number(role) as Role : 0,
+          sj: sj.slice(0, 24),
+          tx: tx.slice(0, 220),
+          cat: MAIL_CATS.includes(cat as (typeof MAIL_CATS)[number]) ? cat : catOfSubject(sj),
+          day: Math.max(1, Math.floor(Number(day) || 1)),
+          rp: rpN >= 0 && rpN <= 2 ? rpN : -1,
+          rl: String(rl ?? '').slice(0, 24),
+          rt: String(rt ?? '').slice(0, 60),
         });
       }
     }

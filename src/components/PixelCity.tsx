@@ -269,7 +269,7 @@ export default function PixelCity() {
   /** v27 移动端卷目横条：左右渐隐暗示（滚动感知） */
   const [cwNavMore, setCwNavMore] = useState({ l: false, r: false });
   const cwNavScrollRef = useRef<HTMLDivElement | null>(null);
-  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'fest' | 'chron' | 'gov'>('none');
+  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'chron' | 'gov'>('none');
   const [econ, setEcon] = useState<EconView | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
@@ -280,6 +280,9 @@ export default function PixelCity() {
   const [mailSel, setMailSel] = useState<number | null>(null);
   /** v15 信箱视图版本号（回信后强制刷新） */
   const [mailVer, setMailVer] = useState(0);
+  /** v30 书信合集：分类过滤（全部/民生/灾警/颂声/见闻）+ 选中归档信 id（null = 卡片墙） */
+  const [anthCat, setAnthCat] = useState('全部');
+  const [anthSel, setAnthSel] = useState<number | null>(null);
   /** v29 市长公署：视图版本号（朱批后强制刷新）+ 盖章动画（seal 字 + 时间戳为 key） */
   const [govVer, setGovVer] = useState(0);
   const [govSeal, setGovSeal] = useState<{ seal: string; k: number } | null>(null);
@@ -628,14 +631,15 @@ export default function PixelCity() {
     }
   }, [say]);
 
-  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'fest' | 'chron' | 'gov') => {
+  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'chron' | 'gov') => {
     if (m === 'save') {
       setSlotMeta([0, 1, 2].map(i => Engine.slotMeta(i)));
     }
-    if (m === 'citz' || m === 'mail' || m === 'gov') setCitzEng(engineRef.current);   // 捕获引擎句柄到 state（头像/信箱/公署视图用）
+    if (m === 'citz' || m === 'mail' || m === 'gov' || m === 'anth') setCitzEng(engineRef.current);   // 捕获引擎句柄到 state（头像/信箱/公署/合集视图用）
     if (m !== 'citz') { setCitzSel(null); setCitzSpot(null); }
     if (m !== 'mail') setMailSel(null);
     if (m !== 'gov') setGovSeal(null);
+    if (m !== 'anth') { setAnthSel(null); setAnthCat('全部'); }   // v30：离开合集时收起详情页并重置分类签
     setModal(m);
     beeperRef.current?.play('click');
   }, []);
@@ -2829,11 +2833,119 @@ export default function PixelCity() {
                   </div>
                 )}
                 <div className="pxc-row" style={{ marginTop: 10 }}>
+                  <button className="pxc-btn" onClick={() => openModal('anth')}>
+                    <img src={iu('scroll')} alt="" />书信合集
+                  </button>
                   <button className="pxc-btn" onClick={() => openModal('citz')}>
                     <img src={iu('person')} alt="" />市民列传
                   </button>
                   <button className="pxc-btn" onClick={() => openModal('data')}>
                     <img src={iu('chart')} alt="" />城市志
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* v30 书信合集模态（市民来信永久归档 · 主题图鉴） */}
+      {modal === 'anth' && (() => {
+        const eng = citzEng;
+        const av = (l: { look: number; body: 0 | 1 | 2; role: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 }, sz = 48): string =>
+          eng?.citizenAvatar(l.look, l.body, l.role, sz) ?? BLANK;
+        const a = eng?.tycoon?.anthView() ?? { n: 0, replied: 0, subjects: 0, subjTotal: 11, cats: [], items: [] };
+        const shown = anthCat === '全部' ? a.items : a.items.filter(x => x.cat === anthCat);
+        const sel = anthSel != null ? a.items.find(x => x.id === anthSel) ?? null : null;
+        const pct = a.subjTotal > 0 ? Math.round((100 * a.subjects) / a.subjTotal) : 0;
+        return (
+          <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
+            <div className="pxc-modal pxc-anth" role="dialog" aria-label="书信合集">
+              <header>
+                书 信 合 集
+                <button className="pxc-x" onClick={() => setModal('none')} aria-label="关闭">×</button>
+              </header>
+              <div className="pxc-body">
+                {sel ? (() => {
+                  const s = sel;
+                  return (
+                    <div className="an-read">
+                      <div className="cd-top">
+                        <button className="pxc-btn" onClick={() => setAnthSel(null)}>← 返回合集</button>
+                        <em className={`an-seal${s.rp >= 0 ? ' ok' : ''}`}>{s.rp >= 0 ? '已回' : '未回'}</em>
+                      </div>
+                      <div className="mr-head">
+                        <img className="mr-ava" src={av(s)} alt={`${s.nm}的头像`} />
+                        <div className="mr-meta">
+                          <b>{s.sj}</b>
+                          <span>{s.nm} · 开埠第 {s.day} 天写来 · {s.cat}</span>
+                        </div>
+                      </div>
+                      <p className="mr-text">{s.tx}</p>
+                      {s.rp >= 0 ? (
+                        <div className="mr-replied">
+                          <p className="mr-tip">市长当日回信（选了「{s.rl}」）：</p>
+                          <p className="mr-reply">「{s.rt}」</p>
+                        </div>
+                      ) : (
+                        <div className="an-noreply">
+                          <p className="mr-tip">这封信没能等到回信 —— 也许当日市政繁忙，也许它被时间悄悄挤出了信箱。</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })() : (
+                  <div className="anth-list">
+                    <div className="an-stats">
+                      <b>见字如面 · 市民来信{a.n > 0 ? ` ${a.n} ` : ' '}封</b>
+                      <span>已回 {a.replied} 封 · 已回信率 {a.n > 0 ? Math.round((100 * a.replied) / a.n) : 0}%</span>
+                      <span className="an-prog" role="img" aria-label={`主题集齐 ${a.subjects}/${a.subjTotal}`}>
+                        <i style={{ width: `${pct}%` }} />
+                      </span>
+                      <span>主题拾遗 {a.subjects}/{a.subjTotal}（集齐全主题解锁成就「鱼雁往还」）</span>
+                    </div>
+                    <div className="an-chips" role="group" aria-label="信笺分类">
+                      {['全部', ...a.cats.map(c => c.cat)].map(cat => {
+                        const n = cat === '全部' ? a.n : (a.cats.find(c => c.cat === cat)?.n ?? 0);
+                        return (
+                          <button key={cat} className={`an-chip${anthCat === cat ? ' on' : ''}${n === 0 && cat !== '全部' ? ' nil' : ''}`}
+                            onClick={() => { setAnthCat(cat); setAnthSel(null); }}>
+                            {cat}<i>{n}</i>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {a.n === 0 && (
+                      <p className="citz-empty">
+                        合集还空着 —— 信箱满八封后，读过的旧信会收进这里永存。
+                        民生的疾苦、灾后的谢忱、巷口的见闻，都是这座城的字据。
+                      </p>
+                    )}
+                    {a.n > 0 && shown.length === 0 && (
+                      <p className="citz-empty">这一类还没有来信 —— 城市安稳富足时，会有不同的心事写来。</p>
+                    )}
+                    <div className="an-grid">
+                      {shown.map(s => (
+                        <button key={s.id} className="an-card" data-cat={s.cat}
+                          onClick={() => setAnthSel(s.id)}>
+                          <img src={av(s, 40)} alt="" />
+                          <div className="an-mid">
+                            <b>{s.sj}</b>
+                            <span>{s.nm} · 第{s.day}天 · {s.cat}</span>
+                            <span className="an-ex">{s.tx.slice(0, 18)}…</span>
+                          </div>
+                          <em className={`an-seal${s.rp >= 0 ? ' ok' : ''}`}>{s.rp >= 0 ? '已回' : '未回'}</em>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="pxc-row" style={{ marginTop: 10 }}>
+                  <button className="pxc-btn" onClick={() => openModal('mail')}>
+                    <img src={iu('mail')} alt="" />市长信箱
+                  </button>
+                  <button className="pxc-btn" onClick={() => openModal('citz')}>
+                    <img src={iu('person')} alt="" />市民列传
                   </button>
                 </div>
               </div>
@@ -2864,7 +2976,7 @@ export default function PixelCity() {
                     <tr><td>桥梁</td><td>道路工具拖过水面自动架桥（15G/格），桥面与岸上齐平，行人车辆畅通无阻</td></tr>
                     <tr><td>经营</td><td>顶部 HUD 看金币/人口/电力/幸福；点迷雾金框购地；点市政厅开财政报告；工业产货供商业、缺货打折，景点招游客消费；两座电车站开通电车干线，铁路货运站让内陆城市出口；出口市价随行就市波动，可惜售囤货低吸高抛；财政报告里可进市政法令厅颁布政策</td></tr>
                     <tr><td>市民</td><td>顶栏「民」指标开<b>市民列传</b>：人口迁入迎来有名有姓的市民（传记/性格/住所/大事记），还能「去家里看看」；观察工具点击街上的行人也能遇到他们（在册市民就是本人，脸生的则是过路人）；成婚添丁会组成<b>家族谱系</b></td></tr>
-                    <tr><td>信箱</td><td>顶栏「邮」指标开<b>市长信箱</b>：市民随城市状态来信（求助/吐槽/感谢/见闻），挑一种口吻回信会影响 TA 的心情；红点亮起就是有人盼着回信，回满 8 封解锁成就「见字如面」</td></tr>
+                    <tr><td>信箱</td><td>顶栏「邮」指标开<b>市长信箱</b>：市民随城市状态来信（求助/吐槽/感谢/见闻），挑一种口吻回信会影响 TA 的心情；红点亮起就是有人盼着回信，回满 8 封解锁成就「见字如面」；信箱满八封后旧信永存于<b>书信合集</b>，分类翻阅、集齐 11 种主题再解「鱼雁往还」</td></tr>
                     <tr><td>公署</td><td>顶栏「批」指标开<b>市长公署</b>：每日清晨公文送抵案头（请愿/联名/风闻/献策…），每份两三道朱批各有代价与回响 —— 府库、人口、粮仓、民心随之而动，批注都落笔编年史「政令」卷；府库不足的批注会暂时下不去笔</td></tr>
                     <tr><td>节庆</td><td>顶栏「庆」指标开<b>城市节庆</b>：随季节举办樱花祭/花火大会/丰收节/暖灯节（市政厅 LV3 起），90 秒全城增益 —— 春天樱吹雪加密、夏天夜空花火、秋天金叶满街、冬天孔明灯升空；节日会写进市民大事记，累计 8 场解锁成就「节庆之都」、四季各办一场解锁「四季轮庆」</td></tr>
                     <tr><td>引导</td><td>首次进入经营模式自动展开新手引导横幅（修路→建房→迎市民→开业→看面板→认市民）；随时可跳过，也可在这里点「重新查看新手引导」重看</td></tr>

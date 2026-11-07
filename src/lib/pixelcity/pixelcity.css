@@ -1729,11 +1729,90 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 }
 .mail-read .mr-reply { margin: 0; font-size: 12px; line-height: 1.8; color: #2C5E50; }
 
+/* v30 书信合集模态（市民来信永久归档 · 主题图鉴） */
+.pxc-anth { width: min(600px, 92vw); }
+.an-stats {
+  display: flex; flex-direction: column; gap: 4px; margin-bottom: 9px;
+  padding: 8px 11px; background: #F2EFE3; border: 1px solid #C9C2A8; border-radius: 3px;
+}
+.an-stats b { font-size: 12.5px; color: #23252E; }
+.an-stats span { font-size: 10.5px; color: #6a6552; }
+.an-stats .an-prog {
+  height: 8px; margin: 2px 0; padding: 0; overflow: hidden;
+  background: #E2DCC6; border: 1px solid #B8B09A; border-radius: 2px;
+}
+.an-stats .an-prog i {
+  display: block; height: 100%; min-width: 2px;
+  background: repeating-linear-gradient(45deg, #C9A94E 0 4px, #D9BC64 4px 8px);
+  transition: width .45s ease;
+}
+.an-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 9px; }
+.an-chip {
+  padding: 2.5px 9px; font-family: inherit; font-size: 10.5px; cursor: pointer;
+  color: #4a4433; background: #F2EFE3; border: 1px solid #C9C2A8; border-radius: 9px;
+}
+.an-chip i { font-style: normal; margin-left: 3px; color: #9a8f72; font-variant-numeric: tabular-nums; }
+.an-chip:hover { border-color: #5BC8B8; }
+.an-chip.on { color: #F4F2E8; background: #3E5C76; border-color: #2C4358; }
+.an-chip.on i { color: #D8E2EC; }
+.an-chip.nil { opacity: .45; }
+.an-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.an-card {
+  display: flex; align-items: center; gap: 8px; text-align: left; padding: 7px 8px;
+  background: #F2EFE3; border: 1px solid #C9C2A8; border-left-width: 3px; border-radius: 3px;
+  font-family: inherit; cursor: pointer;
+}
+.an-card:hover { background: #F7F3E2; border-color: #5BC8B8; }
+.an-card[data-cat='民生'] { border-left-color: #C9A94E; }
+.an-card[data-cat='灾警'] { border-left-color: #C25B4E; }
+.an-card[data-cat='颂声'] { border-left-color: #4E9040; }
+.an-card[data-cat='见闻'] { border-left-color: #4E8EA0; }
+.an-card img { width: 36px; height: 36px; image-rendering: pixelated; flex-shrink: 0; }
+.an-card .an-mid { display: flex; flex-direction: column; gap: 1.5px; min-width: 0; flex: 1; }
+.an-card .an-mid b { font-size: 11.5px; color: #23252E; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.an-card .an-mid span { font-size: 9.5px; color: #6a6552; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.an-card .an-ex { color: #9a8f72 !important; }
+.an-seal {
+  flex-shrink: 0; padding: 1px 6px; font-size: 9.5px; font-style: normal; font-weight: 700;
+  color: #8a8168; background: #ECE7D4; border: 1px solid #C9C2A8; border-radius: 3px;
+}
+.an-seal.ok { color: #F4F2E8; background: #4E9040; border-color: #3A7030; }
+.an-read .mr-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.an-read .mr-ava {
+  width: 48px; height: 48px; image-rendering: pixelated; flex-shrink: 0;
+  border: 2px solid; border-color: #b8b09a #f2ecd8 #f2ecd8 #b8b09a;
+}
+.an-read .mr-meta { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.an-read .mr-meta b { font-size: 13.5px; color: #23252E; }
+.an-read .mr-meta span { font-size: 10.5px; color: #6a6552; }
+.an-read .mr-text {
+  margin: 0 0 9px; padding: 10px 12px;
+  font-size: 12px; line-height: 1.85; color: #4a4433;
+  background: #FBF7E6;
+  border: 1px solid #D8D2BE; border-left: 3px solid #C9A94E; border-radius: 0 3px 3px 0;
+}
+.an-read .mr-tip { margin: 0 0 6px; font-size: 10.5px; color: #9a8f72; }
+.an-read .mr-replied {
+  padding: 8px 11px;
+  background: #E9F2EE; border: 1px solid #A8C4BA; border-radius: 3px;
+}
+.an-read .mr-reply { margin: 0; font-size: 12px; line-height: 1.8; color: #2C5E50; }
+.an-read .an-noreply {
+  padding: 8px 11px; background: #F0EDE0; border: 1px dashed #C9C2A8; border-radius: 3px;
+}
+.an-read .an-noreply .mr-tip { margin: 0; color: #8a8168; }
+.an-read .cd-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+
 /* 移动端：信箱 */
 .pxc.m .pxc-mail { width: calc(100vw - 14px); }
 .pxc.m .mail-item img { width: 34px; height: 34px; }
 .pxc.m .mail-item time { display: none; }
 .pxc.m .mail-read .mr-ava { width: 40px; height: 40px; }
+/* v30 移动端：书信合集 */
+.pxc.m .pxc-anth { width: calc(100vw - 14px); }
+.pxc.m .an-grid { grid-template-columns: 1fr; }
+.pxc.m .an-card img { width: 32px; height: 32px; }
+.pxc.m .an-read .mr-ava { width: 40px; height: 40px; }
 .pxc.m .fam-card { min-width: 78px; padding: 4px 7px; }
 
 
