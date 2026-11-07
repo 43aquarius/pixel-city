@@ -22,7 +22,7 @@ import {
   type EconView, type HistPoint,
 } from '@/lib/pixelcity/tycoon';
 import type { CitzCard } from '@/lib/pixelcity/citizens';
-import { ERAS } from '@/lib/pixelcity/chronicle';
+import { ERAS, chaptersOf, statsOf, volName } from '@/lib/pixelcity/chronicle';
 import { Tutorial, TUT_STEPS } from '@/lib/pixelcity/tutorial';
 
 const ICON_NAMES = [
@@ -256,6 +256,15 @@ export default function PixelCity() {
   const [zoom, setZoom] = useState(2);
   /** v17 城市编年史：筛选器（all / 分类） */
   const [chronFilter, setChronFilter] = useState<string>('all');
+  /** v27 城史长卷：全景阅读页开关 + 检索关键字 + 当前读到第几卷（导航高亮） */
+  const [chronWide, setChronWide] = useState(false);
+  const [cwQuery, setCwQuery] = useState('');
+  const [cwEra, setCwEra] = useState(0);
+  const cwScrollRef = useRef<HTMLDivElement | null>(null);
+  const cwChapRefs = useRef<Array<HTMLElement | null>>([]);
+  /** v27 移动端卷目横条：左右渐隐暗示（滚动感知） */
+  const [cwNavMore, setCwNavMore] = useState({ l: false, r: false });
+  const cwNavScrollRef = useRef<HTMLDivElement | null>(null);
   const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'fest' | 'chron'>('none');
   const [econ, setEcon] = useState<EconView | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -502,6 +511,58 @@ export default function PixelCity() {
     if (modal === 'fiscal') fiscalSeenRef.current = true;
     if (modal === 'citz') citzSeenRef.current = true;
   }, [modal]);
+
+  // v27 城史长卷：Esc 关闭（检索框聚焦时同样生效）；打开时卷号归一
+  useEffect(() => {
+    if (!chronWide) return;
+    const onEsc = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') { ev.preventDefault(); setChronWide(false); }
+    };
+    window.addEventListener('keydown', onEsc);
+    return () => window.removeEventListener('keydown', onEsc);
+  }, [chronWide]);
+
+  /** v27 城史长卷：滚动位置 → 当前卷（导航高亮 + 阅读进度） */
+  const cwOnScroll = useCallback(() => {
+    const box = cwScrollRef.current;
+    if (!box) return;
+    const boxTop = box.getBoundingClientRect().top;
+    let act = 0;
+    for (let i = 0; i < cwChapRefs.current.length; i++) {
+      const el = cwChapRefs.current[i];
+      if (el && el.getBoundingClientRect().top - boxTop <= 130) act = i;
+    }
+    setCwEra(prev => (prev === act ? prev : act));
+  }, []);
+
+  /** v27 卷目横滑暗示（移动端横条）：未滑到尽头时给渐隐边缘，提示可继续横滑 */
+  const cwNavCheck = useCallback(() => {
+    const el = cwNavScrollRef.current;
+    if (!el) return;
+    const l = el.scrollLeft > 3;
+    const r = el.scrollLeft + el.clientWidth < el.scrollWidth - 3;
+    setCwNavMore(p => (p.l === l && p.r === r ? p : { l, r }));
+  }, []);
+  useEffect(() => {
+    if (!chronWide) return;
+    const t = window.setTimeout(cwNavCheck, 0);          // 开卷/检索变更后重测
+    const el = cwNavScrollRef.current;                    // 盒尺随布局切换（桌面侧栏↔移动横条）必变，RO 兜住视口切换
+    const ro = el ? new ResizeObserver(() => cwNavCheck()) : null;
+    if (el && ro) ro.observe(el);
+    return () => { window.clearTimeout(t); ro?.disconnect(); };
+  }, [chronWide, cwQuery, cwNavCheck]);
+
+  /** v27 打开城史长卷（编年史模态入口；检索与卷号复位） */
+  const openChronWide = useCallback(() => {
+    setCwQuery('');
+    setCwEra(0);
+    setModal('none');
+    setChronWide(true);
+    beeperRef.current?.play('open');
+    window.setTimeout(() => {
+      if (cwScrollRef.current) cwScrollRef.current.scrollTop = 0;
+    }, 0);
+  }, []);
 
   // v14 新手引导：经营心跳推进（条件满足自动滑到下一步）
   useEffect(() => {
@@ -2064,11 +2125,105 @@ export default function PixelCity() {
               <div className="chron-note">
                 编年史随城市生长自动落笔：开埠奠基、迈入新时代、灾祸与救险、科技与节庆、人口与府库的里程碑；
                 在册最多 140 笔，最久远的往事会沉入档库，但「累计笔数」永远记得
+                <button className="cw-open-btn" onClick={openChronWide}
+                  title="全景展开这本史书：按纪元分卷，从开埠读到当下">
+                  城史长卷 · 全景阅读 →
+                </button>
               </div>
             </div>
           </div>
         </div>
       )}
+
+      {/* v27 城史长卷：全景编年史阅读页（全屏立轴 · 按纪元分卷） */}
+      {chronWide && econ && (() => {
+        const chaps = chaptersOf(econ.chron.entries);           // 全量分卷（导航与 ref 基准）
+        const st = statsOf(econ.chron.entries);
+        const q = cwQuery.trim();
+        const visible = q                                      // 检索：逐卷过滤，空卷隐藏
+          ? chaps.map(c => ({ ...c, entries: c.entries.filter(x => x.title.includes(q) || x.text.includes(q)) }))
+              .filter(c => c.entries.length)
+          : chaps;
+        const hitN = q ? visible.reduce((a, c) => a + c.entries.length, 0) : -1;
+        const lastEra = chaps.length ? chaps[chaps.length - 1].era : econ.chron.era;
+        return (
+          <div className="cw-root" role="dialog" aria-label="城史长卷">
+            {/* 卷目导航（移动端折叠为顶部横条，内层 .cw-nav-scroll 承载滚动） */}
+            <aside className={`cw-nav${cwNavMore.l ? ' more-l' : ''}${cwNavMore.r ? ' more-r' : ''}`} aria-label="卷目">
+              <div className="cw-nav-cap">卷 目</div>
+              <div className="cw-nav-scroll" ref={cwNavScrollRef} onScroll={cwNavCheck}>
+                {chaps.map((c, i) => (
+                  <button key={c.era}
+                    className={`cw-chip${i === cwEra && !q ? ' on' : ''}${q && !visible.some(v => v.era === c.era) ? ' dim' : ''}`}
+                    onClick={() => {
+                      cwChapRefs.current[i]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      beeperRef.current?.play('click');
+                    }}>
+                    <b>第{volName(i)}卷</b>
+                    <span>{ERAS[c.era].name}</span>
+                    <i>{c.entries.length}笔</i>
+                  </button>
+                ))}
+              </div>
+              <div className="cw-nav-foot">
+                喜 {st.good} · 忧 {st.bad}<br />大事 {st.big} · 政务 {st.info}
+              </div>
+            </aside>
+            <div className="cw-main">
+              <header className="cw-head">
+                <div className="cw-head-l">
+                  <b className="cw-title">城 史 长 卷</b>
+                  <span className="cw-sub">
+                    「{econ.chron.eraName}」 · 开埠第 {econ.chron.day} 天 · 在册 {econ.chron.n} 笔 · 累计落笔 {econ.chron.total} 笔
+                    {q ? '' : ` · 读至第${volName(cwEra)}卷`}
+                  </span>
+                </div>
+                <div className="cw-head-r">
+                  <input className="cw-search" value={cwQuery} placeholder="检索纪事标题或正文…"
+                    onChange={e => setCwQuery(e.target.value)} />
+                  {q && <span className="cw-hit">「{q}」命中 {hitN} 笔</span>}
+                  <button className="cw-close" aria-label="收起长卷" onClick={() => setChronWide(false)}>×</button>
+                </div>
+              </header>
+              <div className="cw-scroll" ref={cwScrollRef} onScroll={cwOnScroll}>
+                {visible.map(c => {
+                  const k = chaps.findIndex(cc => cc.era === c.era);   // 回映射到全量卷号（ref 槽位）
+                  return (
+                    <section key={c.era} className="cw-chap"
+                      ref={el => { cwChapRefs.current[k] = el; }}>
+                      <div className="cw-chap-head">
+                        <span className="cw-vol">第 {volName(k)} 卷</span>
+                        <b className="cw-chap-name">{ERAS[c.era].name}</b>
+                        <span className="cw-chap-days">
+                          第 {c.fromDay} 天 — 第 {c.toDay} 天 · {c.entries.length} 笔
+                          {c.era === lastEra ? ' · 未完待续' : ''}
+                        </span>
+                        <p className="cw-chap-open">{ERAS[c.era].text}</p>
+                      </div>
+                      {c.entries.map(x => (
+                        <div key={x.id} className={`cw-e ${x.tone}`}>
+                          <span className="cw-day">第{String(x.day).padStart(2, '0')}天</span>
+                          <img src={iu(x.icon)} alt="" width={16} height={16} />
+                          <div className="cw-tx">
+                            <b>{x.title}</b>
+                            <p>{x.text}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </section>
+                  );
+                })}
+                {!visible.length && (
+                  <div className="cw-empty">
+                    {q ? `长卷之中未见「${q}」—— 换个字试试？` : '长卷尚是一页白纸 —— 这座城的故事，还在前面。'}
+                  </div>
+                )}
+                <div className="cw-end">— 长卷至此 · 城市的故事仍在继续 —</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 科技研究院模态（经营模式） */}
       {modal === 'tech' && econ && (

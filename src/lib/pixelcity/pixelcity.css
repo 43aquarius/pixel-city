@@ -2077,3 +2077,260 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 .pxc.m .cl-tx b { font-size: 11.5px; }
 .pxc.m .cl-tx p { font-size: 11px; }
 .pxc.m .cl-day { font-size: 8.5px; padding: 1px 3px; }
+
+/* ============ v27 城史长卷（全景编年史 · 全屏立轴） ============ */
+
+/* 长卷入口（编年史模态内） */
+.cw-open-btn {
+  display: block; margin-top: 7px; padding: 4px 14px;
+  border: 1px solid #8a6d1a; border-radius: 3px;
+  background: #FAF5E6; color: #8a6d1a;
+  font-family: inherit; font-size: 11.5px; font-weight: 700;
+  letter-spacing: 1px; cursor: pointer;
+}
+.cw-open-btn:hover { background: #8a6d1a; color: #FAF5E6; }
+
+/* 立轴骨架：深木轴框 + 纸面主区 */
+.cw-root {
+  position: fixed; inset: 0; z-index: 55;
+  display: flex;
+  background: #241b10;
+}
+
+/* 卷目导航（书签栏；滚动在内层 .cw-nav-scroll，渐隐暗示才能钉在非滚动壳上） */
+.cw-nav {
+  flex: 0 0 176px;
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 14px 10px 10px;
+  background: linear-gradient(180deg, #3a2f20 0%, #2b2318 100%);
+  border-right: 2px solid #1d1710;
+  position: relative;
+}
+.cw-nav-scroll {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; gap: 6px;
+  overflow-y: auto;
+}
+.cw-nav-scroll::-webkit-scrollbar { width: 6px; }
+.cw-nav-scroll::-webkit-scrollbar-thumb { background: #55452c; }
+.cw-nav-cap {
+  color: #e8d9b0; font-size: 12px; font-weight: 700;
+  letter-spacing: 7px; text-align: center;
+  padding: 2px 0 8px; text-indent: 7px;
+  border-bottom: 1px dashed #55452c; margin-bottom: 4px;
+}
+.cw-chip {
+  display: block; width: 100%; text-align: left;
+  padding: 5px 9px; cursor: pointer;
+  border: 1px solid #55452c; border-left: 4px solid #55452c;
+  border-radius: 0 3px 3px 0;
+  background: #3d3323; color: #cbbd97;
+  font-family: inherit; line-height: 1.45;
+}
+.cw-chip b { display: block; font-size: 9.5px; color: #9a8a63; letter-spacing: 1px; }
+.cw-chip span { font-size: 12.5px; font-weight: 800; letter-spacing: 1px; }
+.cw-chip i { float: right; font-style: normal; font-size: 10px; color: #9a8a63; font-variant-numeric: tabular-nums; }
+.cw-chip:hover { border-color: #c9a44a; color: #f0e4c0; }
+.cw-chip.on {
+  border-color: #c9a44a; border-left-color: #f2d24b;
+  background: #4d3f28; color: #f4e9c8;
+  box-shadow: inset 0 0 0 1px rgba(201, 164, 74, 0.35);
+}
+.cw-chip.on b { color: #d8b96a; }
+.cw-chip.dim { opacity: 0.35; }
+.cw-nav-foot {
+  margin-top: auto; padding-top: 10px;
+  color: #9a8a63; font-size: 10px; text-align: center; line-height: 1.9;
+  border-top: 1px dashed #55452c;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 主区：卷首题签 + 纸面长卷 */
+.cw-main {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column;
+  background: #efe9d4;
+}
+.cw-head {
+  flex: none;
+  display: flex; align-items: center; gap: 14px;
+  padding: 11px 18px;
+  background: linear-gradient(180deg, #4a3a26 0%, #3a2e1e 100%);
+  border-bottom: 4px solid #241b10;
+  box-shadow: 0 2px 0 rgba(36, 27, 16, 0.35);
+}
+.cw-head-l { min-width: 0; }
+.cw-title {
+  display: block;
+  font-size: 17px; font-weight: 800; letter-spacing: 9px;
+  color: #f2d24b; text-shadow: 1px 1px 0 #241b10;
+}
+.cw-sub {
+  display: block; margin-top: 4px;
+  font-size: 10.5px; color: #cbbd97; letter-spacing: 0.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cw-head-r { margin-left: auto; flex: 0 0 auto; display: flex; align-items: center; gap: 9px; }
+.cw-search {
+  width: 200px; padding: 5px 10px;
+  font-family: inherit; font-size: 11.5px;
+  border: 1px solid #6b5738; border-radius: 3px;
+  background: #f6f1de; color: #3d434e;
+}
+.cw-search:focus {
+  outline: none; border-color: #c9a44a;
+  box-shadow: 0 0 0 2px rgba(201, 164, 74, 0.3);
+}
+.cw-search::placeholder { color: #9a8f72; }
+.cw-hit { font-size: 10.5px; color: #d8b96a; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cw-close {
+  width: 26px; height: 24px;
+  font-family: inherit; font-size: 13px; line-height: 1;
+  color: #f4e9c8; background: #55452c;
+  border: 1px solid #c9a44a; border-radius: 3px;
+  cursor: pointer;
+}
+.cw-close:hover { background: #c9a44a; color: #241b10; }
+
+/* 纸面：竖栏暗纹 + 上下晕染，像一幅摊开的长卷 */
+.cw-scroll {
+  flex: 1; overflow-y: auto;
+  padding: 24px clamp(16px, 6vw, 92px) 42px;
+  background:
+    repeating-linear-gradient(90deg, rgba(120, 100, 60, 0.045) 0 2px, transparent 2px 56px),
+    radial-gradient(130% 100% at 50% 0%, #f6f1de 0%, #efe9d4 55%, #e2d8ba 100%);
+}
+.cw-scroll::-webkit-scrollbar { width: 11px; }
+.cw-scroll::-webkit-scrollbar-track { background: #e2d8ba; }
+.cw-scroll::-webkit-scrollbar-thumb {
+  background: #b7a87e; border: 2px solid #efe9d4; border-radius: 6px;
+}
+.cw-scroll::-webkit-scrollbar-thumb:hover { background: #8a6d1a; }
+
+/* 卷：双线界栏 + 大字卷名 + 卷首语 + 朱印 */
+.cw-chap {
+  max-width: 880px; margin: 0 auto 36px;
+  scroll-margin-top: 14px;
+}
+.cw-chap-head {
+  position: relative;
+  text-align: center;
+  padding: 18px 56px 15px 14px;
+  margin-bottom: 15px;
+  border-top: 3px double #8a6d1a;
+  border-bottom: 3px double #8a6d1a;
+  background: rgba(255, 252, 240, 0.55);
+}
+.cw-vol {
+  font-size: 11px; color: #8a6d1a;
+  letter-spacing: 5px; text-indent: 5px;
+}
+.cw-chap-name {
+  display: block;
+  margin: 7px 0 5px;
+  font-size: 24px; font-weight: 800;
+  letter-spacing: 11px; text-indent: 11px;
+  color: #3d434e;
+}
+.cw-chap-days {
+  font-size: 10px; color: #9a8f72;
+  font-variant-numeric: tabular-nums; letter-spacing: 1px;
+}
+.cw-chap-open {
+  margin: 11px auto 0; max-width: 580px;
+  font-size: 11.5px; line-height: 1.85; color: #6b6450;
+}
+.cw-chap-head::after {
+  content: '城史';
+  position: absolute; right: 11px; top: 12px;
+  width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; letter-spacing: 1px;
+  color: #f6f1de; background: #B03A2E;
+  border-radius: 3px; transform: rotate(7deg);
+  box-shadow: 1px 1px 0 rgba(36, 27, 16, 0.3);
+  writing-mode: vertical-rl; text-orientation: upright;
+}
+
+/* 纪事条目（长卷阅读顺序：旧 → 新） */
+.cw-e {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 13px; margin-bottom: 8px;
+  border-left: 4px solid #C9C2A8;
+  background: rgba(255, 252, 240, 0.72);
+  box-shadow: 0 1px 0 rgba(120, 100, 60, 0.12);
+}
+.cw-e img { margin-top: 3px; flex: 0 0 auto; image-rendering: pixelated; }
+.cw-e.good { border-left-color: #4E9040; }
+.cw-e.good b { color: #3B7138; }
+.cw-e.bad { border-left-color: #B03A2E; }
+.cw-e.bad b { color: #B03A2E; }
+.cw-e.big { border-left-color: #8a6d1a; background: rgba(242, 210, 75, 0.16); }
+.cw-e.big b { color: #8a6d1a; letter-spacing: 1px; }
+.cw-e.info { border-left-color: #66798E; }
+.cw-day {
+  flex: 0 0 auto; margin-top: 2px;
+  font-size: 10px; font-weight: 700; color: #85878F;
+  border: 1px solid #DDD8C4; border-radius: 2px;
+  padding: 1px 5px; background: #F2EFE3;
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.cw-tx { min-width: 0; }
+.cw-tx b { display: block; font-size: 13.5px; font-weight: 800; color: #3d434e; }
+.cw-tx p { margin: 3px 0 0; font-size: 12px; line-height: 1.75; color: #555c66; }
+
+.cw-empty {
+  text-align: center; padding: 64px 20px 30px;
+  font-size: 13px; color: #9a8f72; line-height: 1.9;
+}
+.cw-end {
+  text-align: center; padding: 20px 0 8px;
+  font-size: 11px; letter-spacing: 4px; color: #9a8f72;
+}
+
+/* ---- 移动端：卷目折叠为顶部横条 ---- */
+.pxc.m .cw-root { flex-direction: column; }
+.pxc.m .cw-nav {
+  flex: none; flex-direction: row; align-items: center;
+  gap: 6px; padding: 7px 8px;
+  border-right: none; border-bottom: 2px solid #1d1710;
+}
+.pxc.m .cw-nav-scroll {
+  flex: 1 1 auto; min-width: 0; min-height: 0;
+  flex-direction: row; align-items: center; gap: 6px;
+  overflow-x: auto; overflow-y: hidden;
+}
+.pxc.m .cw-nav-scroll::-webkit-scrollbar { height: 0; }
+/* 横滑暗示：未滑到尽头时左右渐隐（.more-l/.more-r 随滚动感知切换，提示可继续横滑） */
+.pxc.m .cw-nav.more-l::before,
+.pxc.m .cw-nav.more-r::after {
+  content: ''; position: absolute; top: 0; bottom: 0;
+  pointer-events: none; z-index: 2;
+}
+.pxc.m .cw-nav.more-r::after {
+  right: 0; width: 26px;
+  background: linear-gradient(90deg, rgba(58, 47, 32, 0), #3a2f20);
+}
+.pxc.m .cw-nav.more-l::before {
+  left: 0; width: 18px;
+  background: linear-gradient(270deg, rgba(58, 47, 32, 0), #3a2f20);
+}
+.pxc.m .cw-nav-cap { display: none; }
+.pxc.m .cw-chip { flex: 0 0 auto; width: auto; white-space: nowrap; border-left-width: 1px; padding: 4px 9px; }
+.pxc.m .cw-chip b { display: inline; margin-right: 5px; }
+.pxc.m .cw-chip i { float: none; display: inline; margin-left: 5px; }
+.pxc.m .cw-nav-foot { display: none; }
+.pxc.m .cw-head { flex-wrap: wrap; gap: 6px 10px; padding: 8px 10px; }
+.pxc.m .cw-title { font-size: 14px; letter-spacing: 5px; }
+.pxc.m .cw-sub { font-size: 9px; white-space: normal; line-height: 1.5; }
+.pxc.m .cw-head-r { margin-left: 0; width: 100%; }
+.pxc.m .cw-search { flex: 1; width: auto; min-width: 0; }
+.pxc.m .cw-chap { margin-bottom: 26px; }
+.pxc.m .cw-chap-head { padding: 13px 40px 11px 10px; }
+.pxc.m .cw-chap-name { font-size: 18px; letter-spacing: 7px; text-indent: 7px; }
+.pxc.m .cw-chap-head::after { right: 7px; top: 9px; width: 26px; height: 26px; }
+.pxc.m .cw-scroll { padding: 14px 12px 30px; }
+.pxc.m .cw-e { gap: 7px; padding: 7px 9px; }
+.pxc.m .cw-tx b { font-size: 12.5px; }
+.pxc.m .cw-tx p { font-size: 11.5px; line-height: 1.65; }

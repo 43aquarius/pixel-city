@@ -31,7 +31,8 @@ export type ChronEntry = {
 // ------------------------------------------------------------
 
 export const ERAS: Array<{ name: string; pop: number; text: string }> = [
-  { name: '拓荒营地', pop: 0, text: '' },
+  { name: '拓荒营地', pop: 0,
+    text: '荒原之上，市政厅的旗杆第一个立起来。第一炉炊烟升起的地方，就是这座城开始的地方。' },
   { name: '炊烟村庄', pop: 50,
     text: '第一批定居者在市政厅四周安家落户，荒原上升起连绵炊烟 —— 旅人们开始把这里叫作「村庄」。' },
   { name: '市井小镇', pop: 150,
@@ -49,6 +50,64 @@ export function eraOfPop(pop: number): number {
     if (pop >= ERAS[i].pop) { e = i; break; }
   }
   return e;
+}
+
+// ------------------------------------------------------------
+// v27 城史长卷：按纪元分卷的全景阅读视图（纯派生，不入档）
+// ------------------------------------------------------------
+
+/** 一卷 = 一个纪元的纪事（卷首即「迈入」跃迁那一笔） */
+export type ChronChapter = {
+  era: number;            // 纪元序号（卷名）
+  entries: ChronEntry[];  // 本卷纪事（旧 → 新，长卷阅读顺序）
+  fromDay: number;        // 起笔游戏日
+  toDay: number;          // 收笔游戏日
+};
+
+/** 汉字卷号（第一卷…第十卷，超出回退阿拉伯数字） */
+const CN_VOL = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+export function volName(i: number): string { return CN_VOL[i] ?? String(i + 1); }
+
+/**
+ * 把滑窗纪事切成「卷」：每遇「迈入「X」」纪元跃迁纪事即开新卷，
+ * 该跃迁纪事本身是新卷的第一笔（开卷之笔）；
+ * 此前所有纪事归开埠卷（拓荒营地）。
+ * 「开埠建城」「旧卷续写」不匹配任何纪元名，天然留在当前卷内；
+ * 年代久远的跃迁纪事被滑窗挤出时，早年残卷仍归开埠卷 —— 语义不变。
+ */
+export function chaptersOf(entries: ChronEntry[]): ChronChapter[] {
+  const chaps: ChronChapter[] = [];
+  if (!entries.length) return chaps;
+  let cur: ChronChapter = { era: 0, entries: [], fromDay: entries[0].day, toDay: entries[0].day };
+  for (const x of entries) {
+    if (x.cat === 'era' && x.tone === 'big' && x.title.startsWith('迈入')) {
+      const name = x.title.slice(x.title.indexOf('「') + 1, x.title.lastIndexOf('」'));
+      const k = ERAS.findIndex(e => e.name === name);
+      if (k > cur.era) {
+        if (cur.entries.length) chaps.push(cur);
+        cur = { era: k, entries: [], fromDay: x.day, toDay: x.day };
+      }
+    }
+    cur.entries.push(x);
+    cur.toDay = x.day;
+  }
+  if (cur.entries.length) chaps.push(cur);
+  return chaps;
+}
+
+/** 纪事色调统计（长卷卷首用） */
+export function statsOf(entries: ChronEntry[]):
+    { good: number; bad: number; big: number; info: number; span: number } {
+  let good = 0, bad = 0, big = 0, info = 0;
+  for (const x of entries) {
+    if (x.tone === 'good') good++;
+    else if (x.tone === 'bad') bad++;
+    else if (x.tone === 'big') big++;
+    else info++;
+  }
+  const span = entries.length
+    ? Math.max(0, entries[entries.length - 1].day - entries[0].day) : 0;
+  return { good, bad, big, info, span };
 }
 
 // ------------------------------------------------------------

@@ -16,7 +16,9 @@
 #     T2  toggleOrd('welcome') → cat=ord 新政
 #     T3  startFestival() → cat=fest 节庆开幕
 #   M 段：纪元 / 里程碑
-#     M1  pop=100 → era=1 炊烟村庄 + 百户灯火
+#     M1  pop=105 → era=1 炊烟村庄 + 百户灯火（105 非 100：chron.survey 读的是迁移后人口，
+#          幸福<25 时首 tick 人口 −0.015 会把恰在阈值上的 100 压回 99.98 错过百户灯火；
+#          E 段强制事件的 hap 惩罚会让 happiness 随机飘过 25 —— 留 5 人余量加固，仿 v21/v22 先例）
 #     M2  pop=450 → era=3 一方城市 + 成就「世代名城」
 #     M3  coins=12000 → 府库充盈
 #   Q 段：任务 / 成就
@@ -99,10 +101,10 @@ e.map.place('school',0,116,121);e.map.place('school',0,125,121);e.map.place('sch
 return n;})()" 2>/dev/null | tail -1 | tr -d '"')
 chkge "M0 布住宅成功（≥20 栋公寓）" "${APT:-x}" "20"
 agent-browser wait 800
-M1=$(agent-browser eval "(()=>{const t=window.__pxc.tycoon;t.pop=100;return 'set';})()" 2>/dev/null | tail -1)
+M1=$(agent-browser eval "(()=>{const t=window.__pxc.tycoon;t.pop=105;return 'set';})()" 2>/dev/null | tail -1)
 agent-browser wait 1200
 M1V=$(agent-browser eval "(()=>{const c=window.__pxc.tycoon.chron;const es=c.entries;const eraUp=es.some(x=>x.cat==='era'&&x.tone==='big'&&x.title.includes('炊烟村庄'));const mile=es.some(x=>x.cat==='mile'&&x.title==='百户灯火');return 'era:'+c.era+'|up:'+eraUp+'|mile:'+mile;})()" 2>/dev/null | tail -1 | tr -d '"')
-chk "M1 pop100 → 纪元「炊烟村庄」+ 百户灯火" "${M1V:-x}" "era:1|up:true|mile:true"
+chk "M1 pop105 → 纪元「炊烟村庄」+ 百户灯火" "${M1V:-x}" "era:1|up:true|mile:true"
 M2=$(agent-browser eval "(()=>{const t=window.__pxc.tycoon;t.pop=450;return 'set';})()" 2>/dev/null | tail -1)
 agent-browser wait 1200
 M2V=$(agent-browser eval "(()=>{const c=window.__pxc.tycoon.chron;const es=c.entries;const eraUp=es.some(x=>x.cat==='era'&&x.tone==='big'&&x.title.includes('一方城市'));return 'era:'+c.era+'|maxEra:'+c.maxEra+'|up:'+eraUp;})()" 2>/dev/null | tail -1 | tr -d '"')

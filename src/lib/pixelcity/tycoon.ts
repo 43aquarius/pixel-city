@@ -871,6 +871,11 @@ export type QS = {
   fireOut: number;      // 消防盲区栋数（商铺+住宅+工业）
   fireMissRes: number;  // 盲区住宅栋数（幸福惩罚源：睡不安稳）
   hydrants: number;     // 消防栓座数
+  // ---- v26 生民列传 ----
+  citzElders: number;   // 在册长者数（body=2）
+  citzBorn: number;     // 累计本城出生数
+  citzGrown: number;    // 累计长大成人人次
+  citzPassed: number;   // 累计安详离世数
 };
 
 export type Quest = {
