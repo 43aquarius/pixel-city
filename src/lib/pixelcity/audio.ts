@@ -16,7 +16,9 @@ export type SfxName =
   // ---- v16 城市节庆 ----
   | 'festival'
   // ---- v18 灾害链 ----
-  | 'quake';
+  | 'quake'
+  // ---- v41 轨道时代 ----
+  | 'metro';
 
 const STORE_KEY = 'pxc_sound';
 
@@ -24,7 +26,7 @@ const STORE_KEY = 'pxc_sound';
 const COOLDOWN: Partial<Record<SfxName, number>> = {
   click: 60, paint: 150, coin: 420, zoom: 120, place: 90,
   bell: 9000, siren: 6000, movein: 2600, season: 1500, alarm: 2500,
-  quake: 8000,
+  quake: 8000, metro: 3000,
 };
 
 export class Beeper {
@@ -181,6 +183,13 @@ export class Beeper {
         this.tone(52, 0.55, 0.12, 0.12, 'sawtooth');
         this.tone(38, 0.5, 0.28, 0.1, 'square');
         this.noise(0.65, 0.32, 0.07);
+        break;
+      // ---- v41 轨道时代 ----
+      case 'metro':    // 地铁进站：低鸣两阶下沉 + 气流噪声 —— 大动脉的心跳
+        this.tone(147, 0.3, 0, 0.13, 'sine');
+        this.tone(110, 0.36, 0.18, 0.13, 'sine');
+        this.tone(220, 0.2, 0.4, 0.05, 'triangle');
+        this.noise(0.5, 0.08, 0.05);
         break;
     }
   }

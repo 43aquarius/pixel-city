@@ -822,3 +822,141 @@ export function genHall(seed: number): BuildResult {
   box(faces, 7.8, 31.8, 24.2, 32.6, 0, 2.2, { top: stone, right: pWall(P.SIDE), left: pWall(P.SIDE) });
   return { model: buildModel(faces, 32, 32) };
 }
+
+// ============================================================
+// v41 轨道时代：地铁站（玻璃雨棚 + M 立柱）与地铁车辆段（全线锚点）
+// ============================================================
+
+/** 「M」站标图案（蓝底白 M 的立柱面） */
+const pMetroM = (w: number, h: number): PatFn => (u, v) => {
+  // 立柱面局部坐标：中央画白色 M（两竖 + 中谷）
+  const mu = u - w / 2, mv = v;
+  if (mv > h * 0.28 && mv < h * 0.78) {
+    const left = Math.abs(mu + w * 0.18) < w * 0.08;
+    const right = Math.abs(mu - w * 0.18) < w * 0.08;
+    const mid = mv > h * 0.5 && Math.abs(mu) < w * 0.06;
+    if (left || right || mid) return cell(P.WHITE, 0);
+  }
+  return cell(P.PBLUE, mv > h * 0.9 ? 2 : 0);
+};
+
+/** 地铁站（2×2）：混凝土坪 + 下行楼梯 + 玻璃雨棚 + M 立柱 + 售货亭 */
+export function genMetrostop(seed: number): BuildResult {
+  const r = mulberry32(seed);
+  const faces: Face[] = [];
+  const frame = pick([P.PBLUE, P.CYAN], r());     // 变体：雨棚框色（藏青 / 青）
+  const awn = pick([P.RED, P.PAINTY], r());       // 变体：售货亭雨棚色
+  // ---- 混凝土地坪 ----
+  box(faces, 1.5, 1.5, 30.5, 30.5, 0, 0.8, {
+    top: pFlatRoof(P.RFGRAY, 2), right: pWall(P.SIDE), left: pWall(P.SIDE),
+  });
+  // ---- 下行楼梯（中央：三级踏步 + 入口洞口，地平线以下用洞口示意）----
+  box(faces, 12.2, 24.6, 19.8, 26.2, 0.8, 3.0, { top: pFlatRoof(P.RFGRAY, 1), right: pWall(P.METAL), left: pWall(P.METAL) });
+  box(faces, 12.8, 26.2, 19.2, 27.6, 0.8, 2.2, { top: pFlatRoof(P.RFGRAY, 1), right: pWall(P.METAL), left: pWall(P.METAL) });
+  box(faces, 13.4, 27.6, 18.6, 28.9, 0.8, 1.4, { top: pFlatRoof(P.RFGRAY, 1), right: pWall(P.METAL), left: pWall(P.METAL) });
+  box(faces, 13.9, 28.9, 18.1, 30.2, 0.8, 0.9, { top: () => cell(P.OUTLINE, 0), right: () => cell(P.OUTLINE, 0), left: () => cell(P.OUTLINE, 0) });
+  // 扶手栏杆（楼梯两侧）
+  box(faces, 11.6, 24.4, 12.2, 30.0, 0.8, 4.0, { right: pWall(P.METAL), left: pWall(P.METAL), top: pWall(P.METAL) });
+  box(faces, 19.8, 24.4, 20.4, 30.0, 0.8, 4.0, { right: pWall(P.METAL), left: pWall(P.METAL), top: pWall(P.METAL) });
+  // ---- 玻璃雨棚（罩住楼梯口：金属框柱 + 玻璃顶 + 檐下夜灯）----
+  box(faces, 6.4, 22.6, 7.6, 23.8, 0.8, 9.2, { right: pWall(frame), left: pWall(frame) });
+  box(faces, 24.4, 22.6, 25.6, 23.8, 0.8, 9.2, { right: pWall(frame), left: pWall(frame) });
+  box(faces, 4.6, 21.8, 27.4, 24.6, 9.2, 10.6, {
+    top: pGlassTop, right: pBands(frame, 3), left: pBands(frame, 3),
+  });
+  box(faces, 7.5, 24.3, 24.5, 25.0, 8.4, 9.3, {
+    left: pWall(P.NEONC), right: pWall(P.NEONC), top: () => cell(P.WHITE, 0),
+  });
+  // ---- M 立柱（右侧：蓝底白 M 的站标柱，远处一眼认出地铁口）----
+  box(faces, 27.0, 3.6, 29.8, 6.4, 0.8, 13.6, {
+    right: pMetroM(2.8, 12.8), left: pMetroM(2.8, 12.8), top: pWall(P.METAL),
+  });
+  box(faces, 26.6, 3.2, 30.2, 6.8, 0, 0.8, { top: pFlatRoof(P.RFGRAY, 1), right: pWall(P.SIDE), left: pWall(P.SIDE) });
+  // ---- 售货亭（左侧：报刊亭小屋 + 雨棚）----
+  box(faces, 2.6, 8.0, 9.4, 14.8, 0.8, 6.4, {
+    right: pWindows(P.CREAM, { seed, lit: 0.14, floorH: 5.6, gapX: 3.2 }),
+    left: pWindows(P.CREAM, { seed: seed ^ 7, lit: 0.14, floorH: 5.6, gapX: 3.2 }),
+  });
+  box(faces, 2.2, 7.6, 9.8, 15.2, 6.4, 7.2, { top: pFlatRoof(P.RFGRAY, 2), right: pWall(P.RFGRAY), left: pWall(P.RFGRAY) });
+  box(faces, 1.8, 14.9, 10.2, 16.4, 5.2, 7.0, {
+    top: pAwning(awn), right: pAwning(awn), left: pAwning(awn),
+  });
+  // ---- 隔离柱 ×3（临街一排小柱）----
+  for (const bx of [5.5, 14.5, 23.5]) {
+    box(faces, bx - 0.5, 30.8, bx + 0.5, 31.8, 0.8, 2.6, { right: pWall(P.METAL), left: pWall(P.METAL), top: () => cell(P.PAINTY, 0) });
+  }
+  return { model: buildModel(faces, 32, 32) };
+}
+
+/** 地铁车辆段（3×3）：锯齿顶车库 + 双股轨道 + 地铁列车 + 调度塔（全线网络的锚点） */
+export function genMetrodepot(seed: number): BuildResult {
+  const r = mulberry32(seed);
+  const faces: Face[] = [];
+  const stripe = pick([P.RFTEAL, P.CYAN], r());     // 变体：列车腰线色
+  // ---- 混凝土作业坪 ----
+  box(faces, 1.5, 1.5, 46.5, 46.5, 0, 0.6, {
+    top: pFlatRoof(P.RFGRAY, 1), right: pWall(P.SIDE), left: pWall(P.SIDE),
+  });
+  // ---- 主车库（北侧大跨：波纹铁皮 + 三条天窗脊）----
+  box(faces, 4, 3, 44, 19.5, 0.6, 12.5, {
+    right: pCorrugated(P.RFGRAY), left: pCorrugated(P.RFGRAY),
+  });
+  box(faces, 3.4, 2.4, 44.6, 20.1, 12.5, 13.5, { top: pFlatRoof(P.RFGRAY, 2), right: pWall(P.RFGRAY), left: pWall(P.RFGRAY) });
+  for (const sy of [6.5, 11, 15.5]) {
+    box(faces, 7, sy, 41, sy + 2.2, 13.5, 14.6, {
+      top: pGlassTop, right: pWall(P.METAL), left: pWall(P.METAL),
+    });
+  }
+  // ---- 车库大门 ×3（+Y 面：红灰分段卷闸）----
+  for (const dx of [7, 19.5, 32]) {
+    box(faces, dx, 19.6, dx + 6.5, 20.4, 0.6, 8.6, { left: pBands(P.RED, 5), right: pBands(P.RED, 5) });
+  }
+  // ---- 双股轨道（车场：枕木 + 双轨）----
+  for (const ry of [27, 38.5]) {
+    for (let i = 0; i < 14; i++) {
+      box(faces, 2.5 + i * 3.1, ry - 1.1, 3.9 + i * 3.1, ry + 1.1, 0.6, 1.3, {
+        top: pFlatRoof(P.DIRT, 1), right: pWall(P.DIRT), left: pWall(P.DIRT),
+      });
+    }
+    for (const off of [-0.75, 0.75]) {
+      box(faces, 2.2, ry + off - 0.25, 45.8, ry + off + 0.25, 1.3, 2.1, {
+        top: () => cell(P.METAL, 1), right: () => cell(P.METAL, 2), left: () => cell(P.METAL, 0),
+      });
+    }
+  }
+  // ---- 检修坑（两股之间：暗槽）----
+  box(faces, 4, 31.5, 44, 34.5, 0.6, 1.0, { top: () => cell(P.OUTLINE, 0), right: pWall(P.SIDE), left: pWall(P.SIDE) });
+  // ---- 北股：停放的三节地铁列车（白车身 + 腰线 + 窗带）----
+  for (let i = 0; i < 3; i++) {
+    const cx = 4.5 + i * 13.4;
+    box(faces, cx, 24.9, cx + 12.2, 29.1, 2.1, 4.3, { right: pWall(P.METAL), left: pWall(P.METAL) });   // 底盘
+    box(faces, cx, 25.1, cx + 12.2, 28.9, 4.3, 9.3, {
+      right: pWindows(P.CREAM, { seed: seed + i, lit: 0.22, floorH: 9.3, gapX: 2.6 }),
+      left: pWindows(P.CREAM, { seed: seed + i * 3, lit: 0.22, floorH: 9.3, gapX: 2.6 }),
+      top: pFlatRoof(P.RFGRAY, 2),
+    });
+    box(faces, cx, 25.4, cx + 12.2, 28.6, 4.3, 5.6, {
+      right: pWall(stripe), left: pWall(stripe), top: pWall(stripe),
+    });   // 腰线色带
+    box(faces, cx - 0.9, 25.6, cx + 0.2, 28.4, 4.3, 9.0, { right: pWall(P.PAINTY), left: pWall(P.PAINTY) });   // 车头黄脸
+  }
+  // ---- 调度塔（东南角：高塔 + 值班室 + 顶信号灯）----
+  box(faces, 38.5, 41.5, 43.5, 46, 0.6, 19.5, { right: pWall(P.METAL), left: pWall(P.METAL) });
+  box(faces, 37.8, 40.8, 44.2, 46.7, 19.5, 22.8, {
+    right: pWindows(P.PBLUE, { seed: seed ^ 11, lit: 0.3, floorH: 22.8, gapX: 3 }),
+    left: pWindows(P.PBLUE, { seed: seed ^ 13, lit: 0.3, floorH: 22.8, gapX: 3 }),
+    top: pFlatRoof(P.RFGRAY, 2),
+  });
+  box(faces, 40.4, 43.2, 41.6, 44.4, 22.8, 24.6, { right: pWall(P.METAL), left: pWall(P.METAL) });
+  box(faces, 40.1, 42.9, 41.9, 44.7, 24.6, 25.6, {
+    right: () => cell(P.RED, 0), left: () => cell(P.RED, 0), top: () => cell(P.RED, 0),
+  });
+  // ---- 办公小屋（西南角：运营值班房 + 雨棚）----
+  box(faces, 2.5, 41.5, 11.5, 46.2, 0.6, 6.8, {
+    right: pWindows(P.CREAM, { seed: seed ^ 17, lit: 0.12, floorH: 6.8, gapX: 3.4 }),
+    left: pWindows(P.CREAM, { seed: seed ^ 19, lit: 0.12, floorH: 6.8, gapX: 3.4 }),
+  });
+  box(faces, 2.2, 41.2, 11.8, 46.5, 6.8, 7.6, { top: pFlatRoof(P.RFGRAY, 2), right: pWall(P.RFGRAY), left: pWall(P.RFGRAY) });
+  box(faces, 11.6, 42.8, 14.2, 45.2, 4.6, 6.2, { top: pAwning(P.RFTEAL), right: pAwning(P.RFTEAL), left: pAwning(P.RFTEAL) });
+  return { model: buildModel(faces, 48, 48), blinkAt: [41, 43.8, 25.1] };
+}

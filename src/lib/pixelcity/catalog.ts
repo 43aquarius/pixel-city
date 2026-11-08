@@ -22,7 +22,7 @@ import {
   genManor, genResTower, genConvenience, genHotel, genMall, genParking,
   genRefinery, genPower, genChurch, genMuseum, genFireStation, genKoban,
   genLighthouse, genCastle, genPoliceHQ, genHydrant, genClinic, genHealthst,
-  genPress, genHall,
+  genPress, genHall, genMetrostop, genMetrodepot,
 } from './b_extra';
 import {
   genMachiya, genDanchi, genIzakaya, genCinema, genMarket,
@@ -238,6 +238,11 @@ export const CATALOG: Def[] = [
   // ---- v40 城市之光：名人堂 ----
   { id: 'hall', name: '名人堂', cat: 'civ', w: 2, h: 2, variants: 2, pop: 30,
     gen: genHall, desc: '柱廊主殿鎏金尖顶与双雕像台：落成即开榜，每逢换季整点评出一颗「本季城市之光」—— 八大奖项按城市状态加权授勋，获奖市民心情大振、全城幸福沾光、荣衔永录光荣榜（需「城市名片」）' },
+  // ---- v41 轨道时代：地下铁 ----
+  { id: 'metrodepot', name: '地铁车辆段', cat: 'civ', w: 3, h: 3, variants: 1, pop: 40,
+    gen: genMetrodepot, desc: '锯齿顶车库与调度塔的地下铁中枢：全线网络的锚点 —— 地铁站须沿链接入车辆段（12 格内逐站续链）才能通车；落成记入编年史，施工期路面会拥堵加剧（需「建筑工程学」）' },
+  { id: 'metrostop', name: '地铁站', cat: 'civ', w: 2, h: 2, variants: 2, pop: 6,
+    gen: genMetrostop, desc: '玻璃雨棚与 M 立柱的地下铁出入口：接入车辆段即通车（两站成线）—— 接入站半径 5 格通勤圈商铺收入 +6%、住宅幸福 +1.2/栋，每接入站交通 +5（至多 +20）；孤立车站只是摆设' },
   // ---- 剧情（经营模式专属，不可直接建造）----
   { id: 'cityhall', name: '市政厅', cat: 'civ', w: 2, h: 2, variants: 1, pop: 0,
     gen: genCityhall, hidden: true, desc: '城市的心脏：金顶钟塔与旗帜' },

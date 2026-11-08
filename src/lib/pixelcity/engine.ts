@@ -1528,6 +1528,83 @@ export class Engine {
     }
   }
 
+  // ---------------- v41 轨道时代：地铁通勤圈层 ----------------
+
+  /** v41 地铁通勤圈层：圈内青碧呼吸光罩（与学区金罩同构但色相错开）+ 接入站「M」站标菱牌脉冲 */
+  private drawMetroOverlay(ctx: CanvasRenderingContext2D, t: number): void {
+    const eco = this.tycoon;
+    if (!eco) return;
+    const n = this.map.n;
+    // ---- 通勤圈光罩（青碧呼吸；与学区金罩同构但色相错开）----
+    for (const i of eco.metroField) {
+      const tx = i % n, ty = (i / n) | 0;
+      const sx = this.w2sx(tx, ty);
+      const sy = this.w2sy(tx, ty) + this.hOfs(tx, ty);
+      if (sx < -40 || sx > this.lw + 40 || sy < -56 || sy > this.lh + 40) continue;
+      const br = 0.72 + 0.34 * Math.sin(t / 1250 + (tx * 3 + ty * 5) * 0.8);
+      ctx.fillStyle = `rgba(74,200,180,${(0.23 * br).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.moveTo(sx - 19, sy + 2);
+      ctx.lineTo(sx, sy + 12);
+      ctx.lineTo(sx + 19, sy + 2);
+      ctx.lineTo(sx, sy - 8);
+      ctx.closePath();
+      ctx.fill();
+      // 内核提亮（楼脚一抹浓青碧 —— 对比锚点）
+      ctx.fillStyle = `rgba(150,238,220,${(0.15 * br).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.moveTo(sx - 9, sy + 2);
+      ctx.lineTo(sx, sy + 7);
+      ctx.lineTo(sx + 9, sy + 2);
+      ctx.lineTo(sx, sy - 3);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // ---- 已接入车站的「M」站标菱牌（悬在站上空，脉冲发亮）----
+    for (const i of eco.metroStopField) {
+      const tx = i % n, ty = (i / n) | 0;
+      const sx = this.w2sx(tx, ty);
+      const sy = this.w2sy(tx, ty) + this.hOfs(tx, ty);
+      if (sx < -40 || sx > this.lw + 40 || sy < -72 || sy > this.lh + 40) continue;
+      const br = 0.5 + 0.5 * Math.sin(t / 900 + (tx * 7 + ty * 3) * 0.9);
+      // 菱牌底盘（青缘）
+      ctx.fillStyle = `rgba(74,200,180,${(0.55 + 0.3 * br).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.moveTo(sx - 7, sy - 28);
+      ctx.lineTo(sx, sy - 35);
+      ctx.lineTo(sx + 7, sy - 28);
+      ctx.lineTo(sx, sy - 21);
+      ctx.closePath();
+      ctx.fill();
+      // 白底内牌
+      ctx.fillStyle = `rgba(244,242,232,${(0.9).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.moveTo(sx - 5, sy - 28);
+      ctx.lineTo(sx, sy - 33);
+      ctx.lineTo(sx + 5, sy - 28);
+      ctx.lineTo(sx, sy - 23);
+      ctx.closePath();
+      ctx.fill();
+      // 「M」字（三笔像素：两竖 + 中谷 V，笔画随呼吸明暗）
+      ctx.fillStyle = `rgba(30,58,95,${(0.85).toFixed(3)})`;
+      ctx.fillRect(sx - 3, sy - 31, 2, 6);
+      ctx.fillRect(sx + 1, sy - 31, 2, 6);
+      ctx.fillRect(sx - 2, sy - 31, 1, 2);
+      ctx.fillRect(sx + 1, sy - 31, 1, 2);
+      ctx.fillRect(sx - 1, sy - 29, 2, 2);
+      // 站牌光晕（脉冲扩散环）
+      ctx.strokeStyle = `rgba(74,200,180,${(0.35 * br).toFixed(3)})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(sx - 9, sy - 28);
+      ctx.lineTo(sx, sy - 37);
+      ctx.lineTo(sx + 9, sy - 28);
+      ctx.lineTo(sx, sy - 19);
+      ctx.closePath();
+      ctx.stroke();
+    }
+  }
+
   cycleZoom(dir: number): void {
     const i = ZOOMS.indexOf(this.zoom);
     const j = Math.max(0, Math.min(ZOOMS.length - 1, i + dir));
@@ -2070,6 +2147,8 @@ export class Engine {
     this.drawMedOverlay(ctx, t);
     // ---- v22：学区层（学区内住宅金光罩 + 书页飘飞；垃圾之下）----
     this.drawEduOverlay(ctx, t);
+    // ---- v41：地铁通勤圈层（圈内青碧光罩 + 接入站 M 站标脉冲；与学区同层位）----
+    this.drawMetroOverlay(ctx, t);
     // ---- v21：垃圾堆积层（清运不到的巷口垃圾成堆；雾霾之下）----
     this.drawWasteOverlay(ctx, t);
     // ---- v19：雾霾层（污染空间场可视化；笼罩建筑，事件特效之下）----

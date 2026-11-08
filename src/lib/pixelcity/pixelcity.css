@@ -2374,6 +2374,52 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 .pxc.m .hh-next { margin-left: 0; width: 100%; }
 .pxc.m .hr-day { margin-left: 0; width: 100%; }
 
+/* ============ v41 轨道时代（地下铁） ============ */
+.pxc-metro { width: min(560px, calc(100vw - 24px)); }
+.metro-chip.metro-on { border-color: #2E8C7A; background: #E6F5F1; }
+
+/* 空态 */
+.mt-empty { border: 1px dashed #7CC7B8; border-radius: 4px; padding: 14px 12px; text-align: center; }
+.mt-empty .me-t { font-size: 15px; font-weight: 800; color: #23252E; letter-spacing: 2px; }
+.mt-empty .me-d { margin-top: 8px; font-size: 12px; color: #555c66; line-height: 1.7; text-align: left; }
+.mt-empty .me-d b { color: #1F7363; }
+
+/* 线网状态头 */
+.mt-head {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  border-bottom: 1px solid #BFE0D6; padding-bottom: 8px; margin-bottom: 8px;
+}
+.mh-prog { font-size: 13px; color: #3d434e; font-weight: 700; }
+.mh-prog b { color: #1F7363; font-size: 16px; }
+.mh-net { font-size: 11px; color: #85878f; font-weight: 700; }
+.mh-net.on { color: #1F7363; }
+.mh-cover { margin-left: auto; font-size: 11px; color: #85878f; font-variant-numeric: tabular-nums; }
+
+/* 覆盖进度条 */
+.mt-bar {
+  height: 8px; border: 1px solid #7CC7B8; border-radius: 4px; background: #F2F7F5;
+  overflow: hidden; margin-bottom: 10px;
+}
+.mt-bar i { display: block; height: 100%; background: linear-gradient(90deg, #4AC8B4, #2E8C7A); }
+
+/* 线网四卡 */
+.mt-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
+.ms-card {
+  border: 1px solid #7CC7B8; border-radius: 4px; padding: 7px 5px 6px;
+  background: #F2F7F5; text-align: center; min-width: 0;
+}
+.ms-card b { display: block; font-size: 17px; color: #1F7363; font-variant-numeric: tabular-nums; }
+.ms-card span { display: block; margin-top: 2px; font-size: 9.5px; color: #557a70; }
+.ms-card.warn { border-color: #C8996B; background: #F8F2E9; }
+.ms-card.warn b { color: #A36A2C; }
+.ms-card.on { background: #E6F5F1; }
+
+.mt-note { margin-top: 10px; font-size: 11px; color: #85878f; line-height: 1.65; }
+
+/* 移动端 */
+.pxc.m .mt-cards { grid-template-columns: repeat(2, 1fr); }
+.pxc.m .mh-cover { margin-left: 0; width: 100%; }
+
 /* ============ v17 城市编年史 ============ */
 .pxc-chron { width: min(560px, calc(100vw - 24px)); }
 

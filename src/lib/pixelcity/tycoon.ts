@@ -27,6 +27,10 @@ import {
   hallAwardKinds, pickHallWinner, type HallRoll, type HallNominee, type HallCtx,
 } from './hall';
 
+import {
+  METRO_EARN_K, metroNetOf, metroCovered, metroBonusOf, metroHapOf, type MetroNode,
+} from './metro';
+
 export const CHUNK = 16;                 // 领地块边长（格）
 export const CHUNKS = 16;                // 256 / 16 = 16×16 块领地
 export const ROAD_COST = 3;              // 每格道路
@@ -472,6 +476,9 @@ export const ECON: Record<string, EconDef> = {
   press: D(520, 4, { power: 5, amenity: 2, upk: 1.8, cul: 3, sp: 0.8 }),   // 每七日出版《城市日报》：发行收入随人口/识字率浮动（出版时另计）
   // ---- v40 城市之光：名人堂 ----
   hall: D(900, 6, { power: 6, amenity: 4, upk: 2.4, cul: 4 }),   // 季评授勋殿堂：每逢换季整点评一颗城市之光（授勋幸福 buff 另计）
+  // ---- v41 轨道时代：地下铁 ----
+  metrodepot: D(2400, 7, { power: 10, amenity: 2, upk: 5.5 }),   // 全线锚点：车库/调度塔/检修坑，落成记入编年史
+  metrostop: D(520, 7, { power: 4, amenity: 1, upk: 1.8 }),      // 接入车辆段才通车（通勤圈加成在 snapOf 结算）
   cellmast: D(120, 7, { power: 2, upk: 0.25 }),
   // ---- 水务（v6：供水覆盖指数）----
   watertower: D(130, 2, { power: 2, amenity: 1, upk: 0.75, waterR: 9, waterCap: 260 }),
@@ -594,7 +601,7 @@ type EventTpl = {
 };
 
 /** 事件模板池：好坏约 5:5，设施齐全可大幅减免灾害 */
-const EVENT_TPLS: EventTpl[] = [
+export const EVENT_TPLS: EventTpl[] = [
   {
     key: 'fire', name: '火灾', kind: 'bad', dur: 20, hap: -10,
     mult: {}, fx: true, resp: 'fire',
@@ -753,6 +760,19 @@ const EVENT_TPLS: EventTpl[] = [
       t.citz.onCityEvent('hallnom', t.playtime);
       return '光荣榜的提名栏里多了一个街坊们热议的名字';
     },
+  },
+  // ---- v41 轨道时代：信号故障 / 通勤高峰 ----
+  {
+    key: 'signal', name: '信号故障', kind: 'bad', dur: 30, hap: -3,
+    mult: { traffic: 0.85 },
+    note: '地铁信号故障，列车限速缓行：交通 −15%（沿线通勤族改挤巴士）',
+    w: s => (s.metroConn >= 2 ? 6 : 0),   // 线网通车才有的新烦恼
+  },
+  {
+    key: 'metrorush', name: '通勤高峰', kind: 'good', dur: 45, hap: 1,
+    mult: { com: 1.1 },
+    note: '早晚高峰客流涌进沿街铺面：商业 ×1.1 —— 地铁把半座城送到了店门口',
+    w: s => (s.metroConn >= 2 ? 6 : 0),
   },
   // ---- v10 旅游事件 ----
   {
@@ -950,6 +970,13 @@ export const ACHIEVEMENTS: AchvDef[] = [
   // ---- v40 城市之光 ----
   { id: 'hall1', name: '城市之光', desc: '名人堂评出首届「本季城市之光」（每逢换季整点开榜：八大奖项按城市状态加权，授勋市民名镌光荣榜、心情大振，全城幸福也沾光）', icon: 'medal',
     goal: 1, val: s => s.hallN },
+  // ---- v41 轨道时代 ----
+  { id: 'metro1', name: '首线通车', desc: '两座接入车辆段的地铁站连成首条地铁线通车（交通 +10 起 —— 通勤圈商铺与沿线住宅同步沾光，编年史记下这一天）', icon: 'bolt',
+    goal: 1, val: s => (s.metroConn >= 2 ? 1 : 0) },
+  { id: 'metro8', name: '四通八达', desc: '8 座地铁站全部接入车辆段成网（线路沿链手拉手也能远距离延伸 —— 覆盖大半座城的地下动脉）', icon: 'road',
+    goal: 8, val: s => s.metroConn },
+  { id: 'metroC', name: '轨道之城', desc: '人口 ≥100 且通勤覆盖 ≥90% —— 地下铁把半城人送到了家门口（接入站 5 格通勤圈，覆盖详情见城市志「轨道交通」行）', icon: 'medal',
+    goal: 90, val: (s, t) => (t.pop >= 100 ? s.metroCover : 0) },
   { id: 'hall8', name: '满堂生辉', desc: '八大奖项各评出至少一次（劳动模范/见义勇为/仁心仁术/平安卫士/绿茵之星/杏坛春晖/寿星高照/创业先锋 —— 消防局医院交番学校体育场在城，才评得动相应的奖）', icon: 'star',
     goal: HALL_AWARDS.length, val: s => s.hallAwardsN },
   { id: 'hall12', name: '群星璀璨', desc: '累计评出 12 届城市之光（一季一届风雨无阻 —— 双雕像台前掌声一季比一季响，光荣榜写满一整年的星光）', icon: 'medal',
@@ -1023,6 +1050,8 @@ export const TECH_GATE: Record<string, string> = {
   zoo: 'brand',           // v35 动物园：与水族馆同源「城市名片」（圈养保育需名声在外）
   press: 'compul',        // v39 报馆：先有义务教育，市民识字才有人读报
   hall: 'brand',          // v40 名人堂：荣誉殿堂需名声在外（城市名片）
+  metrodepot: 'struct',   // v41 地铁车辆段：隧道与车库是大土木（建筑工程学）
+  metrostop: 'struct',    // v41 地铁站：与车辆段同源「建筑工程学」
   opera: 'brand',         // v31 大剧院：文旅地标同源「城市名片」
   expo: 'struct',         // v31 会展中心：大跨度拱棚需「建筑工程学」
   dock: 'logistic',
@@ -1162,6 +1191,15 @@ export type QS = {
   halls: number;       // 名人堂座数（任务口径）
   hallN: number;       // 累计评选届数（成就口径）
   hallAwardsN: number; // 已评出奖项种类数（满堂生辉口径）
+  // ---- v41 轨道时代 ----
+  metroDepots: number; // 车辆段座数（任务口径）
+  metroStops: number;  // 地铁站总座数
+  metroConn: number;   // 接入车辆段的车站数（成线口径：任务/成就）
+  metroCover: number;  // 通勤覆盖率 %（圈内商铺+住宅 / 全部）
+  metroIn: number;     // 通勤圈内建筑栋数（商铺+住宅）
+  metroOut: number;    // 通勤圈外建筑栋数（商铺+住宅）
+  metroBonus: number;  // 交通加成（接入站×5，两站起算至多 +20）
+  metroHap: number;    // 通勤圈住宅幸福加成（每栋 +1.2，至多 +7）
   // ---- v19 污染空间化 ----
   smogTiles: number; smogBad: number; smogRes: number; ecotowers: number;
   // ---- v20 电网空间化 ----
@@ -1371,6 +1409,9 @@ export const QUESTS: Quest[] = [
   // ---- v40 城市之光 ----
   { id: 'hall1', title: '光荣榜', hint: '建造名人堂（需「城市名片」）：每逢换季整点评出一颗「本季城市之光」—— 八大奖项按城市状态加权授勋（消防局在城才评得动见义勇为、赢球才有人捧绿茵之星），获奖市民名镌光荣榜、心情大振，全城幸福 +1；顶栏「光」翻荣誉殿堂', goal: 1,
     val: s => s.halls, rG: 340, rXp: 150 },
+  // ---- v41 轨道时代 ----
+  { id: 'metro1', title: '轨道时代', hint: '建造地铁车辆段并接入 2 座地铁站成线通车（需先研究「建筑工程学」）：车辆段是全线锚点，车站沿切比雪夫 12 格逐站续链（站与站手拉手也能远距离延伸）—— 顶栏「轨」看线网状态', goal: 1,
+    val: s => (s.metroDepots > 0 && s.metroConn >= 2 ? 1 : 0), rG: 480, rXp: 220 },
 ];
 
 // ------------------------------------------------------------
@@ -1542,6 +1583,17 @@ export type EconView = {
     hapT: number;               // 幸福加成剩余秒数
     awards: Array<{ id: string; name: string; icon: string; note: string; got: boolean }>;
     rolls: HallRoll[];          // 光荣榜（最近 HALL_KEEP 届，新在前）
+  };
+  // ---- v41：轨道时代（地下铁）----
+  metro: {
+    depots: number;             // 车辆段座数（0 = 地铁尚未破土）
+    stops: number;              // 地铁站总座数
+    conn: number;               // 接入车辆段的车站数（≥2 成线通车）
+    cover: number;              // 通勤覆盖率 %
+    in: number;                 // 通勤圈内建筑栋数（商铺+住宅）
+    out: number;                // 通勤圈外建筑栋数（商铺+住宅）
+    bonus: number;              // 交通加成（接入站×5，两站起算至多 +20）
+    hap: number;                // 通勤圈住宅幸福加成（每栋 +1.2 至多 +7）
   };
   // ---- v19：污染空间化 ----
   smogTiles: number;                // 雾霾格数（浓度 ≥45）
@@ -1720,7 +1772,7 @@ export class Tycoon {
     // v15：新来信铃（bell）
     // v16：节日开幕琶音（festival）
     // v18：地震低频轰鸣（quake）
-    | 'alarm' | 'cheer' | 'achieve' | 'tech' | 'rescue' | 'movein' | 'bell' | 'festival' | 'quake') => void) | null = null;
+    | 'alarm' | 'cheer' | 'achieve' | 'tech' | 'rescue' | 'movein' | 'bell' | 'festival' | 'quake' | 'metro') => void) | null = null;
 
   // ---- v5：天气 / 随机事件 / 成就 ----
   /** 当前天气（engine 每帧回写；纯数据不参与存档，重开随机） */
@@ -2007,6 +2059,28 @@ export class Tycoon {
   /** v36 防疫站在城数（snapOf 每帧回写；疫病蔓延机率 ×0.6） */
   private healthstN = 0;
 
+  // ---- v41：轨道时代（轨道都市 · 地下铁）----
+  /** 通勤圈内建筑锤点集合（商铺+住宅；引擎通勤圈渲染 / 收入幸福加成源） */
+  metroField = new Set<number>();
+  /** 通勤圈外建筑锤点集合（商铺+住宅；统计口径） */
+  metroMissField = new Set<number>();
+  /** 已接入车辆段的车站锤点集合（引擎站标「M」渲染源） */
+  metroStopField = new Set<number>();
+  /** 线网场缓存版本（仅随 map.version 变化重算：摆盘即重算） */
+  private metroVer = -1;
+  /** 接入车站数（ensureMetro 回写；事件权重 / 交通加成口径） */
+  private metroConnN = 0;
+  /** 通勤圈住宅栋数（幸福加成源） */
+  private metroResN = 0;
+  /** 车辆段落成纪事旗（只写一次） */
+  private metroDepotSeen = false;
+  /** 首线通车纪事旗（只写一次；拆线复建不重记；随档保存） */
+  private metroLineSeen = false;
+  /** 车马为患纪事旗（轨道施工期交通恶化一次性入册；通车救赎成对；随档保存） */
+  metroPain = false;
+  /** 未接入车站提示（一档一次，全部接入后复位） */
+  private metroWarned = false;
+
   hasOrd(id: string): boolean { return this.ords.has(id); }
 
   /** v16 节日筹备费（随人口规模上浮，人口越多排场越大） */
@@ -2230,6 +2304,8 @@ export class Tycoon {
     this.ensureFire(map);
     // v36：医疗覆盖场先行（盲区商铺折扣 / 疫病偏爱现场 / 幸福惩罚；仅随摆盘重算）
     this.ensureMed(map);
+    // v41：地铁线网场先行（通勤圈收入幸福加成 / 站标渲染 / 统计判定源；仅随摆盘重算）
+    this.ensureMetro(map);
     // v31：文化街区覆盖场先行（大剧院商圈商铺收入加成 / 统计判定源；仅随摆盘重算）
     this.ensureCult(map);
     // v32：滨水价值场先行（商铺收入加成 / 住宅幸福加成 / 统计判定源；随摆盘与涂地形重算）
@@ -2262,6 +2338,9 @@ export class Tycoon {
     let fireIn = 0, fireOut = 0, fireMissRes = 0, hydrants = 0;
     // v36：医疗累计器
     let medIn = 0, medOut = 0, medMissRes = 0;
+    // v41：地铁累计器（通勤圈内/外建筑栋数，商铺+住宅）
+    let metroIn = 0, metroOut = 0;
+    let metroDepots = 0, metroStops = 0;   // v41 地铁车辆段 / 车站座数
     // v10：货物 / 旅游累计器
     let goodsP = 0, goodsC = 0, goodsCapV = GOODS_BASE_CAP;
     let hotelBeds = 0, attract = 0, ports = 0;
@@ -2296,6 +2375,8 @@ export class Tycoon {
         // v36：医疗判定（盲区住宅 → 看病要跨半座城）
         if (this.medField.has(map.idx(o.ax, o.ay))) medIn++;
         else { medOut++; medMissRes++; }
+        // v41 通勤圈判定（圈内住宅 → 出门就是地铁站）
+        if (this.metroField.has(map.idx(o.ax, o.ay))) metroIn++; else metroOut++;
       } else if (d.cat === 'com') {
         com++; jobs += d.pop;
         // 城市名片：文旅商业收入 +20%；v19 空间污染：雾霾区生意冷清 ×0.82
@@ -2314,8 +2395,12 @@ export class Tycoon {
         const cultK = this.cultShopField.has(map.idx(o.ax, o.ay)) ? CULT_EARN_K : 1;
         // v32 滨水：水岸景色的店生意更好（码头在城时氛围更浓 ×1.10）
         const wfK = this.nearWater.has(map.idx(o.ax, o.ay)) ? (this.marinaN > 0 ? WF_EARN_K_MARINA : WF_EARN_K) : 1;
+        // v41 地铁通勤圈：站口出就是店门口，客流坐地铁来（收入 ×1.06）
+        const metroK = this.metroField.has(map.idx(o.ax, o.ay)) ? METRO_EARN_K : 1;
+        // v41 通勤圈判定（圈内 → 站口客流；圈外 → 统计口径）
+        if (this.metroField.has(map.idx(o.ax, o.ay))) metroIn++; else metroOut++;
         // v20 电网：断电商铺收入归零（黑暗的店谁也进不去）；未断电才计入
-        if (!offGrid) earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK * wasteK * secK * fireK * medK * cultK * wfK;
+        if (!offGrid) earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK * wasteK * secK * fireK * medK * cultK * wfK * metroK;
         // v36 医疗判定（覆盖 → 员工顾客小病不出街区；盲区 → 疫病偏爱的巷子）
         if (this.medField.has(map.idx(o.ax, o.ay))) medIn++; else medOut++;
         // v23 巡防判定（覆盖 → 安心做买卖；盲区 → 失窃目标池）
@@ -2351,6 +2436,8 @@ export class Tycoon {
         if (o.id === 'zoo') zoos++;                         // v35 动物园
         if (o.id === 'press') pressN++;                     // v39 报馆（出版开关）
         if (o.id === 'hall') halls++;                       // v40 名人堂（开评开关）
+        if (o.id === 'metrodepot') metroDepots++;           // v41 地铁车辆段（线网锚点）
+        if (o.id === 'metrostop') metroStops++;             // v41 地铁站
       }
       // v6 水务设施：登记覆盖圆心（半径含足迹）
       if (e?.waterR) {
@@ -2582,9 +2669,11 @@ export class Tycoon {
     const busBonus = (pop >= 10 ? Math.min(15, busStops * 4) : 0) + (this.hasOrd('transit') ? 10 : 0);
     // v11 电车干线：每站交通 +3（上限 +12；两站起算 —— 巴士是骨架，电车是大动脉）
     const tramBonus = tramStops >= 2 ? Math.min(12, tramStops * 3) : 0;
+    // v41 地铁交通加成：接入站×5，两站起算至多 +20
+    const metroBonus = metroBonusOf(this.metroConnN);
     const trafficIdx = buildings > 0
       ? Math.max(0, Math.min(100, Math.round(
-          roadsTotal * 100 / (buildings * 3) * multTraffic) + busBonus + tramBonus))
+          roadsTotal * 100 / (buildings * 3) * multTraffic) + busBonus + tramBonus + metroBonus))
       : 100;
 
     // 智慧：教育容量覆盖人口的比率（图书馆 / 学校 / 博物馆…）
@@ -2666,13 +2755,15 @@ export class Tycoon {
     const fireHap = Math.min(FIRE_HAP_MAX, Math.round(fireMissRes * 1.0));
     // v36：求医无门 —— 每栋医疗盲区住宅 −1.4，至多 −7（建诊所/医院/防疫站可解）
     const medHap = Math.min(MED_HAP_MAX, Math.round(medMissRes * 1.4));
+    // v41 通勤圈住宅幸福：出门就是地铁站（每栋 +1.2，至多 +7）
+    const metroHap = metroHapOf(this.metroResN);
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
       0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap + this.docHap + cycHap + lgHap + zooB.hap + relicB.hap + (this.hallHapT > 0 ? HALL_HAP : 0)
       + (operas > 0 ? 2 : 0)
       + Math.min(WF_HAP_MAX, wfRes)
-      + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap - medHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区/v36 医疗盲区扣减；v29 朱批民心增益；v31 大剧院全市幸福 +2；v32 滨水住宅每栋 +1；v33 市况荣枯 ±2/0/+1/+3；v34 比赛日沸腾 + 赛后情绪；v35 物种住户幸福（企鹅冬季加成）
+      + (tramStops >= 2 ? 2 : 0) + metroHap - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap - medHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区/v36 医疗盲区扣减；v29 朱批民心增益；v31 大剧院全市幸福 +2；v32 滨水住宅每栋 +1；v33 市况荣枯 ±2/0/+1/+3；v34 比赛日沸腾 + 赛后情绪；v35 物种住户幸福（企鹅冬季加成）
     const happyMult = 0.6 + happiness / 125;
 
     // ---- v10 旅游：景点吸引力 × 文化/幸福 × 季节/天气 → 游客（酒店床位为接待上限）----
@@ -2763,6 +2854,10 @@ export class Tycoon {
       pressN, pressCirc: this.pressCirc, pressIss: this.pressIss,
       // ---- v40 城市之光 ----
       halls, hallN: this.hallN, hallAwardsN: hallAwardKinds(this.hallRolls),
+      // ---- v41 轨道时代 ----
+      metroDepots, metroStops, metroConn: this.metroConnN,
+      metroCover: (metroIn + metroOut) > 0 ? Math.round(100 * metroIn / (metroIn + metroOut)) : 100,
+      metroIn, metroOut, metroBonus, metroHap,
       // ---- v33 经济周期 ----
       cycIdx: Math.round(this.cycIdx), cycPhase: this.cycPhase, cycHap,
       cycComK, cycTourK, cycIndK, cycMigK,
@@ -2785,6 +2880,47 @@ export class Tycoon {
     this.kobansNow = kobans;   // v12：巡逻编制回写（引擎折算 patrolCap）
     this.policehqNow = policehqN;   // v23：警察局编制回写（引擎折算 patrolCap）
     return s;
+  }
+
+  // ---------------- v41：地铁线网场（轨道时代 · 地下铁） ----------------
+
+  /** 重算地铁线网与通勤圈（版本缓存：仅 map.version 变化才重算，摆盘/拆迁即触发）。
+   *  Pass A：登记车辆段锚点与全部地铁站；
+   *  Pass B：线网判定（纯函数 metroNetOf）—— 车辆段 12 格内的站为种子，
+   *          已接入站沿切比雪夫 12 格逐站续链（站与站手拉手也能远距离延伸）；
+   *  Pass C：接入站 5 格通勤圈内的商铺与住宅 → metroField（收入 ×1.06 · 住宅幸福 +1.2/栋），
+   *          圈外 → metroMissField（统计口径；只 buff 不打折，圈外照旧营生）。
+   *  未接入的车站只是摆设 —— 不通车也不给通勤圈 */
+  private ensureMetro(map: CityMap): void {
+    if (map.version === this.metroVer) return;
+    this.metroVer = map.version;
+    const depots: MetroNode[] = [];
+    const stops: MetroNode[] = [];
+    for (const o of map.objs.values()) {
+      if (o.id === 'metrodepot') depots.push({ x: o.ax, y: o.ay });
+      else if (o.id === 'metrostop') stops.push({ x: o.ax, y: o.ay });
+    }
+    const connIdx = metroNetOf(depots, stops);
+    this.metroConnN = connIdx.size;
+    const connStops: MetroNode[] = [...connIdx].map(k => stops[k]);
+    const served = new Set<number>();
+    const miss = new Set<number>();
+    let resN = 0;
+    for (const o of map.objs.values()) {
+      const cat = defById(o.id).cat;
+      if (cat !== 'com' && cat !== 'res') continue;
+      const i = map.idx(o.ax, o.ay);
+      if (connStops.length && metroCovered(o.ax, o.ay, connStops)) {
+        served.add(i);
+        if (cat === 'res') resN++;
+      } else {
+        miss.add(i);
+      }
+    }
+    this.metroField = served;
+    this.metroMissField = miss;
+    this.metroStopField = new Set(connStops.map(p => map.idx(p.x, p.y)));
+    this.metroResN = resN;
   }
 
   // ---------------- v19：污染空间场（工业之殇 · 绿水青山） ----------------
@@ -3981,6 +4117,59 @@ export class Tycoon {
     return this.hallRolls[0] ?? null;
   }
 
+  // ---------------- v41：轨道时代（地下铁） ----------------
+
+  /** 每帧心跳：车辆段落成纪事 + 首线通车纪事（救赎成对）+ 未接入车站提示（tick 调用） */
+  private stepMetro(): void {
+    const depots = this.snap?.metroDepots ?? 0;
+    const conn = this.snap?.metroConn ?? 0;
+    // 车辆段落成 → 破土纪事（只写一次；拆段复建不重记）
+    if (depots > 0 && !this.metroDepotSeen) {
+      this.metroDepotSeen = true;
+      this.chron.write('mile', 'good', 'flag', '地铁破土',
+        '车辆段的车库铺下了第一根枕木，调度塔立起来了 —— 施工围挡一夜之间占满了街角，这座城开始在地底下修一条自己的动脉。', this.gHours);
+      this.msg?.('地铁车辆段落成 —— 沿链 12 格布设地铁站，两站接入即通车');
+      this.sfx?.('metro');
+    }
+    // 首线通车（≥2 接入站成线；只记一次；若当年记过「车马为患」则成对补「通途重开」）
+    if (conn >= 2 && !this.metroLineSeen) {
+      this.metroLineSeen = true;
+      this.chron.write('mile', 'big', 'bolt', '地铁首线通车',
+        '第一列地铁从车辆段驶出，站台口排起了队 —— 通勤圈就此划下：商铺客流 +6%、沿线住宅的幸福也跟着车来了，半城的拥堵交给了地底下的列车。', this.gHours);
+      this.msg?.('✦ 地铁首线通车 —— 通勤圈商铺收入 +6% · 住宅幸福 +1.2/栋 · 交通 +10 起');
+      this.sfx?.('metro');
+      if (this.metroPain) {
+        this.chron.write('mile', 'good', 'bolt', '通途重开',
+          '编年史里写下「车马为患」的那座城，今天把拥堵交给了地铁 —— 通途重开，街头的第一声汽笛是发给自己的贺礼。', this.gHours);
+      }
+    }
+    // 车马为患（轨道施工期：车辆段在城但未通车 · 建筑 ≥30 · 交通 <40 —— 一档一次；通车成对补「通途重开」）
+    if (depots > 0 && !this.metroPain) {
+      const s = this.snap;
+      if (s && s.buildings >= 30 && s.trafficIdx < 40) {
+        this.metroPain = true;
+        this.chron.write('mile', 'bad', 'bolt', '车马为患',
+          '施工围挡占满了街角，渣土车在窄路上排成长队 —— 地铁通车之前，这座城得先忍受它施工的脾气。', this.gHours);
+      }
+    }
+    // 未接入车站提示（一档一次，全部接入后复位）
+    const stops = this.snap?.metroStops ?? 0;
+    if (stops > conn && !this.metroWarned) {
+      this.metroWarned = true;
+      this.msg?.(`${stops - conn} 座地铁站未接入车辆段 —— 沿链 12 格内逐站续接才能通车，孤立车站只是摆设`);
+    } else if (stops === conn) this.metroWarned = false;
+  }
+
+  /** 沙盒/测试：直读线网（返回接入车站数与通勤圈规模；不改状态） */
+  metroTest(): { conn: number; in: number; out: number; hap: number } {
+    return {
+      conn: this.metroConnN,
+      in: this.metroField.size,
+      out: this.metroMissField.size,
+      hap: metroHapOf(this.metroResN),
+    };
+  }
+
   // ---------------- 每帧心跳 ----------------
 
   tick(dt: number, map: CityMap): void {
@@ -4020,6 +4209,8 @@ export class Tycoon {
     this.stepPress(map);
     // v40 城市之光：名人堂开榜 + 换季整点评选授勋
     this.stepHall();
+    // v41 轨道时代：车辆段落成纪事 + 首线通车纪事 + 未接入提示（通勤圈加成已在 snapOf 生效）
+    this.stepMetro();
     // v37 千里比邻：待办过期 / 邻城成长月评 / 事件 roll（邻城静态数据，无经济乘数）
     this.stepSisters();
     // 收入 − 维护（G/分 → 按秒累积；可能为负 = 赤字，需拆除减负）
@@ -4124,6 +4315,7 @@ export class Tycoon {
       crime: s.crimeN,                         // v23：盲区商铺心声（街坊议论失窃）
       fireOut: s.fireOut,                      // v24：消防盲区心声（火险保贵的街区）
       medOut: s.medMissRes,                    // v36：医疗盲区心声（看病要跨半座城）
+      metro: s.metroConn,                      // v41：地铁接入车站数（通车心声）
       cyc: s.cycPhase,                         // v33：市况相位心声（衰退抱怨生意淡 / 繁荣夸市道）
       lg: this.lgMoodT > 0 ? (this.lgMood > 0 ? 2 : 3) : s.lgPre,   // v34：绿茵心声（比赛日预热 / 赢球余温 / 输球低落）
       zooN: s.zooN,                            // v35：动物园住户数（住户在园时市民谈动物）
@@ -4746,6 +4938,17 @@ export class Tycoon {
         awards: HALL_AWARDS.map(a => ({ id: a.id, name: a.name, icon: a.icon, note: a.note, got: this.hallAwards.has(a.id) })),
         rolls: this.hallRolls.map(r => ({ ...r })),
       },
+      // ---- v41：轨道时代 ----
+      metro: {
+        depots: s?.metroDepots ?? 0,
+        stops: s?.metroStops ?? 0,
+        conn: s?.metroConn ?? 0,
+        cover: s?.metroCover ?? 100,
+        in: s?.metroIn ?? 0,
+        out: s?.metroOut ?? 0,
+        bonus: s?.metroBonus ?? 0,
+        hap: s?.metroHap ?? 0,
+      },
       // ---- v18：灾害链 ----
       quakes: this.quakes, floods: this.floods,
       levees: s?.levees ?? 0, waterNear: s?.waterNear ?? 0,
@@ -4923,6 +5126,10 @@ export class Tycoon {
     // v40：城市之光重置（名人堂未落成 —— 落成后 stepHall 自动开榜）
     this.hallNext = -1; this.hallN = 0; this.hallSeen = false;
     this.hallAwards.clear(); this.hallRolls = []; this.hallHapT = 0;
+    // v41：轨道时代重置（地铁未破土 —— 落成后 stepMetro 自动纪事）
+    this.metroField = new Set(); this.metroMissField = new Set(); this.metroStopField = new Set();
+    this.metroVer = -1; this.metroConnN = 0; this.metroResN = 0;
+    this.metroDepotSeen = false; this.metroLineSeen = false; this.metroPain = false; this.metroWarned = false;
     // v29：市长公署重置（首份公文在开埠首日清晨 8 点）
     this.docPending = null; this.docNext = DOC_FIRST_H; this.docN = 0;
     this.docUsed = []; this.docLog = []; this.docHap = 0; this.docHapLeft = 0;
@@ -5047,6 +5254,10 @@ export class Tycoon {
       hlA: [...this.hallAwards],
       hlHT: Math.round(this.hallHapT),
       hlR: this.hallRolls,
+      // v41：轨道时代档（纪事旗 —— 旧档缺省 → 地铁未破土；接入数与通勤圈为派生场随图重算）
+      mtD: this.metroDepotSeen ? 1 : 0,
+      mtL1: this.metroLineSeen ? 1 : 0,
+      mtP: this.metroPain ? 1 : 0,
       // v29：市长公署档（待批公文 / 已批数 / 用过池 / 朱批存档 / 民心增益）
       docP: this.docPending, docNext: this.docNext, docN: this.docN,
       docUsed: this.docUsed, docLog: this.docLog,
@@ -5319,6 +5530,12 @@ export class Tycoon {
       this.hallRolls = this.hallRolls
         .sort((a, b) => b.n - a.n).slice(0, HALL_KEEP);   // 新在前，截留最近 HALL_KEEP 届
     }
+    // v41：轨道时代档恢复（旧档无字段 → 地铁未破土；接入数与通勤圈为派生场，
+    // 落成后首个 tick 由 ensureMetro 随图重算；纪事旗随档恢复避免复建重记）
+    this.metroDepotSeen = d.mtD === 1;
+    this.metroLineSeen = d.mtL1 === 1;
+    this.metroPain = d.mtP === 1;
+    this.metroWarned = false;
     // v29：市长公署档恢复（旧档无字段 → 首份公文从下一个清晨八点起算；在批公文原样回到案头）
     this.docN = Math.max(0, Math.floor(Number(d.docN) || 0));
     this.docNext = Number(d.docNext) > 0 ? Number(d.docNext) : nextMorningH(this.gHours);
@@ -5420,6 +5637,7 @@ export class Tycoon {
       crime: s?.crimeN ?? 0,                    // v23：盲区商铺心声
       fireOut: s?.fireOut ?? 0,                 // v24：消防盲区心声
       medOut: s?.medMissRes ?? 0,               // v36：医疗盲区心声（看病要跨半座城）
+      metro: s?.metroConn ?? 0,                 // v41：地铁接入车站数（通车心声）
       cyc: s?.cycPhase ?? 1,                    // v33：市况相位心声（衰退抱怨生意淡 / 繁荣夸市道）
     });
   }

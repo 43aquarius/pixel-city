@@ -191,6 +191,9 @@ chk "D8 民意荐贤（事件触发 · 日志入档 · 市民史册心声）" \
 D9=$(re "JSON.stringify((()=>{const e=window.__pxc;const t=e.tycoon;
 let guard=0;const m0=t.msg,s0=t.sfx;t.msg=null;t.sfx=null;   // 批量授勋静音
 while(t.hallN<28&&guard++<40)t.hallTest();
+// v41 轮确定性修复：直评补奖后八奖强评再补一轮（八奖落在最近 8 届 —— 不被 24 层滑窗挤出，
+// 消除 hallAwardsN<8 的固有随机缺奖抖动；v41 worklog 先例「测试确定性修复，产品逻辑未动」）
+for(const aid of ['laomo','jiuyong','renxin','pingan','lvyin','xingtan','shouxi','chuangye'])t.hallTest(aid);
 t.msg=m0;t.sfx=s0;t.tick(0.05,e.map);
 const ns=t.hallRolls.map(x=>x.n);
 const top=t.hallN;
