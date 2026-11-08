@@ -15,6 +15,9 @@ import {
   SIS_REL_MAX, SIS_HELP_REL, SIS_HELP_CD, genSisters, tradeProfit, tradeGain, relBand,
   clampRel, rollSisEvent, SIS_CALAMITIES,
 } from './sisters';
+import {
+  RELICS, RELIC_SETS, RELIC_DIG_P, RELIC_HAP_FULL, relicBonusOf, rollRelicId, relicRareName, relicSetDone,
+} from './relics';
 
 export const CHUNK = 16;                 // 领地块边长（格）
 export const CHUNKS = 16;                // 256 / 16 = 16×16 块领地
@@ -704,6 +707,18 @@ const EVENT_TPLS: EventTpl[] = [
       return `投资到账 +${gain}G`;
     },
   },
+  // ---- v38 考古事件 ----
+  {
+    key: 'dig', name: '工地惊现', kind: 'good', dur: 0, hap: 0,
+    mult: {},
+    note: '工地的锄头磕到了不该有的硬物',
+    w: s => (s.chunks >= 5 ? 6 : 0),   // 有一定体量的城市才有工地可挖
+    fire: (t) => {
+      const res = t.relicDigForce();
+      if (!res) return;
+      return `城北工地${res} —— 城市志「出土图鉴」已入册`;
+    },
+  },
   // ---- v10 旅游事件 ----
   {
     key: 'tourseason', name: '旅游旺季', kind: 'good', dur: 70, hap: 2,
@@ -883,6 +898,13 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 3, val: s => s.sisAidN },
   { id: 'sis3', name: '广结善缘', desc: '三座邻城好感尽数达到 80（互市、赠礼、援助都能处长交情 —— 三城歃血为盟之日，四方商旅闻风而至）', icon: 'people',
     goal: SIS_N, val: s => s.sisHiN },
+  // ---- v38 厚土藏珍 ----
+  { id: 'relic1', name: '破土惊鸿', desc: '出土首件文物（每购一块新领地都有机缘从厚土里磕出先民遗物 —— 工地有时也会自己说话）', icon: 'atlas',
+    goal: 1, val: s => s.relicN },
+  { id: 'relic5', name: '藏珍五器', desc: '累计出土 5 件文物（陶土四器、青铜四器、玉石四器 —— 三套系集齐各有一番惊喜）', icon: 'atlas',
+    goal: 5, val: s => s.relicN },
+  { id: 'relic12', name: '满馆琳琅', desc: '博物馆在城且 12 件文物全展出（出土只是入册，建座博物馆开馆展出：文化、吸引力、游客与幸福都沾国宝的光）', icon: 'star',
+    goal: RELICS.length, val: s => s.relicExN },
   // ---- v17 城市编年史 ----
   { id: 'chron60', name: '汗青永续', desc: '编年史累计记下 60 笔城市纪事（开埠/时代跃迁/事件/科技/节庆/法令/里程碑皆入册）', icon: 'book',
     goal: 60, val: (_s, t) => t.chron.total },
@@ -1077,6 +1099,11 @@ export type QS = {
   sisAidN: number;     // 累计援助邻城次数
   sisRelMax: number;   // 邻城好感最高值（结好成就口径）
   sisHiN: number;      // 好感 ≥80 的邻城数（盟誓成就口径）
+  // ---- v38 厚土藏珍 ----
+  relicN: number;      // 累计出土文物件数
+  relicExN: number;    // 博物馆在城时展出的件数（策展成就口径）
+  relicGems: number;   // 出土的国宝件数
+  museumsN: number;    // 博物馆座数（展出开关）
   // ---- v19 污染空间化 ----
   smogTiles: number; smogBad: number; smogRes: number; ecotowers: number;
   // ---- v20 电网空间化 ----
@@ -1277,6 +1304,9 @@ export const QUESTS: Quest[] = [
   // ---- v37 千里比邻 ----
   { id: 'sis1', title: '千里比邻', hint: '与邻城完成 1 次互市（市政厅 LV2 起通商：顶栏「盟」开姊妹城市面板，商队带货去邻城换银钱 —— 货仓先攒够 6 件货，交情随商路一路生长）', goal: 1,
     val: s => s.sisTradeN, rG: 160, rXp: 80 },
+  // ---- v38 厚土藏珍 ----
+  { id: 'relic1', title: '厚土初醒', hint: '出土首件文物（每购一块新领地都有 22% 机缘挖出先民遗物 —— 工地偶尔也会自己说话；文物入册出土图鉴，博物馆在城时自动开馆展出）', goal: 1,
+    val: s => s.relicN, rG: 140, rXp: 70 },
 ];
 
 // ------------------------------------------------------------
@@ -1413,6 +1443,21 @@ export type EconView = {
   zoos: number; zooN: number; zooAt: number; zooHap: number; zooK: number;
   // ---- v37：千里比邻（姊妹城市）----
   sis: SisView;
+  // ---- v38：厚土藏珍（出土图鉴）----
+  relics: {
+    got: string[];              // 已出土文物 id（出土顺序）
+    n: number;                  // 出土件数
+    total: number;              // 图鉴总页数（12）
+    museumOn: boolean;          // 博物馆在城（全展出）
+    exN: number;                // 展出件数
+    cul: number;                // 展出文化供给加成
+    at: number;                 // 展出吸引力加成
+    tourK: number;              // 国宝镇馆游客乘数
+    hap: number;                // 满馆琳琅幸福加成
+    gems: number;               // 国宝件数
+    sets: Array<{ id: string; name: string; note: string; done: boolean; n: number; total: number }>;
+    digP: number;               // 下一块领地的出土概率
+  };
   // ---- v19：污染空间化 ----
   smogTiles: number;                // 雾霾格数（浓度 ≥45）
   smogBad: number;                  // 重污染格数（浓度 ≥75）
@@ -2010,6 +2055,8 @@ export class Tycoon {
     this.own[cy * CHUNKS + cx] = 1;
     this.sfx?.('buy');
     this.msg?.(`购得新领地（−${price}G）：荒地已揭迷雾，尽情规划吧`);
+    // v38 厚土藏珍：新领地平整时可能磕出先民遗物（购地出土判定）
+    this.digRelic(`第 ${cx},${cy} 区`);
     return 'ok';
   }
 
@@ -2126,6 +2173,7 @@ export class Tycoon {
     // v10：货物 / 旅游累计器
     let goodsP = 0, goodsC = 0, goodsCapV = GOODS_BASE_CAP;
     let hotelBeds = 0, attract = 0, ports = 0;
+    let museumsN = 0;   // v38 博物馆座数（文物展出开关）
     const upkFarm = { v: 0 }, upkInd = { v: 0 };
     // v6 水务设施清单（覆盖半径）与住宅清单（覆盖人口统计）
     const waterFacs: Array<{ x: number; y: number; r: number }> = [];
@@ -2226,6 +2274,7 @@ export class Tycoon {
       if (e?.goodsCap) goodsCapV += e.goodsCap;
       const at = ATTRACT[o.id];
       if (at) attract += at;
+      if (o.id === 'museum') museumsN++;   // v38 文物展出开关
       if (o.id === 'hotel') hotelBeds += 160;
       if (o.id === 'minshuku') hotelBeds += 24;
       if (o.id === 'dock' || o.id === 'ferry') ports++;
@@ -2353,6 +2402,10 @@ export class Tycoon {
     // v35 百兽之园：物种住户加成（吸引力并入 attract；幸福与游客乘数单算；企鹅冬季另有加成）
     const zooB = zooBonusOf(this.zooGot, this.season);
     attract += zooB.at;
+    // v38 厚土藏珍：博物馆在城时全馆展出 —— 文化供给/吸引力/国宝镇馆游客乘数/满馆琳琅幸福
+    const relicB = relicBonusOf(this.relicGot, museumsN > 0);
+    attract += relicB.at;
+    culSup += relicB.cul;
     // v22 人力资本：在册市民平均学历 → hrIdx（空册兑底 50）；超过基线才有加成
     //   （只 buff 不打折：老城不因新玩法亏钱，大学城工业/科研至多 +16%/+20%）
     const hrIdx = this.citz.hrIdx();
@@ -2520,7 +2573,7 @@ export class Tycoon {
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
-      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap + this.docHap + cycHap + lgHap + zooB.hap
+      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap + this.docHap + cycHap + lgHap + zooB.hap + relicB.hap
       + (operas > 0 ? 2 : 0)
       + Math.min(WF_HAP_MAX, wfRes)
       + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap - medHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区/v36 医疗盲区扣减；v29 朱批民心增益；v31 大剧院全市幸福 +2；v32 滨水住宅每栋 +1；v33 市况荣枯 ±2/0/+1/+3；v34 比赛日沸腾 + 赛后情绪；v35 物种住户幸福（企鹅冬季加成）
@@ -2532,7 +2585,7 @@ export class Tycoon {
     const appeal = attract * (0.6 + 0.4 * cultureIdx / 100) * (0.5 + 0.5 * happiness / 100);
     const capVisit = hotelBeds * 2 + 30;
     const tourists = attract < 1 ? 0
-      : Math.min(capVisit, appeal * seasonTourK * weatherTourK * multTour * cycTourK * lgTourK * zooB.tourK);   // v33：市况荣枯也牵动游客的出行计划；v34：比赛日客队球迷远道而来；v35：镇园之宝的招牌效应
+      : Math.min(capVisit, appeal * seasonTourK * weatherTourK * multTour * cycTourK * lgTourK * zooB.tourK * relicB.tourK);   // v33：市况荣枯也牵动游客的出行计划；v34：比赛日客队球迷远道而来；v35：镇园之宝的招牌效应；v38：国宝镇馆的招牌效应
     const tourIdx = Math.max(0, Math.min(100, Math.round(attract * 2.4)));
 
     // ---- v10 货物供应链：工业产货 → 零售上货 → 港口外销 ----
@@ -2606,6 +2659,10 @@ export class Tycoon {
       sisTradeN: this.sisTradeN, sisAidN: this.sisAidN,
       sisRelMax: this.sisCities.length ? Math.max(...this.sisCities.map(c => c.rel)) : 0,
       sisHiN: this.sisCities.filter(c => c.rel >= SIS_SWORN).length,
+      // ---- v38 厚土藏珍 ----
+      relicN: this.relicGot.length, relicExN: relicB.exN,
+      relicGems: this.relicGot.filter(id => RELICS.find(x => x.id === id)?.rare === 2).length,
+      museumsN,
       // ---- v33 经济周期 ----
       cycIdx: Math.round(this.cycIdx), cycPhase: this.cycPhase, cycHap,
       cycComK, cycTourK, cycIndK, cycMigK,
@@ -3565,6 +3622,88 @@ export class Tycoon {
     this.sisEvtAt = this.gHours + 999;   // 顺手关掉事件 roll，避免测试被随机事件搅局
   }
 
+  // ---------------- v38：厚土藏珍（考古之城） ----------------
+
+  /** 已出土文物 id（出土顺序即图鉴顺序） */
+  relicGot: string[] = [];
+  /** 首件出土 / 首件国宝 / 满馆琳琅 纪事标记（各只写一次） */
+  private relicSeen1 = false;
+  private relicSeenGem = false;
+  private relicSeenAll = false;
+
+  /** 购地出土：新领地平整时工队可能磕出先民遗物（buyChunk 调用） */
+  private digRelic(where: string): void {
+    if (this.relicGot.length >= RELICS.length) return;   // 图鉴已满：厚土藏珍已尽
+    if (Math.random() >= RELIC_DIG_P) return;
+    const id = rollRelicId(this.relicGot);
+    if (!id) return;
+    this.relicArrive(id, where);
+  }
+
+  /** 出土入册：图鉴登记 + 纪事 + 播报（沙盒/事件也走这条） */
+  private relicArrive(id: string, where: string): void {
+    const d = RELICS.find(x => x.id === id);
+    if (!d || this.relicGot.includes(id)) return;
+    this.relicGot.push(id);
+    const n = this.relicGot.length;
+    const rareTag = relicRareName(d.rare);
+    const setDone = relicSetDone(this.relicGot, d.set);
+    const setNote = setDone ? `「${d.set === 'pottery' ? '陶土四器' : d.set === 'bronze' ? '青铜四器' : '玉石四器'}」就此集齐！` : '';
+    if (d.rare === 2) {
+      this.chron.write('mile', 'big', 'star', '国宝出世',
+        `${where}的探方里露出一角金光 —— ${d.era}的「${d.name}」重见天日！${d.note}（图鉴 ${n}/${RELICS.length} · ${rareTag}）`, this.gHours);
+      this.msg?.(`✦ 国宝出世：「${d.name}」出土（图鉴 ${n}/${RELICS.length}）—— ${setNote}`);
+      this.sfx?.('achieve');
+      if (!this.relicSeenGem) {
+        this.relicSeenGem = true;
+        this.chron.write('mile', 'big', 'star', '厚土初醒',
+          '第一件国宝入册的这一天，全城的报纸都用了同一个标题：厚土之下，藏着我城的前生。', this.gHours);
+      }
+    } else if (d.rare === 1) {
+      this.chron.write('event', 'good', 'atlas', '珍稀出土',
+        `${where}的工队报告：挖出了${d.era}的「${d.name}」。${d.note}（图鉴 ${n}/${RELICS.length}）`, this.gHours);
+      this.msg?.(`✦ 珍稀文物「${d.name}」出土（图鉴 ${n}/${RELICS.length}）—— ${setNote}`);
+      this.sfx?.('bell');
+    } else {
+      this.chron.write('event', 'info', 'atlas', '破土有得',
+        `${where}的土方里筛出一件${d.era}的「${d.name}」。${d.note}（图鉴 ${n}/${RELICS.length}）`, this.gHours);
+      this.msg?.(`· 文物「${d.name}」出土（图鉴 ${n}/${RELICS.length}）—— ${setNote}`);
+      this.sfx?.('bell');
+    }
+    if (!this.relicSeen1) {
+      this.relicSeen1 = true;
+      this.chron.write('mile', 'good', 'atlas', '开卷有珍',
+        `出土图鉴从这一天翻开第一页 —— 原来这座城脚下，还埋着一整部没人写完的历史。`, this.gHours);
+    }
+    // 集齐 12 件（博物馆在城时由快照层给出满馆琳琅幸福；纪事在展满时另写）
+    if (this.relicGot.length >= RELICS.length && !this.relicSeenAll) {
+      // 纪事延后到展出判定（relicSeenAll 在快照侧不方便——改为入册即记，展出另在成就墙提示）
+      this.relicSeenAll = true;
+      this.chron.write('mile', 'big', 'atlas', '厚土藏珍',
+        `${RELICS.length} 件文物尽数入册 —— 陶土、青铜与玉石，把这座城的前生串成了一部完整的出土图鉴。`, this.gHours);
+      this.msg?.(`✦ 出土图鉴集齐 ${RELICS.length} 件 —— 厚土藏珍，满馆琳琅！`);
+      this.sfx?.('achieve');
+    }
+  }
+
+  /** 沙盒/事件：强制指定文物出土（绕开概率；图鉴登记照常） */
+  relicTest(id: string): boolean {
+    if (!RELICS.some(x => x.id === id)) return false;
+    if (this.relicGot.includes(id)) return false;
+    this.relicArrive(id, '城西考古现场');
+    return true;
+  }
+
+  /** 事件钩子：工地随机出土一件（考古事件 fire 调用；全出土返回 null） */
+  relicDigForce(): string | null {
+    if (this.relicGot.length >= RELICS.length) return null;
+    const id = rollRelicId(this.relicGot);
+    if (!id) return null;
+    this.relicArrive(id, '城北工地');
+    const d = RELICS.find(x => x.id === id)!;
+    return `出土${d.era}的「${d.name}」`;   // 事件日志与播报用
+  }
+
   // ---------------- 每帧心跳 ----------------
 
   tick(dt: number, map: CityMap): void {
@@ -4280,6 +4419,29 @@ export class Tycoon {
         aidN: this.sisAidN,
         sworn: this.sisSworn,
       },
+      // ---- v38：厚土藏珍 ----
+      relics: (() => {
+        const rb = relicBonusOf(this.relicGot, (s?.museumsN ?? 0) > 0);
+        return {
+          got: [...this.relicGot],
+          n: this.relicGot.length,
+          total: RELICS.length,
+          museumOn: (s?.museumsN ?? 0) > 0,
+          exN: rb.exN,
+          cul: rb.cul,
+          at: rb.at,
+          tourK: rb.tourK,
+          hap: rb.hap,
+          gems: this.relicGot.filter(id => RELICS.find(x => x.id === id)?.rare === 2).length,
+          sets: RELIC_SETS.map(st => ({
+            id: st.id, name: st.name, note: st.note,
+            done: relicSetDone(this.relicGot, st.id),
+            n: RELICS.filter(x => x.set === st.id && this.relicGot.includes(x.id)).length,
+            total: RELICS.filter(x => x.set === st.id).length,
+          })),
+          digP: RELIC_DIG_P,
+        };
+      })(),
       // ---- v18：灾害链 ----
       quakes: this.quakes, floods: this.floods,
       levees: s?.levees ?? 0, waterNear: s?.waterNear ?? 0,
@@ -4449,6 +4611,8 @@ export class Tycoon {
     this.sisTradeN = 0; this.sisAidN = 0; this.sisSupAt = -999;
     this.sisReq = null; this.sisTradeAt = [0, 0, 0];
     this.sisGrowAt = SIS_ROLL_GAP; this.sisEvtAt = SIS_EVT_GAP + 6;
+    // v38：厚土藏珍重置（图鉴从零翻起；开埠首块领地就可能翻出第一页）
+    this.relicGot = []; this.relicSeen1 = false; this.relicSeenGem = false; this.relicSeenAll = false;
     // v29：市长公署重置（首份公文在开埠首日清晨 8 点）
     this.docPending = null; this.docNext = DOC_FIRST_H; this.docN = 0;
     this.docUsed = []; this.docLog = []; this.docHap = 0; this.docHapLeft = 0;
@@ -4556,6 +4720,9 @@ export class Tycoon {
       sisReq: this.sisReq ?? undefined,
       sisGA: Math.round(this.sisGrowAt * 10) / 10,
       sisEA: Math.round(this.sisEvtAt * 10) / 10,
+      // v38：厚土藏珍档（出土顺序/纪事标记 —— 旧档缺省 → 图鉴从零翻起，购地照常有机缘）
+      relics: this.relicGot.join(','),
+      rlS1: this.relicSeen1 ? 1 : 0, rlSG: this.relicSeenGem ? 1 : 0, rlSA: this.relicSeenAll ? 1 : 0,
       // v29：市长公署档（待批公文 / 已批数 / 用过池 / 朱批存档 / 民心增益）
       docP: this.docPending, docNext: this.docNext, docN: this.docN,
       docUsed: this.docUsed, docLog: this.docLog,
@@ -4755,6 +4922,17 @@ export class Tycoon {
       : null;
     this.sisGrowAt = Number(d.sisGA) > 0 ? Number(d.sisGA) : this.gHours + SIS_ROLL_GAP;
     this.sisEvtAt = Number(d.sisEA) > 0 ? Number(d.sisEA) : this.gHours + SIS_EVT_GAP + 6;
+    // v38：厚土藏珍档恢复（旧档无字段 → 图鉴从零翻起；relicId 校验去重保序）
+    const rlSeen: string[] = [];
+    if (typeof d.relics === 'string') {
+      for (const id of d.relics.split(',')) {
+        if (RELICS.some(x => x.id === id) && !rlSeen.includes(id)) rlSeen.push(id);
+      }
+    }
+    this.relicGot = rlSeen;
+    this.relicSeen1 = d.rlS1 === 1;
+    this.relicSeenGem = d.rlSG === 1;
+    this.relicSeenAll = d.rlSA === 1;
     // v29：市长公署档恢复（旧档无字段 → 首份公文从下一个清晨八点起算；在批公文原样回到案头）
     this.docN = Math.max(0, Math.floor(Number(d.docN) || 0));
     this.docNext = Number(d.docNext) > 0 ? Number(d.docNext) : nextMorningH(this.gHours);

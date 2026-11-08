@@ -2930,3 +2930,45 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 .pxc.m .sis-opt { flex-basis: auto; }
 .pxc.m .sc-name span { white-space: normal; }
 .pxc.m .sc-bar span { flex-basis: 52px; }
+
+/* ============ v38 厚土藏珍 · 出土图鉴（城市志内嵌） ============ */
+.drlk { margin-top: 14px; border-top: 1px dashed #C9C2A8; padding-top: 10px; }
+.drlk h3 { margin: 0 0 6px; font-size: 13px; color: #3d434e; letter-spacing: 1px; }
+.rlk-cap { margin: 0 0 9px; font-size: 11px; color: #85878f; line-height: 1.6; }
+
+/* 套系头 */
+.rlk-set { margin-bottom: 9px; }
+.rs-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; }
+.rs-head b { font-size: 12.5px; color: #23252E; letter-spacing: 1px; flex: none; }
+.rs-head span { font-size: 10.5px; color: #85878f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rs-head em {
+  margin-left: auto; flex: none; font-size: 10px; font-style: normal; font-weight: 700;
+  color: #6B7280; border: 1px solid #9aa0a9; border-radius: 8px; padding: 0 7px;
+  font-variant-numeric: tabular-nums;
+}
+.rs-head em.done { color: #4E9040; border-color: #4E9040; background: rgba(78, 144, 64, 0.08); }
+
+/* 图鉴卡（未出土灰暗 · 出土点亮 · 国宝金框） */
+.rlk-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.rk-card {
+  position: relative; border: 1px solid #C9C2A8; border-radius: 4px;
+  background: #F2EFE3; padding: 7px 6px 6px; text-align: center; min-width: 0;
+}
+.rk-card img { width: 22px; height: 22px; image-rendering: pixelated; filter: grayscale(1) opacity(0.4); }
+.rk-card b { display: block; margin-top: 3px; font-size: 11px; color: #9a958a; letter-spacing: 0.5px; }
+.rk-card span { display: block; margin-top: 1px; font-size: 9.5px; color: #b0a892; }
+.rk-card.on { border-color: #4E9040; background: #F4F8EE; }
+.rk-card.on img { filter: none; }
+.rk-card.on b { color: #23252E; }
+.rk-card.on span { color: #6B6353; }
+.rk-card.gem { border-color: #C9A227; background: #FAF5E6; box-shadow: 0 0 0 1px rgba(201, 162, 39, 0.3); }
+.rk-tag {
+  position: absolute; top: 3px; right: 3px; font-size: 8.5px; font-style: normal; font-weight: 700;
+  color: #FFF; border-radius: 7px; padding: 0 5px; letter-spacing: 1px;
+}
+.rk-tag.rare { background: #4A86C8; }
+.rk-tag.gem { background: #C9A227; }
+
+/* 移动端 */
+.pxc.m .rlk-grid { grid-template-columns: repeat(3, 1fr); }
+.pxc.m .rs-head span { white-space: normal; }
