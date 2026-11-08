@@ -18,6 +18,10 @@ import {
 import {
   RELICS, RELIC_SETS, RELIC_DIG_P, RELIC_HAP_FULL, relicBonusOf, rollRelicId, relicRareName, relicSetDone,
 } from './relics';
+import {
+  PRESS_DAY_GAP, PRESS_FIRST_GAP, PRESS_KEEP, PRESS_CIRC_GOAL, genPaperIssue,
+  SERIAL_TITLE, type PaperIssue,
+} from './newspaper';
 
 export const CHUNK = 16;                 // 领地块边长（格）
 export const CHUNKS = 16;                // 256 / 16 = 16×16 块领地
@@ -460,6 +464,8 @@ export const ECON: Record<string, EconDef> = {
   expo: D(2400, 8, { power: 16, amenity: 5, upk: 5, cul: 4, sp: 1 }),   // 节庆引擎：历时+30% 冷却−20% 节庆期游客+30%
   // ---- v35 百兽之园 ----
   zoo: D(1500, 6, { power: 10, amenity: 4, upk: 3.2, cul: 3, edu: 6, sp: 0.3 }),   // 物种图鉴引擎：住户越多吸引力越高（基础吸引力 5）
+  // ---- v39 城市之声：报馆 ----
+  press: D(520, 4, { power: 5, amenity: 2, upk: 1.8, cul: 3, sp: 0.8 }),   // 每七日出版《城市日报》：发行收入随人口/识字率浮动（出版时另计）
   cellmast: D(120, 7, { power: 2, upk: 0.25 }),
   // ---- 水务（v6：供水覆盖指数）----
   watertower: D(130, 2, { power: 2, amenity: 1, upk: 0.75, waterR: 9, waterCap: 260 }),
@@ -719,6 +725,18 @@ const EVENT_TPLS: EventTpl[] = [
       return `城北工地${res} —— 城市志「出土图鉴」已入册`;
     },
   },
+  // ---- v39 报馆事件：独家新闻 ----
+  {
+    key: 'scoop', name: '独家新闻', kind: 'good', dur: 0, hap: 1,
+    mult: {},
+    note: '主笔挖到一桩全城都在议论的猛料 —— 卖到脱销',
+    w: s => (s.pressN > 0 && s.pop >= 100 ? 7 : 0),   // 报馆在城才有的生意
+    fire: (t) => {
+      const gain = Math.round(30 + t.pop * 0.1);
+      t.coins += gain;
+      return `号外一售而空，报馆进账 +${gain}G —— 街头巷尾都在议论这桩新闻`;
+    },
+  },
   // ---- v10 旅游事件 ----
   {
     key: 'tourseason', name: '旅游旺季', kind: 'good', dur: 70, hap: 2,
@@ -905,6 +923,13 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 5, val: s => s.relicN },
   { id: 'relic12', name: '满馆琳琅', desc: '博物馆在城且 12 件文物全展出（出土只是入册，建座博物馆开馆展出：文化、吸引力、游客与幸福都沾国宝的光）', icon: 'star',
     goal: RELICS.length, val: s => s.relicExN },
+  // ---- v39 城市之声 ----
+  { id: 'press1', name: '创刊号', desc: '报馆出版首期《城市日报》（排字房的油灯亮到深夜，这座城从此有了自己的声音 —— 头版头条自动选编年史大事）', icon: 'scroll',
+    goal: 1, val: s => s.pressIss },
+  { id: 'press10', name: '笔耕不辍', desc: '累计出版 10 期《城市日报》（城中大事小情都在版面上：市况、气象、来信、广告与连载，七日一期风雨无阻）', icon: 'book',
+    goal: 10, val: s => s.pressIss },
+  { id: 'pressCirc', name: '洛阳纸贵', desc: `单期发行量达 ${PRESS_CIRC_GOAL} 份（人口与识字率是发行量的底气，大事出号外加印 —— ${SERIAL_TITLE}连载还有读者追更）`, icon: 'coin',
+    goal: PRESS_CIRC_GOAL, val: s => s.pressCirc },
   // ---- v17 城市编年史 ----
   { id: 'chron60', name: '汗青永续', desc: '编年史累计记下 60 笔城市纪事（开埠/时代跃迁/事件/科技/节庆/法令/里程碑皆入册）', icon: 'book',
     goal: 60, val: (_s, t) => t.chron.total },
@@ -972,6 +997,7 @@ export const TECH_GATE: Record<string, string> = {
   university: 'higher',   // v22 大学城：与天文台同源「高等教育」
   aquarium: 'brand',
   zoo: 'brand',           // v35 动物园：与水族馆同源「城市名片」（圈养保育需名声在外）
+  press: 'compul',        // v39 报馆：先有义务教育，市民识字才有人读报
   opera: 'brand',         // v31 大剧院：文旅地标同源「城市名片」
   expo: 'struct',         // v31 会展中心：大跨度拱棚需「建筑工程学」
   dock: 'logistic',
@@ -1104,6 +1130,9 @@ export type QS = {
   relicExN: number;    // 博物馆在城时展出的件数（策展成就口径）
   relicGems: number;   // 出土的国宝件数
   museumsN: number;    // 博物馆座数（展出开关）
+  // ---- v39 城市之声 ----
+  pressN: number;      // 报馆座数（任务口径）
+  pressIss: number;    // 累计出版期数（成就口径）
   // ---- v19 污染空间化 ----
   smogTiles: number; smogBad: number; smogRes: number; ecotowers: number;
   // ---- v20 电网空间化 ----
@@ -1307,6 +1336,9 @@ export const QUESTS: Quest[] = [
   // ---- v38 厚土藏珍 ----
   { id: 'relic1', title: '厚土初醒', hint: '出土首件文物（每购一块新领地都有 22% 机缘挖出先民遗物 —— 工地偶尔也会自己说话；文物入册出土图鉴，博物馆在城时自动开馆展出）', goal: 1,
     val: s => s.relicN, rG: 140, rXp: 70 },
+  // ---- v39 城市之声 ----
+  { id: 'press1', title: '城市之声', hint: '建造一座报馆（需「义务教育」）：每七游戏日出版一期《城市日报》—— 头版头条自动选编年史大事，大事出号外；发行量随人口与识字率浮动，卖报所得进府库；顶栏「闻」翻阅最新版面', goal: 1,
+    val: s => s.pressN, rG: 260, rXp: 120 },
 ];
 
 // ------------------------------------------------------------
@@ -1458,6 +1490,16 @@ export type EconView = {
     sets: Array<{ id: string; name: string; note: string; done: boolean; n: number; total: number }>;
     digP: number;               // 下一块领地的出土概率
   };
+  // ---- v39：城市之声（城市日报）----
+  news: {
+    on: boolean;                // 报馆在城（出版中）
+    n: number;                  // 累计期数
+    next: number;               // 下期出版游戏时（-1 未创刊）
+    gap: number;                // 出刊周期（游戏时；展示用）
+    circ: number;               // 最近一期发行量
+    circT: number;              // 累计发行量
+    issues: PaperIssue[];       // 过刊（最近 PRESS_KEEP 期，新在前）
+  };
   // ---- v19：污染空间化 ----
   smogTiles: number;                // 雾霾格数（浓度 ≥45）
   smogBad: number;                  // 重污染格数（浓度 ≥75）
@@ -1595,6 +1637,9 @@ type Snap = QS & {
   cycRecN: number;        // 累计衰退段数
   cycBoomT: number;       // 累计繁荣时长（秒）
   cycRecT: number;        // 累计衰退时长（秒）
+  // ---- v39：报馆 ----
+  pressN: number;         // 报馆座数（出版开关与任务口径）
+  pressCirc: number;      // 最近一期发行量（成就「洛阳纸贵」口径）
 };
 
 export class Tycoon {
@@ -2174,6 +2219,7 @@ export class Tycoon {
     let goodsP = 0, goodsC = 0, goodsCapV = GOODS_BASE_CAP;
     let hotelBeds = 0, attract = 0, ports = 0;
     let museumsN = 0;   // v38 博物馆座数（文物展出开关）
+    let pressN = 0;     // v39 报馆座数（出版开关与任务口径）
     const upkFarm = { v: 0 }, upkInd = { v: 0 };
     // v6 水务设施清单（覆盖半径）与住宅清单（覆盖人口统计）
     const waterFacs: Array<{ x: number; y: number; r: number }> = [];
@@ -2255,6 +2301,7 @@ export class Tycoon {
         if (o.id === 'marina') marinas++;                   // v32 游船码头
         if (o.id === 'stadium') stadiums++;                 // v34 体育场
         if (o.id === 'zoo') zoos++;                         // v35 动物园
+        if (o.id === 'press') pressN++;                     // v39 报馆（出版开关）
       }
       // v6 水务设施：登记覆盖圆心（半径含足迹）
       if (e?.waterR) {
@@ -2663,6 +2710,8 @@ export class Tycoon {
       relicN: this.relicGot.length, relicExN: relicB.exN,
       relicGems: this.relicGot.filter(id => RELICS.find(x => x.id === id)?.rare === 2).length,
       museumsN,
+      // ---- v39 城市之声 ----
+      pressN, pressCirc: this.pressCirc, pressIss: this.pressIss,
       // ---- v33 经济周期 ----
       cycIdx: Math.round(this.cycIdx), cycPhase: this.cycPhase, cycHap,
       cycComK, cycTourK, cycIndK, cycMigK,
@@ -3704,6 +3753,95 @@ export class Tycoon {
     return `出土${d.era}的「${d.name}」`;   // 事件日志与播报用
   }
 
+  // ---------------- v39：城市之声（报馆与城市日报） ----------------
+
+  /** 下期出版游戏时（-1 = 报馆未落成：还没创刊） */
+  pressNext = -1;
+  /** 累计出版期数（成就「创刊号/笔耕不辍」口径） */
+  pressIss = 0;
+  /** 最近一期发行量（成就「洛阳纸贵」口径，snap 回写） */
+  pressCirc = 0;
+  /** 累计发行量（版面脚注用） */
+  pressCircT = 0;
+  /** 创刊纪事标记（只写一次；停刊复刊不重记） */
+  private pressSeen = false;
+  /** 截稿线：只把 id > 此值的纪事当头条候选（本期自己的纪事也从下期起排除） */
+  private pressSinceId = 0;
+  /** 过刊（最近 PRESS_KEEP 期，新在前；随档保留） */
+  pressIssues: PaperIssue[] = [];
+
+  /** 每帧心跳：报馆落成 → 创刊；到期 → 出下一期（tick 调用） */
+  private stepPress(map: CityMap): void {
+    const pressN = this.snap?.pressN ?? 0;
+    // 报馆落成 → 约次日开印（首期落笔创刊纪事）
+    if (this.pressNext < 0 && pressN > 0) {
+      this.pressNext = this.gHours + PRESS_FIRST_GAP;
+      if (!this.pressSeen) {
+        this.pressSeen = true;
+        this.chron.write('mile', 'good', 'scroll', '报馆创刊',
+          '排字房的油灯亮到深夜，一号铅字排出四个大字「城市之声」—— 这座城从此有了自己的报纸，坊间大事小情都在版面上。', this.gHours);
+        this.msg?.('报馆创刊 —— 顶栏「闻」翻开《城市日报》：每七游戏日一期，发行所得进府库');
+        this.sfx?.('achieve');
+      }
+    }
+    if (this.pressNext < 0) return;
+    if (pressN === 0) return;   // 报馆被拆光：停刊（期数与过刊保留，复建自动复刊）
+    if (this.gHours >= this.pressNext) {
+      this.pressNext = this.gHours + PRESS_DAY_GAP;
+      this.publishIssue(map);
+    }
+  }
+
+  /** 出版一期《城市日报》：版面生成 + 发行结算 + 纪事 + 播报 */
+  private publishIssue(map: CityMap): void {
+    const s = this.snap;
+    if (!s) return;
+    // 特色商户盘点（广告栏按城中商户门类出词）
+    const shops: Record<string, number> = {};
+    for (const o of map.objs.values()) {
+      if (['izakaya', 'bakery', 'market', 'cinema', 'electown', 'hotel', 'ferris', 'conv', 'museum'].includes(o.id)) {
+        shops[o.id] = (shops[o.id] ?? 0) + 1;
+      }
+    }
+    const sn = SEASONS[Math.max(0, Math.min(3, this.season))];
+    const issue = genPaperIssue(this.pressIss + 1, this.gHours, {
+      pop: Math.floor(this.pop), hrIdx: s.hrIdx, rating: s.rating,
+      cycPhase: this.cycPhase, cycComK: s.cycComK, cycTourK: s.cycTourK,
+      seasonName: sn.name, seasonNote: sn.note,
+      weather: this.weather.kind,
+      comN: s.com, tourists: s.tourists, shops,
+      chron: this.chron.entries.map(x => ({ id: x.id, cat: x.cat, tone: x.tone, icon: x.icon, title: x.title, text: x.text })),
+      sinceId: this.pressSinceId,
+      letters: this.citz.anthView().items.map(l => ({ nm: l.nm, sj: l.sj, tx: l.tx })),
+      rnd: Math.random,
+    });
+    // 发行结算：卖报所得进府库（早期人口少可能倒贴排印费 —— 报馆主笔认了）
+    this.pressIss++;
+    this.pressCirc = issue.circ;
+    this.pressCircT += issue.circ;
+    this.coins = Math.max(0, this.coins + issue.earn);
+    this.pressIssues.unshift(issue);
+    if (this.pressIssues.length > PRESS_KEEP) this.pressIssues.length = PRESS_KEEP;
+    // 纪事 + 截稿线推进（本期自己的纪事从下期起不再是头条候选）
+    this.chron.write('rev', issue.extra ? 'big' : 'info', 'scroll', `城市日报 · 第 ${issue.n} 期`,
+      `${issue.extra ? '号外！' : ''}本期头条「${issue.head.title}」—— 发行 ${issue.circ} 份，发行净收入 ${issue.earn >= 0 ? '+' : ''}${issue.earn}G。`, this.gHours);
+    this.pressSinceId = this.chron.entries[this.chron.entries.length - 1].id;
+    if (issue.extra) {
+      this.msg?.(`✦ 《城市日报》第 ${issue.n} 期·号外 —— 头条「${issue.head.title}」，加印脱销（发行 ${issue.circ} 份）`);
+      this.sfx?.('achieve');
+    } else {
+      this.msg?.(`· 《城市日报》第 ${issue.n} 期出版 —— 头条「${issue.head.title}」（发行 ${issue.circ} 份）`);
+      this.sfx?.('bell');
+    }
+  }
+
+  /** 沙盒/测试：立即出版一期（绕开周期；创刊标记与结算照常） */
+  pressTest(map: CityMap): PaperIssue | null {
+    if ((this.snap?.pressN ?? 0) === 0) return null;
+    this.publishIssue(map);
+    return this.pressIssues[0] ?? null;
+  }
+
   // ---------------- 每帧心跳 ----------------
 
   tick(dt: number, map: CityMap): void {
@@ -3739,6 +3877,8 @@ export class Tycoon {
     this.stepLeague(dt);
     // v35 百兽之园：开园判定 + 动物巡查入住（物种加成已在 snapOf 生效）
     this.stepZoo();
+    // v39 城市之声：报馆落成创刊 + 到期出版（发行收入出版时结算）
+    this.stepPress(map);
     // v37 千里比邻：待办过期 / 邻城成长月评 / 事件 roll（邻城静态数据，无经济乘数）
     this.stepSisters();
     // 收入 − 维护（G/分 → 按秒累积；可能为负 = 赤字，需拆除减负）
@@ -4442,6 +4582,16 @@ export class Tycoon {
           digP: RELIC_DIG_P,
         };
       })(),
+      // ---- v39：城市之声 ----
+      news: {
+        on: (s?.pressN ?? 0) > 0,
+        n: this.pressIss,
+        next: this.pressNext,
+        gap: PRESS_DAY_GAP,
+        circ: this.pressCirc,
+        circT: this.pressCircT,
+        issues: this.pressIssues.map(x => ({ ...x, ads: [...x.ads] })),
+      },
       // ---- v18：灾害链 ----
       quakes: this.quakes, floods: this.floods,
       levees: s?.levees ?? 0, waterNear: s?.waterNear ?? 0,
@@ -4613,6 +4763,9 @@ export class Tycoon {
     this.sisGrowAt = SIS_ROLL_GAP; this.sisEvtAt = SIS_EVT_GAP + 6;
     // v38：厚土藏珍重置（图鉴从零翻起；开埠首块领地就可能翻出第一页）
     this.relicGot = []; this.relicSeen1 = false; this.relicSeenGem = false; this.relicSeenAll = false;
+    // v39：城市之声重置（报馆未落成 —— 落成后 stepPress 自动创刊）
+    this.pressNext = -1; this.pressIss = 0; this.pressCirc = 0; this.pressCircT = 0;
+    this.pressSeen = false; this.pressSinceId = 0; this.pressIssues = [];
     // v29：市长公署重置（首份公文在开埠首日清晨 8 点）
     this.docPending = null; this.docNext = DOC_FIRST_H; this.docN = 0;
     this.docUsed = []; this.docLog = []; this.docHap = 0; this.docHapLeft = 0;
@@ -4723,6 +4876,13 @@ export class Tycoon {
       // v38：厚土藏珍档（出土顺序/纪事标记 —— 旧档缺省 → 图鉴从零翻起，购地照常有机缘）
       relics: this.relicGot.join(','),
       rlS1: this.relicSeen1 ? 1 : 0, rlSG: this.relicSeenGem ? 1 : 0, rlSA: this.relicSeenAll ? 1 : 0,
+      // v39：城市之声档（期数/出版时刻/发行量/过刊 —— 旧档缺省 → 报馆落成后自动创刊）
+      prsX: Math.round(this.pressNext * 10) / 10,
+      prsN: this.pressIss,
+      prsC: this.pressCirc, prsT: this.pressCircT,
+      prsS1: this.pressSeen ? 1 : 0,
+      prsSince: this.pressSinceId,
+      prsIss: this.pressIssues,
       // v29：市长公署档（待批公文 / 已批数 / 用过池 / 朱批存档 / 民心增益）
       docP: this.docPending, docNext: this.docNext, docN: this.docN,
       docUsed: this.docUsed, docLog: this.docLog,
@@ -4933,6 +5093,43 @@ export class Tycoon {
     this.relicSeen1 = d.rlS1 === 1;
     this.relicSeenGem = d.rlSG === 1;
     this.relicSeenAll = d.rlSA === 1;
+    // v39：城市之声档恢复（旧档无字段 → 未创刊；报馆在城时首个 tick 由 stepPress 自动创刊；
+    // 过刊逐期校验期号与发行量数值，截稿线随档恢复避免旧闻反复上头条）
+    this.pressNext = Number.isFinite(Number(d.prsX)) ? Number(d.prsX) : -1;
+    this.pressIss = Math.max(0, Math.floor(Number(d.prsN) || 0));
+    this.pressCirc = Math.max(0, Math.floor(Number(d.prsC) || 0));
+    this.pressCircT = Math.max(0, Math.floor(Number(d.prsT) || 0));
+    this.pressSeen = d.prsS1 === 1;
+    this.pressSinceId = Math.max(0, Math.floor(Number(d.prsSince) || 0));
+    this.pressIssues = [];
+    if (Array.isArray(d.prsIss)) {
+      for (const it of d.prsIss as Array<Record<string, unknown>>) {
+        if (!it || !Number.isFinite(Number(it.n)) || typeof it.head !== 'object' || it.head === null) continue;
+        const hd = it.head as Record<string, unknown>;
+        if (typeof hd.title !== 'string') continue;
+        this.pressIssues.push({
+          n: Math.max(1, Math.floor(Number(it.n) || 1)),
+          day: Math.max(1, Math.floor(Number(it.day) || 1)),
+          extra: it.extra === true,
+          head: { title: String(hd.title), text: String(hd.text ?? ''), icon: String(hd.icon ?? 'scroll') },
+          market: String(it.market ?? ''), weather: String(it.weather ?? ''),
+          letter: (it.letter && typeof it.letter === 'object' && it.letter !== null
+            && typeof (it.letter as Record<string, unknown>).nm === 'string')
+            ? {
+              nm: String((it.letter as Record<string, unknown>).nm),
+              sj: String((it.letter as Record<string, unknown>).sj ?? ''),
+              tx: String((it.letter as Record<string, unknown>).tx ?? ''),
+            }
+            : null,
+          ads: Array.isArray(it.ads) ? (it.ads as unknown[]).map(a => String(a)).slice(0, 2) : [],
+          serial: String(it.serial ?? ''),
+          circ: Math.max(0, Math.floor(Number(it.circ) || 0)),
+          earn: Math.round(Number(it.earn) || 0),
+        });
+      }
+      this.pressIssues = this.pressIssues
+        .sort((a, b) => b.n - a.n).slice(0, PRESS_KEEP);   // 新在前，截留最近 PRESS_KEEP 期
+    }
     // v29：市长公署档恢复（旧档无字段 → 首份公文从下一个清晨八点起算；在批公文原样回到案头）
     this.docN = Math.max(0, Math.floor(Number(d.docN) || 0));
     this.docNext = Number(d.docNext) > 0 ? Number(d.docNext) : nextMorningH(this.gHours);

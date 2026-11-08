@@ -22,6 +22,7 @@ import {
   genManor, genResTower, genConvenience, genHotel, genMall, genParking,
   genRefinery, genPower, genChurch, genMuseum, genFireStation, genKoban,
   genLighthouse, genCastle, genPoliceHQ, genHydrant, genClinic, genHealthst,
+  genPress,
 } from './b_extra';
 import {
   genMachiya, genDanchi, genIzakaya, genCinema, genMarket,
@@ -231,6 +232,9 @@ export const CATALOG: Def[] = [
   // ---- v35 百兽之园 ----
   { id: 'zoo', name: '动物园', cat: 'civ', w: 3, h: 3, variants: 2, pop: 30,
     gen: genZoo, desc: '木围栏兽舍与游园小径：动物巡查员定期进园评估，住户逐步入住 —— 每种动物给吸引力/幸福加成，集齐 9 种翻满物种图鉴（需「城市名片」）' },
+  // ---- v39 城市之声：报馆 ----
+  { id: 'press', name: '报馆', cat: 'civ', w: 2, h: 2, variants: 2, pop: 24,
+    gen: genPress, desc: '米白编辑楼与锯齿天窗排字房：落成即创刊《城市日报》，每七日出版一期 —— 头版头条自动选编年史大事，大事出号外；发行量随人口与识字率浮动，卖报所得进府库（需「义务教育」）' },
   // ---- 剧情（经营模式专属，不可直接建造）----
   { id: 'cityhall', name: '市政厅', cat: 'civ', w: 2, h: 2, variants: 1, pop: 0,
     gen: genCityhall, hidden: true, desc: '城市的心脏：金顶钟塔与旗帜' },
@@ -245,6 +249,7 @@ export function defById(id: string): Def {
 export const ATTRACT: Record<string, number> = {
   ferris: 5, aquarium: 5, castle: 5, opera: 5,
   zoo: 5,   // v35 动物园基础吸引力（住户加成另计：zooBonusOf）
+  press: 2, // v39 报馆：城中有了自己的声音，远客也愿来看看
   museum: 4, stadium: 4, expo: 4,
   temple: 3, observatory: 3, marina: 3,
   church: 2, monument: 2, lighthouse: 2, torii: 2,

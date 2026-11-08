@@ -271,8 +271,10 @@ export default function PixelCity() {
   /** v27 移动端卷目横条：左右渐隐暗示（滚动感知） */
   const [cwNavMore, setCwNavMore] = useState({ l: false, r: false });
   const cwNavScrollRef = useRef<HTMLDivElement | null>(null);
-  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'zoo' | 'chron' | 'gov' | 'sis'>('none');
+  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'zoo' | 'chron' | 'gov' | 'sis' | 'news'>('none');
   const [econ, setEcon] = useState<EconView | null>(null);
+  /** v39 城市日报：当前翻阅的过刊下标（0 = 最新一期） */
+  const [npSel, setNpSel] = useState(0);
   const [confirmReset, setConfirmReset] = useState(false);
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
   /** v13 市民列传：选中市民（null=名人册网格）；街头偶遇的市民卡片 */
@@ -633,7 +635,7 @@ export default function PixelCity() {
     }
   }, [say]);
 
-  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'zoo' | 'chron' | 'gov' | 'sis') => {
+  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'zoo' | 'chron' | 'gov' | 'sis' | 'news') => {
     if (m === 'save') {
       setSlotMeta([0, 1, 2].map(i => Engine.slotMeta(i)));
     }
@@ -1296,6 +1298,13 @@ export default function PixelCity() {
               <button className="chip" onClick={() => openModal('chron')}
                 title={`城市编年史：在册 ${econ.chron.n} 笔纪事（累计 ${econ.chron.total} 笔）· 当前纪元「${econ.chron.eraName}」—— 开埠奠基、时代跃迁、灾祸喜讯、科技节庆与里程碑，都记在这本城市之书里`}>
                 <img src={iu('scroll')} alt="" /><b>{econ.chron.n}</b><i>史</i>
+              </button>
+              <button className={`chip news-chip${econ.news.on ? ' news-on' : ''}${econ.news.issues[0]?.extra ? ' news-extra' : ''}`} onClick={() => openModal('news')}
+                title={econ.news.on
+                  ? `城市日报：已出 ${econ.news.n} 期（最近一期发行 ${econ.news.circ} 份 · 累计 ${econ.news.circT} 份）—— 下期 ${Math.max(0, Math.round((econ.news.next - econ.gHours) * 10) / 10)} 游戏时后出版；头版头条自动选编年史大事，大事出号外`
+                  : '城市日报：建成报馆即创刊 —— 每七游戏日一期，头版头条自动选编年史大事，发行量随人口与识字率浮动，卖报所得进府库'}>
+                <img src={iu('scroll')} alt="" /><b>{econ.news.n > 0 ? econ.news.n : '—'}</b><i>闻</i>
+                {econ.news.issues[0]?.extra && <em className="chip-dot">外</em>}
               </button>
               <button className={`chip gov${econ.gov.pending ? ' has' : ''}`} onClick={() => openModal('gov')}
                 title={econ.gov.pending
@@ -2318,6 +2327,106 @@ export default function PixelCity() {
         </div>
       )}
 
+      {/* v39 城市日报模态（报馆与城市之声） */}
+      {modal === 'news' && econ && (() => {
+        const issues = econ.news.issues;
+        const cur = issues[Math.min(npSel, issues.length - 1)] ?? null;
+        return (
+          <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
+            <div className="pxc-modal pxc-news" role="dialog" aria-label="城市日报">
+              <header>
+                城 市 日 报
+                <button className="pxc-x" onClick={() => setModal('none')} aria-label="关闭">×</button>
+              </header>
+              <div className="pxc-body">
+                {!econ.news.on ? (
+                  <div className="news-empty">
+                    <div className="ne-t">报馆尚未创刊</div>
+                    <div className="ne-d">建成一座<b>报馆</b>（需研究「义务教育」），排字房的油灯当晚就会亮起来：
+                      每七游戏日出版一期《城市日报》—— 头版头条自动选编年史大事，大事出号外；
+                      市况栏报景气、气象栏报季节、来信选登摘市长信箱、广告栏随商户开门念词；
+                      发行量随人口与识字率浮动，卖报所得进府库</div>
+                  </div>
+                ) : !cur ? (
+                  <div className="news-empty">
+                    <div className="ne-t">创刊在即</div>
+                    <div className="ne-d">报馆已开工排字 —— 首期《城市日报》将在次日清晨开印，
+                      出刊后这里就是整座城的读报台</div>
+                  </div>
+                ) : (
+                  <>
+                    {/* 过刊翻阅 */}
+                    {issues.length > 1 && (
+                      <div className="np-tabs" role="tablist" aria-label="过刊翻阅">
+                        {issues.map((it, i) => (
+                          <button key={it.n} role="tab" aria-selected={i === Math.min(npSel, issues.length - 1)}
+                            className={`np-tab${i === Math.min(npSel, issues.length - 1) ? ' on' : ''}`}
+                            onClick={() => setNpSel(i)}>
+                            第{it.n}期{it.extra ? '·号外' : ''}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {/* 报版 */}
+                    <div className={`np-sheet${cur.extra ? ' extra' : ''}`} data-n={cur.n}>
+                      <div className="np-mast">
+                        <div className="np-name">{cur.extra ? '号外' : '城市日报'}</div>
+                        <div className="np-meta">
+                          <span>第 {cur.n} 期</span>
+                          <span>开埠第 {cur.day} 天</span>
+                          {cur.extra && <em className="np-x-tag">大事加印</em>}
+                        </div>
+                        <div className="np-slogan">城中大事小情 · 七日一页 · 城市之声</div>
+                      </div>
+                      <div className="np-headline">
+                        <div className="nh-row">
+                          <img src={iu(cur.head.icon)} alt="" />
+                          <b>{cur.head.title}</b>
+                        </div>
+                        <p>{cur.head.text}</p>
+                      </div>
+                      <div className="np-cols">
+                        <div className="np-box np-market">
+                          <b>市况</b>
+                          <p>{cur.market}</p>
+                        </div>
+                        <div className="np-box np-weather">
+                          <b>气象</b>
+                          <p>{cur.weather}</p>
+                        </div>
+                        <div className="np-box np-letter">
+                          <b>来信选登</b>
+                          {cur.letter
+                            ? <p>「{cur.letter.sj}」—— {cur.letter.nm}：<br />{cur.letter.tx}</p>
+                            : <p className="np-dim">本栏目虚位以待 —— 等一封市民来信（市长信箱的来信会择要选登）</p>}
+                        </div>
+                        <div className="np-box np-serial">
+                          <b>连载 · 城南旧事</b>
+                          <p>{cur.serial}</p>
+                        </div>
+                      </div>
+                      <div className="np-ads">
+                        {cur.ads.map((a, i) => <div key={i} className="np-ad">{a}</div>)}
+                      </div>
+                      <div className="np-foot">
+                        本期发行 <b>{cur.circ}</b> 份 · 发行净收入 <b>{cur.earn >= 0 ? '+' : ''}{cur.earn}</b>G ·
+                        累计出版 <b>{econ.news.n}</b> 期 · 累计发行 <b>{econ.news.circT}</b> 份 ·
+                        下期 {Math.max(0, Math.round((econ.news.next - econ.gHours) * 10) / 10)} 游戏时后开印
+                      </div>
+                    </div>
+                    <div className="news-note">
+                      头版头条自动选编年史大事（大事记出号外加印）；
+                      发行量看人口与识字率的底气 —— 办教育、聚人口，报纸才卖得动；
+                      报馆被拆则停刊，过刊与期数保留，复建自动复刊
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* v17 城市编年史模态（经营模式） */}
       {modal === 'chron' && econ && (
         <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
@@ -2978,6 +3087,9 @@ export default function PixelCity() {
                     <tr className={econ.tramStops >= 2 ? 'g' : ''}><td>电车</td><td>{econ.tramStops >= 2 ? `电车干线运转中（${econ.tramStops} 座电车站 · 交通 +${econ.tramBonus} · 幸福 +2）` : '未开通 —— 两座邻路电车站（需「电力工程」）'}</td></tr>
                     <tr className={econ.ferries > 0 ? 'g' : ''}><td>航运</td><td>{econ.ferries > 0 ? `渡轮码头 ${econ.ferries} 座，船舶巡游中（冬季停航）` : '无 —— 水畔渡轮码头自有船舶出港'}</td></tr>
                     <tr><td>税率</td><td>{econ.taxRate}%（情绪 {econ.taxMood >= 0 ? '+' : ''}{Math.round(econ.taxMood)}）</td></tr>
+                    <tr className={econ.news.n > 0 ? 'g' : ''}><td>报馆</td><td>{econ.news.on
+                      ? `《城市日报》出版中（已出 ${econ.news.n} 期 · 最近一期发行 ${econ.news.circ} 份 · 累计 ${econ.news.circT} 份 —— 下期 ${Math.max(0, Math.round((econ.news.next - econ.gHours) * 10) / 10)} 游戏时后开印，顶栏「闻」翻阅版面）`
+                      : econ.news.n > 0 ? `已停刊（累计 ${econ.news.n} 期 · 过刊保留，复建报馆自动复刊）` : '无 —— 建成报馆即创刊，每七游戏日一期《城市日报》'}</td></tr>
                     <tr><td>季节</td><td>{SEASONS[econ.season]?.name ?? '夏'}季（{SEASONS[econ.season]?.note ?? ''}）</td></tr>
                   </tbody></table>
                 </section>
@@ -3436,6 +3548,7 @@ export default function PixelCity() {
                     <tr><td>公署</td><td>顶栏「批」指标开<b>市长公署</b>：每日清晨公文送抵案头（请愿/联名/风闻/献策…），每份两三道朱批各有代价与回响 —— 府库、人口、粮仓、民心随之而动，批注都落笔编年史「政令」卷；府库不足的批注会暂时下不去笔</td></tr>
                     <tr><td>邻城</td><td>顶栏「盟」指标开<b>姊妹城市</b>：开埠即有三座邻城与您隔野相望 —— 市政厅 LV2 起商队带货互市换银钱添交情；邻城遭灾会遣使求援（发援银好感 +18，久候不答等于婉拒），好感深厚会赠礼、来访，本城遭难时好感 ≥60 的邻城还会遣使驰援；好感 ≥60 结为姊妹之城、三城 ≥80 歃血为盟</td></tr>
                     <tr><td>考古</td><td>每购一块新领地都有 22% 机缘<b>出土文物</b>（工地偶尔也会自己说话）—— 城市志翻<b>出土图鉴</b>：陶土/青铜/玉石三套系 12 件，寻常、珍稀、国宝三档；博物馆在城时自动开馆展出 —— 展出的每一件都给文化供给与吸引力添笔，国宝是镇馆之宝（游客乘数），集齐 12 件全展出「满馆琳琅」</td></tr>
+                    <tr><td>报馆</td><td>顶栏「闻」指标开<b>城市日报</b>：建成报馆（需「义务教育」）即创刊，每七游戏日一期 —— 头版头条自动选编年史大事，大事出号外加印；市况栏报景气、气象栏报季节、来信选登摘市长信箱、广告栏随商户开门念词、「城南旧事」连载八回轮刊登；发行量随人口与识字率浮动，卖报所得进府库；报馆被拆则停刊，过刊保留，复建自动复刊</td></tr>
                     <tr><td>节庆</td><td>顶栏「庆」指标开<b>城市节庆</b>：随季节举办樱花祭/花火大会/丰收节/暖灯节（市政厅 LV3 起），90 秒全城增益 —— 春天樱吹雪加密、夏天夜空花火、秋天金叶满街、冬天孔明灯升空；节日会写进市民大事记，累计 8 场解锁成就「节庆之都」、四季各办一场解锁「四季轮庆」</td></tr>
                     <tr><td>引导</td><td>首次进入经营模式自动展开新手引导横幅（修路→建房→迎市民→开业→看面板→认市民）；随时可跳过，也可在这里点「重新查看新手引导」重看</td></tr>
                     <tr><td>音效</td><td>顶栏喇叭图标：音效开关 + 主音量滑杆（本地记忆）；建造/金币/灾害警报/警笛/电车铃/成就凯旋各有专属 8-bit 音色</td></tr>
@@ -3454,7 +3567,7 @@ export default function PixelCity() {
                     <tr><td>地形</td><td>真实海拔起伏：抬升造山、降低挖谷（挖到 0 化为水域）；山坡建房自动整地（另付小额费用）；行人车辆会爬坡</td></tr>
                     <tr><td>桥梁</td><td>道路工具拖过水面自动架桥（15G/格，物流网络科技打折），桥面与岸上路面齐平，行人车辆畅通无阻</td></tr>
                     <tr><td>四季</td><td>春樱/夏绿/秋红/冬雪随时钟轮转（每季 4 分钟×1）：春季樱花瓣飘落、冬季水面封冻大地积雪；粮产/商业/用电随季节联动</td></tr>
-                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>城市卫士应急联动</b>（交番驻巡逻警车·治安+220 护盾；火灾/疫病来袭消防车救护车沿路驰援——到场喷水/接载并免余损，设施邻路是关键）· <b>消防水网与火势蔓延</b>（消防局半径 5 格·消防栓半径 2 格织成水网：覆盖区火势减半；盲区起火蔓延更快且会蹿烧邻栋——受灾住户与街坊都写进个人史册，消防员到场还可能成为你家恩人）· <b>悬壶济世·医疗覆盖</b>（诊所半径 3 格·防疫站半径 4 格·医院半径 6 格织成医疗网，市政厅自带义诊棚：盲区住宅看病要跨半座城、商铺店员带病营业收入打折；疫病偏爱在盲区爆发且会蔓延邻栋——防疫站在城全城压制疫情，疫点住户与隔离街坊都写进个人史册，救护车零蔓延化解记「仁心妙术」）· <b>市民列传</b>（人口迁入迎来有名有姓的市民：顶栏「民」指标开名人册看传记与大事记，观察工具点击街上行人打招呼——在册市民就是本人、脸生的则是过路人，成婚添丁组成家族谱系，市民之声随城市状态轮播）· <b>市长信箱</b>（顶栏「邮」指标：市民随城市状态来信——求助/吐槽/感谢/见闻，回信影响他们的心情，回满 8 封解锁成就「见字如面」）· <b>市长公署</b>（顶栏「批」指标：每日清晨公文送抵案头——请愿/联名/风闻/献策，每份两三道朱批各有代价与回响，府库/人口/粮仓/民心随之而动，批注落笔编年史「政令」卷）· <b>城市节庆</b>（顶栏「庆」指标：随季节办节 —— 樱花祭/花火大会/丰收节/暖灯节，90 秒全城增益配专属街景特效）· <b>市况荣枯</b>（景气指数随时间起落：繁荣商业游客双旺、衰退市道冷清，大灾大喜震动市况，荣枯起落写入编年史；财政报告「市况荣枯」看行情条，金融枢纽科技解锁「平准均输」法令可熨平波动）· <b>城市联赛</b>（顶栏「球」指标：体育场落成后「市民联」联赛自动开张——每隔数日一场主场，比赛日商业 ×1.08 · 游客 ×1.22 · 幸福 +1，赢球彩带飘满全城 120 秒；客队档次随城市评级升级，每 6 场一赛季积分加冕，战绩奖杯写进编年史；「球场风云」看赛程战绩与荣誉墙）· <b>城市动物园</b>（顶栏「兽」指标：动物园落成后物种图鉴开册——巡查员定期进园评估，吸引力与评级越高动物住户来得越勤，每种住户给吸引力/幸福加成；冬季企鹅最爱来、夏天锦鲤挤破池塘、镇园之宝大熊猫要高评级才点头；集齐 9 种解锁「万兽来朝」）· <b>千里比邻·姊妹城市</b>（顶栏「盟」指标：开埠即有三座邻城隔野相望——市政厅 LV2 起商队带货互市换银钱添交情，邻城遭灾遣使求援、好感深厚会赠礼来访，本城遭难时好感 ≥60 的邻城驰援；好感 ≥60 结为姊妹之城、三城 ≥80 歃血为盟，月评评级首超邻城名声在外）· <b>厚土藏珍·考古之城</b>（每购一块新领地 22% 机缘出土文物：陶土/青铜/玉石三套系 12 件，入册出土图鉴 —— 城市志可翻；博物馆在城自动开馆展出，文化、吸引力、国宝镇馆游客乘数与满馆琳琅幸福都沾文物的光）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
+                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>城市卫士应急联动</b>（交番驻巡逻警车·治安+220 护盾；火灾/疫病来袭消防车救护车沿路驰援——到场喷水/接载并免余损，设施邻路是关键）· <b>消防水网与火势蔓延</b>（消防局半径 5 格·消防栓半径 2 格织成水网：覆盖区火势减半；盲区起火蔓延更快且会蹿烧邻栋——受灾住户与街坊都写进个人史册，消防员到场还可能成为你家恩人）· <b>悬壶济世·医疗覆盖</b>（诊所半径 3 格·防疫站半径 4 格·医院半径 6 格织成医疗网，市政厅自带义诊棚：盲区住宅看病要跨半座城、商铺店员带病营业收入打折；疫病偏爱在盲区爆发且会蔓延邻栋——防疫站在城全城压制疫情，疫点住户与隔离街坊都写进个人史册，救护车零蔓延化解记「仁心妙术」）· <b>市民列传</b>（人口迁入迎来有名有姓的市民：顶栏「民」指标开名人册看传记与大事记，观察工具点击街上行人打招呼——在册市民就是本人、脸生的则是过路人，成婚添丁组成家族谱系，市民之声随城市状态轮播）· <b>市长信箱</b>（顶栏「邮」指标：市民随城市状态来信——求助/吐槽/感谢/见闻，回信影响他们的心情，回满 8 封解锁成就「见字如面」）· <b>市长公署</b>（顶栏「批」指标：每日清晨公文送抵案头——请愿/联名/风闻/献策，每份两三道朱批各有代价与回响，府库/人口/粮仓/民心随之而动，批注落笔编年史「政令」卷）· <b>城市节庆</b>（顶栏「庆」指标：随季节办节 —— 樱花祭/花火大会/丰收节/暖灯节，90 秒全城增益配专属街景特效）· <b>市况荣枯</b>（景气指数随时间起落：繁荣商业游客双旺、衰退市道冷清，大灾大喜震动市况，荣枯起落写入编年史；财政报告「市况荣枯」看行情条，金融枢纽科技解锁「平准均输」法令可熨平波动）· <b>城市联赛</b>（顶栏「球」指标：体育场落成后「市民联」联赛自动开张——每隔数日一场主场，比赛日商业 ×1.08 · 游客 ×1.22 · 幸福 +1，赢球彩带飘满全城 120 秒；客队档次随城市评级升级，每 6 场一赛季积分加冕，战绩奖杯写进编年史；「球场风云」看赛程战绩与荣誉墙）· <b>城市动物园</b>（顶栏「兽」指标：动物园落成后物种图鉴开册——巡查员定期进园评估，吸引力与评级越高动物住户来得越勤，每种住户给吸引力/幸福加成；冬季企鹅最爱来、夏天锦鲤挤破池塘、镇园之宝大熊猫要高评级才点头；集齐 9 种解锁「万兽来朝」）· <b>千里比邻·姊妹城市</b>（顶栏「盟」指标：开埠即有三座邻城隔野相望——市政厅 LV2 起商队带货互市换银钱添交情，邻城遭灾遣使求援、好感深厚会赠礼来访，本城遭难时好感 ≥60 的邻城驰援；好感 ≥60 结为姊妹之城、三城 ≥80 歃血为盟，月评评级首超邻城名声在外）· <b>厚土藏珍·考古之城</b>（每购一块新领地 22% 机缘出土文物：陶土/青铜/玉石三套系 12 件，入册出土图鉴 —— 城市志可翻；博物馆在城自动开馆展出，文化、吸引力、国宝镇馆游客乘数与满馆琳琅幸福都沾文物的光）· <b>城市之声·报馆与城市日报</b>（顶栏「闻」指标：建成报馆即创刊——每七游戏日一期《城市日报》，头版头条自动选编年史大事、大事出号外加印，市况/气象/来信选登/商户广告/城南旧事连载栏目全上版面，发行量随人口与识字率浮动、卖报所得进府库；拆馆停刊过刊保留，复建自动复刊）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
                     <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
                     <tr><td>引导</td><td>首次进入经营模式自动展开新手引导横幅（修路→建房→迎市民→开业→看面板→认市民）；随时可跳过，也可在这里点「重新查看新手引导」重看</td></tr>
                     <tr><td>音效</td><td>顶栏喇叭图标：音效开关 + 主音量滑杆（本地记忆偏好）；建造/金币/灾害警报/应急警笛/电车铃/季节钟声/成就凯旋等 21 种专属 8-bit 音色</td></tr>

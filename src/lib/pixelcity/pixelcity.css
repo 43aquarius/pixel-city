@@ -2234,6 +2234,86 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 .pxc.m .zk-head b { font-size: 12px; }
 .pxc.m .zh-next { margin-left: 0; width: 100%; }
 
+/* ============ v39 城市日报（报馆与城市之声） ============ */
+.pxc-news { width: min(600px, calc(100vw - 24px)); }
+.news-chip.news-on { border-color: #8a6d1a; background: #FAF3D9; }
+.news-chip.news-extra { border-color: #C43C2C; background: #FBEDE8; }
+
+/* 空册与创刊在即 */
+.news-empty { border: 1px dashed #C9C2A8; border-radius: 4px; padding: 14px 12px; text-align: center; }
+.news-empty .ne-t { font-size: 15px; font-weight: 800; color: #23252E; letter-spacing: 2px; }
+.news-empty .ne-d { margin-top: 8px; font-size: 12px; color: #555c66; line-height: 1.7; text-align: left; }
+.news-empty .ne-d b { color: #8a6d1a; }
+
+/* 过刊翻阅 */
+.np-tabs { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+.np-tab {
+  border: 1px solid #C9C2A8; border-radius: 3px; background: #F2EFE3;
+  font: inherit; font-size: 11px; color: #555c66; padding: 3px 9px; cursor: pointer;
+}
+.np-tab.on { border-color: #8a6d1a; background: #FAF3D9; color: #8a6d1a; font-weight: 700; }
+.np-tab:hover { border-color: #a08a3c; }
+
+/* 报版纸面 */
+.np-sheet {
+  background: #F7F2E2; border: 1px solid #C9C2A8; border-radius: 3px;
+  padding: 12px 14px 10px; position: relative;
+  background-image: repeating-linear-gradient(0deg, transparent 0 22px, rgba(120,100,60,0.05) 22px 23px);
+  box-shadow: 0 2px 6px rgba(20, 24, 46, 0.18);
+}
+.np-sheet.extra { border-color: #C43C2C; box-shadow: 0 2px 6px rgba(196, 60, 44, 0.24); }
+/* 报头 */
+.np-mast { text-align: center; border-bottom: 2px solid #23252E; padding-bottom: 7px; margin-bottom: 9px; }
+.np-name {
+  font-size: 26px; font-weight: 900; letter-spacing: 10px; color: #23252E;
+  text-indent: 10px; line-height: 1.15;
+}
+.np-sheet.extra .np-name { color: #C43C2C; }
+.np-meta { margin-top: 3px; display: flex; justify-content: center; gap: 14px; font-size: 11px; color: #555c66; font-variant-numeric: tabular-nums; }
+.np-x-tag {
+  font-style: normal; font-size: 10px; font-weight: 800; color: #F7F2E2;
+  background: #C43C2C; border-radius: 2px; padding: 1px 7px; letter-spacing: 2px;
+}
+.np-slogan { margin-top: 2px; font-size: 9.5px; color: #9a8f72; letter-spacing: 3px; }
+/* 头版头条 */
+.np-headline { margin-bottom: 9px; }
+.np-headline .nh-row { display: flex; align-items: center; gap: 7px; }
+.np-headline .nh-row img { width: 20px; height: 20px; image-rendering: pixelated; flex: none; }
+.np-headline .nh-row b {
+  font-size: 16px; font-weight: 900; color: #23252E; letter-spacing: 1.5px; line-height: 1.3;
+}
+.np-sheet.extra .np-headline .nh-row b { color: #C43C2C; }
+.np-headline p { margin: 5px 0 0; font-size: 12px; color: #3d434e; line-height: 1.75; text-align: justify; }
+/* 栏目栅格 */
+.np-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.np-box { border-top: 1px solid #9a8f72; padding-top: 5px; min-width: 0; }
+.np-box b {
+  display: inline-block; font-size: 11px; font-weight: 800; color: #8a6d1a; letter-spacing: 3px;
+  border-bottom: 1px solid #C9C2A8; padding-bottom: 2px; margin-bottom: 4px;
+}
+.np-box p { margin: 0; font-size: 11px; color: #3d434e; line-height: 1.7; text-align: justify; }
+.np-box p.np-dim { color: #9a8f72; }
+/* 广告栏 */
+.np-ads { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.np-ad {
+  border: 1px dashed #9a8f72; border-radius: 3px; background: rgba(255, 252, 240, 0.7);
+  padding: 5px 8px; font-size: 10.5px; color: #555c66; line-height: 1.55;
+}
+/* 脚注 */
+.np-foot {
+  border-top: 2px solid #23252E; padding-top: 6px; margin-top: 2px;
+  font-size: 11px; color: #555c66; line-height: 1.6; font-variant-numeric: tabular-nums;
+}
+.np-foot b { color: #8a6d1a; }
+.news-note { margin-top: 10px; font-size: 11px; color: #85878f; line-height: 1.65; }
+
+/* 移动端：单列版面 + 报头缩字 */
+.pxc.m .np-cols, .pxc.m .np-ads { grid-template-columns: 1fr; }
+.pxc.m .np-name { font-size: 21px; letter-spacing: 6px; }
+.pxc.m .np-headline .nh-row b { font-size: 14px; }
+.pxc.m .np-meta { gap: 8px; flex-wrap: wrap; }
+.pxc.m .np-sheet { padding: 10px 11px 8px; }
+
 /* ============ v17 城市编年史 ============ */
 .pxc-chron { width: min(560px, calc(100vw - 24px)); }
 

@@ -703,3 +703,72 @@ export function genHealthst(seed: number): BuildResult {
   flagPole(faces, 3.4, 3.4, h + 8.5, P.WHITE);
   return { model: buildModel(faces, 16, 16) };
 }
+
+// ============================================================
+// v39 城市之声：报馆（2×2，双变体）—— 编辑楼 + 锯齿天窗排字房 +
+// 门楣「日报」灯箱 + 楼顶卷筒纸卷 + 侧墙霓虹「报」字 + 门前报纸垛
+// ============================================================
+
+/** 报馆（2×2，v39 城市之声）：米白编辑楼与排字房，夜班灯亮到截稿 */
+export function genPress(seed: number): BuildResult {
+  const faces: Face[] = [];
+  const r = mulberry32(seed);
+  const wall = pick([P.CREAM, P.TAN], r());          // 变体：主墙色
+  const neon = pick([P.NEONR, P.NEONC], r());        // 变体：霓虹「报」字色
+  const h = 15.0;
+  // ---- 编辑主楼（北侧三层：米白墙 + 大窗，夜班排字灯长明）----
+  box(faces, 3, 2.6, 24.6, 13.2, 0, h, {
+    right: pWindows(wall, { seed, lit: 0.5, floorH: 5.2, gapX: 4.4, winW: 2.2, winH: 2.6 }),
+    left: pWindows(wall, { seed: seed ^ 9, lit: 0.5, floorH: 5.2, gapX: 4.4, winW: 2.2, winH: 2.6, door: true, doorW: 3.2 }),
+  });
+  gableRoof(faces, 2.4, 2.0, 25.2, 13.8, h - 0.4, h + 5.6, 'x', {
+    front: pShingle(P.RFSLATE), back: pShingle(P.RFSLATE), endX: pWall(wall),
+  });
+  // ---- 排字房（南侧低层平顶 + 锯齿天窗：油墨与铅字的工坊）----
+  box(faces, 20.2, 4.2, 29.2, 12.6, 0, 8.2, {
+    right: pWindows(wall, { seed: seed ^ 3, lit: 0.34, floorH: 8.0, gapX: 4.0, winW: 2.0, winH: 2.2 }),
+  });
+  roofDeck(faces, 20.2, 4.2, 29.2, 12.6, 8.2, P.RFGRAY, pWall(wall));
+  for (let i = 0; i < 3; i++) {
+    box(faces, 21.4 + i * 2.6, 6.0, 23.0 + i * 2.6, 8.4, 8.2, 10.4, {
+      right: pSawTooth(true), left: pWall(P.SIDE), top: pWall(P.SIDE),
+    });
+  }
+  // ---- 门楣灯箱（+Y 正脸藏青横箱 + 白字意象，夜间灯箱亮）----
+  box(faces, 6.5, 13.2, 15.5, 14.2, 8.6, 11.4, {
+    left: pWall(P.PBLUE), right: pWall(P.SIDE), top: pFlatRoof(P.PBLUE, 2),
+  });
+  box(faces, 8.2, 14.2, 11.4, 14.7, 9.2, 10.6, {
+    left: () => cell(P.WHITE, 0), right: pWall(P.SIDE), top: pWall(P.SIDE),
+  });
+  box(faces, 12.4, 14.2, 13.8, 14.7, 9.2, 10.6, {
+    left: () => cell(P.WHITE, 0), right: pWall(P.SIDE), top: pWall(P.SIDE),
+  });
+  // ---- 侧墙霓虹「报」字（+X 面红底 + 白色方字块，夜间发光）----
+  box(faces, 24.6, 5.6, 25.4, 10.4, 10.0, 14.6, {
+    right: pWall(neon), left: pWall(P.SIDE), top: pWall(P.SIDE),
+  });
+  box(faces, 25.4, 6.6, 25.9, 9.4, 11.0, 13.6, {
+    right: () => cell(P.WHITE, 0), left: pWall(P.SIDE), top: pWall(P.SIDE),
+  });
+  const blinkAt: V3 = [25.6, 8, 12.3];
+  // ---- 楼顶卷筒纸卷（白色双卷轴：新闻纸出厂的意象）----
+  frustum(faces, 8.5, 6.5, 1.5, 1.5, h + 5.6, h + 11.8, {
+    side: (u, v, px, py) => pWall(P.WHITE)(u, v, px, py),
+  }, 8);
+  frustum(faces, 8.5, 6.5, 2.0, 2.0, h + 5.6, h + 9.2, {
+    side: (u, v, px, py) => pWall(P.SIDE)(u, v, px, py),
+  }, 8);
+  frustum(faces, 15.5, 8.5, 1.2, 1.2, h + 5.6, h + 9.6, {
+    side: (u, v, px, py) => pWall(P.WHITE)(u, v, px, py),
+  }, 8);
+  // ---- 门前报纸垛（三级白盒：清晨捆好的投递份）----
+  for (let i = 0; i < 3; i++) {
+    box(faces, 16.6 + i * 0.4, 14.4 + i * 0.5, 19.4 - i * 0.4, 16.2 - i * 0.5, 0, 0.8 + i * 0.5, {
+      right: pWall(P.WHITE), left: pWall(P.WHITE), top: pWall(P.SIDE),
+    });
+  }
+  // ---- 前廊台阶 ----
+  box(faces, 6.5, 14.2, 15.5, 15.6, 0, 1.1, { top: pWall(P.SIDE), right: pWall(P.SIDE), left: pWall(P.SIDE) });
+  return { model: buildModel(faces, 32, 32), blinkAt };
+}
