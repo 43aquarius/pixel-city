@@ -2809,3 +2809,124 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 .pxc.m .gd-opt { flex-wrap: wrap; padding: 9px 10px; }
 .pxc.m .gd-note { margin-left: 36px; text-align: left; flex-basis: calc(100% - 36px); }
 .pxc.m .gov-stamp { font-size: 60px; padding: 6px 18px; border-width: 5px; }
+
+/* ============ v37 千里比邻 · 姊妹城市 ============ */
+.pxc-sis { width: min(560px, calc(100vw - 24px)); }
+
+/* 顶栏「盟」指标：急件亮红 */
+.sis-chip.sis-req { border-color: #B03A2E; background: #FBEEE9; animation: sisChipPulse 1.6s ease-in-out infinite; }
+@keyframes sisChipPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(176, 58, 46, 0.35); }
+  50%      { box-shadow: 0 0 0 3px rgba(176, 58, 46, 0.18); }
+}
+
+/* 求援急件（红边公文卡 · 朱批式两选项） */
+.sis-req {
+  background: rgba(255, 250, 244, 0.94);
+  border: 1px solid #C9B98A;
+  border-left: 4px solid #B03A2E;
+  border-radius: 4px;
+  padding: 10px 12px 12px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 0 rgba(120, 100, 60, 0.15);
+}
+.sr-tag {
+  display: inline-block; font-size: 10px; font-weight: 700;
+  color: #FFF; background: #B03A2E; border-radius: 3px;
+  padding: 1px 8px; letter-spacing: 2px; text-indent: 2px; margin-bottom: 6px;
+}
+.sr-tx b { display: block; font-size: 13.5px; color: #3A3020; letter-spacing: 1px; }
+.sr-tx p { margin: 4px 0 6px; font-size: 12.5px; line-height: 1.75; color: #3A3630; }
+.sr-ttl { display: block; font-size: 11px; color: #B03A2E; font-weight: 600; }
+.sr-opts { display: flex; gap: 7px; margin-top: 9px; flex-wrap: wrap; }
+.sis-opt {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 10px; text-align: left; cursor: pointer;
+  background: #FFFDF6;
+  border: 1px solid #C9B98A; border-radius: 4px;
+  color: #3A3020; font-family: inherit; flex: 1 1 46%; min-width: 0;
+}
+.sis-opt:hover:not(:disabled) { border-color: #B03A2E; background: #FFF6E8; }
+.sis-opt:active:not(:disabled) { transform: translateY(1px); }
+.sis-opt.off { opacity: 0.45; cursor: not-allowed; }
+.sis-opt .gd-seal { transform: rotate(-6deg); }
+.sis-opt.good .gd-seal { border-color: #4E9040; color: #4E9040; background: rgba(78, 144, 64, 0.07); }
+.sis-opt.bad .gd-seal { border-color: #8C2F26; color: #8C2F26; background: rgba(140, 47, 38, 0.08); }
+.sis-opt .gd-label { font-weight: 700; font-size: 12.5px; white-space: nowrap; }
+.sis-opt .gd-note { margin-left: auto; font-size: 11px; color: #8A7F63; }
+
+/* 四野安澜（无急件时的静息卡） */
+.sis-calm {
+  border: 1px dashed #C9C2A8; border-radius: 4px;
+  padding: 11px 12px; margin-bottom: 12px; background: #F7F4EA;
+}
+.sis-calm b { display: block; font-size: 13px; letter-spacing: 3px; text-indent: 3px; color: #3A3020; margin-bottom: 4px; }
+.sis-calm span { font-size: 11.5px; color: #6B6353; line-height: 1.7; }
+
+/* 邻城卡片 */
+.sis-cards { display: flex; flex-direction: column; gap: 9px; }
+.sis-card {
+  border: 1px solid #C9C2A8; border-radius: 4px;
+  background: #F7F4EA; padding: 9px 11px 10px;
+}
+.sis-card.bonded {
+  border-color: #C9A227; background: #FAF5E6;
+  box-shadow: inset 0 0 0 1px rgba(201, 162, 39, 0.25);
+}
+.sc-head { display: flex; align-items: center; gap: 9px; }
+.sc-head img { image-rendering: pixelated; flex: none; }
+.sc-name { flex: 1; min-width: 0; }
+.sc-name b { display: block; font-size: 14.5px; color: #23252E; letter-spacing: 1.5px; }
+.sc-name span { display: block; margin-top: 1px; font-size: 10.5px; color: #85878f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-bond {
+  display: inline-block; font-style: normal; font-size: 9px; font-weight: 700;
+  color: #FFF; background: #C9A227; border-radius: 7px;
+  padding: 1px 6px; margin-left: 6px; vertical-align: 2px; letter-spacing: 1px;
+}
+.sc-band {
+  flex: none; font-size: 10px; font-style: normal; font-weight: 700;
+  border: 1px solid; border-radius: 3px; padding: 1px 7px; letter-spacing: 1px; text-indent: 1px;
+}
+.sc-band[data-rel='hi']  { color: #4E9040; border-color: #4E9040; background: rgba(78, 144, 64, 0.08); }
+.sc-band[data-rel='mid'] { color: #8a6d1a; border-color: #C9A227; background: rgba(201, 162, 39, 0.10); }
+.sc-band[data-rel='low'] { color: #6B7280; border-color: #9aa0a9; background: rgba(154, 160, 169, 0.10); }
+.sc-style {
+  margin: 6px 1px 7px; font-size: 11px; line-height: 1.6; color: #6B6353;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* 三条对照条（人口 / 评级 / 好感） */
+.sc-bars { display: flex; flex-direction: column; gap: 4px; margin-bottom: 9px; }
+.sc-bar { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.sc-bar span { flex: 0 0 58px; color: #555c66; font-variant-numeric: tabular-nums; }
+.sc-bar i {
+  flex: 1; height: 9px; border-radius: 2px; overflow: hidden;
+  background: rgba(201, 194, 168, 0.35);
+  border: 1px solid rgba(201, 194, 168, 0.7);
+}
+.sc-bar i b {
+  display: block; height: 100%;
+  background: linear-gradient(180deg, #4A86C8, #3A6FA8);
+  transition: width 0.4s ease;
+}
+.sc-bar.rel i b { background: linear-gradient(180deg, #E06666, #B03A2E); }
+.sc-bar.rel { --none: 0; }
+.sc-bar.rel span { color: #B03A2E; font-weight: 700; }
+
+/* 互市按钮 */
+.sc-trade { width: 100%; justify-content: center; gap: 7px; font-weight: 700; }
+.sc-trade img { width: 14px; height: 14px; image-rendering: pixelated; }
+.sc-trade.off { opacity: 0.55; }
+
+/* 底注 */
+.sis-foot {
+  margin: 12px 0 0; padding-top: 9px; border-top: 1px dashed #C9C2A8;
+  font-size: 11px; color: #85878f; line-height: 1.7;
+}
+
+/* 移动端 */
+.pxc.m .pxc-sis { width: calc(100vw - 14px); }
+.pxc.m .sr-opts { flex-direction: column; }
+.pxc.m .sis-opt { flex-basis: auto; }
+.pxc.m .sc-name span { white-space: normal; }
+.pxc.m .sc-bar span { flex-basis: 52px; }

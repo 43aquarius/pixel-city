@@ -270,7 +270,7 @@ export default function PixelCity() {
   /** v27 移动端卷目横条：左右渐隐暗示（滚动感知） */
   const [cwNavMore, setCwNavMore] = useState({ l: false, r: false });
   const cwNavScrollRef = useRef<HTMLDivElement | null>(null);
-  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'zoo' | 'chron' | 'gov'>('none');
+  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'zoo' | 'chron' | 'gov' | 'sis'>('none');
   const [econ, setEcon] = useState<EconView | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [toast, setToast] = useState<{ id: number; msg: string } | null>(null);
@@ -632,11 +632,11 @@ export default function PixelCity() {
     }
   }, [say]);
 
-  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'zoo' | 'chron' | 'gov') => {
+  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'zoo' | 'chron' | 'gov' | 'sis') => {
     if (m === 'save') {
       setSlotMeta([0, 1, 2].map(i => Engine.slotMeta(i)));
     }
-    if (m === 'citz' || m === 'mail' || m === 'gov' || m === 'anth') setCitzEng(engineRef.current);   // 捕获引擎句柄到 state（头像/信箱/公署/合集视图用）
+    if (m === 'citz' || m === 'mail' || m === 'gov' || m === 'anth' || m === 'sis') setCitzEng(engineRef.current);   // 捕获引擎句柄到 state（头像/信箱/公署/合集/姊妹城市面板用）
     if (m !== 'citz') { setCitzSel(null); setCitzSpot(null); }
     if (m !== 'mail') setMailSel(null);
     if (m !== 'gov') setGovSeal(null);
@@ -1284,6 +1284,13 @@ export default function PixelCity() {
                   ? `物种图鉴：已入住 ${econ.zoo.n}/${econ.zoo.total} 种（吸引力 +${econ.zoo.at} · 幸福 +${econ.zoo.hap}${econ.zoo.k > 1 ? ` · 游客 ×${econ.zoo.k.toFixed(2)}` : ''}）—— 下次巡查 ${Math.max(0, Math.round((econ.zoo.next - econ.gHours) * 10) / 10)} 游戏时后`
                   : '物种图鉴：建成动物园即开园 —— 巡查员定期进园评估，动物住户逐步入住，集齐 9 种翻满图鉴'}>
                 <img src={iu('paw')} alt="" /><b>{econ.zoo.on ? `${econ.zoo.n}/${econ.zoo.total}` : '—'}</b><i>兽</i>
+              </button>
+              <button className={`chip sis-chip${econ.sis.req ? ' sis-req' : ''}`} onClick={() => openModal('sis')}
+                title={econ.sis.req
+                  ? `邻城急件：${econ.sis.req.name}遣使求援，使者再候 ${econ.sis.req.ttl} 游戏时 —— 速去作答`
+                  : `姊妹城市：与 ${econ.sis.cities.length} 座邻城往来 —— 互市 ${econ.sis.tradeN} 次 · 援助 ${econ.sis.aidN} 次（市政厅 LV${econ.sis.lv} 起通商；好感 ≥60 结为姊妹之城，三城 ≥80 歃血为盟）`}>
+                <img src={iu('land')} alt="" /><b>{econ.sis.tradeN}</b><i>盟</i>
+                {econ.sis.req && <em className="chip-dot">急</em>}
               </button>
               <button className="chip" onClick={() => openModal('chron')}
                 title={`城市编年史：在册 ${econ.chron.n} 笔纪事（累计 ${econ.chron.total} 笔）· 当前纪元「${econ.chron.eraName}」—— 开埠奠基、时代跃迁、灾祸喜讯、科技节庆与里程碑，都记在这本城市之书里`}>
@@ -2453,6 +2460,212 @@ export default function PixelCity() {
         );
       })()}
 
+      {/* v37 姊妹城市：千里比邻（邻城卡片 + 求援急件 + 互市商队） */}
+      {modal === 'sis' && econ && (() => {
+        const eng = citzEng;   // 打开模态时捕获的引擎句柄（state，不读 ref）
+        const sis = econ.sis;
+        const rc = sis.req && sis.cities.find(c => c.id === sis.req!.id);
+        const poor = econ.coins < 150;
+        return (
+          <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
+            <div className="pxc-modal pxc-sis" role="dialog" aria-label="姊妹城市">
+              <header>
+                姊 妹 城 市
+                <button className="pxc-x" onClick={() => setModal('none')} aria-label="关闭">×</button>
+              </header>
+              <div className="pxc-body">
+                {sis.req && rc ? (
+                  <div className="sis-req" role="alert">
+                    <b className="sr-tag">邻城急件</b>
+                    <div className="sr-tx">
+                      <b>{rc.name}遣使求援 · 市长{rc.mayor}</b>
+                      <p>{sis.req.text}</p>
+                    </div>
+                    <span className="sr-ttl">使者再候 {sis.req.ttl} 游戏时</span>
+                    <div className="sr-opts" role="group" aria-label="求援作答">
+                      <button className={`sis-opt good${poor ? ' off' : ''}`} disabled={poor}
+                        title={poor ? '府库不足 —— 援银凑不出来' : '拨援银 150G 连夜送去：好感 +18'}
+                        onClick={() => eng?.tycoon?.decideSis(true)}>
+                        <i className="gd-seal" aria-hidden>准</i>
+                        <span className="gd-label">发援银 150G</span>
+                        <span className="gd-note">{poor ? '府库不足' : '好感 +18'}</span>
+                      </button>
+                      <button className="sis-opt bad"
+                        title="婉言谢绝：好感 −6，使者悻悻而归"
+                        onClick={() => eng?.tycoon?.decideSis(false)}>
+                        <i className="gd-seal" aria-hidden>驳</i>
+                        <span className="gd-label">婉言谢绝</span>
+                        <span className="gd-note">好感 −6</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="sis-calm">
+                    <b>四野安澜</b>
+                    <span>{sis.on ? '邻城眼下没有急事 —— 商队可随时发往各城，交情随商路一路生长。' : `市政厅升到 LV${sis.lv} 后通商开市：商队带货去邻城换银钱，交情也随商路生长。`}</span>
+                  </div>
+                )}
+                <div className="sis-cards">
+                  {sis.cities.map(c => (
+                    <div key={c.id} className={`sis-card${c.bonded ? ' bonded' : ''}`} data-city={c.id}>
+                      <div className="sc-head">
+                        <img src={iu(c.emblem)} alt="" width={24} height={24} />
+                        <div className="sc-name">
+                          <b>{c.name}{c.bonded ? <i className="sc-bond">姊妹</i> : null}</b>
+                          <span>市长 {c.mayor} · {c.trait}</span>
+                        </div>
+                        <em className="sc-band" data-rel={c.rel >= 60 ? 'hi' : c.rel >= 30 ? 'mid' : 'low'}>{c.band}</em>
+                      </div>
+                      <p className="sc-style">{c.style}</p>
+                      <div className="sc-bars">
+                        <div className="sc-bar" title={`${c.name}人口 ${c.pop} · 本市人口 ${econ.pop} —— 月评对照，评级首超邻城名声在外`}>
+                          <span>人口 {c.pop}</span>
+                          <i><b style={{ width: `${Math.min(100, Math.round(c.pop / Math.max(1, Math.max(c.pop, econ.pop)) * 100))}%` }} /></i>
+                        </div>
+                        <div className="sc-bar" title={`${c.name}评级 ${c.rating} · 本市评级 ${econ.rating}`}>
+                          <span>评级 {c.rating}</span>
+                          <i><b style={{ width: `${Math.min(100, Math.round(c.rating))}%` }} /></i>
+                        </div>
+                        <div className="sc-bar rel" title={`${c.name}好感 ${c.rel}/100 —— 互市 +2 · 援助 +18 · 赠礼 +1；婉拒 −6`}>
+                          <span>好感 {c.rel}</span>
+                          <i><b style={{ width: `${Math.min(100, Math.round(c.rel))}%` }} /></i>
+                        </div>
+                      </div>
+                      <button className={`pxc-btn sc-trade${!sis.on || c.cd > 0 || c.units < 6 ? ' off' : ''}`}
+                        disabled={!sis.on || c.cd > 0 || c.units < 6}
+                        title={!sis.on
+                          ? `市政厅 LV${sis.lv} 起通商 —— 先把自家的市政厅升起来`
+                          : c.cd > 0
+                            ? `商队还在路上 —— ${c.cd} 游戏时后可再发一队`
+                            : c.units < 6
+                              ? '货仓存货不足起运量（至少 6 件）—— 先建工厂/木材厂攒货'
+                              : `发 ${c.units} 件货去${c.name}互市，约可换回 ${c.gain}G，好感 +2`}
+                        onClick={() => eng?.tycoon?.tradeWith(c.id)}>
+                        <img src={iu('box')} alt="" />
+                        {!sis.on
+                          ? <b>未通商 · LV{sis.lv} 解锁</b>
+                          : c.cd > 0
+                            ? <b>商队途中 · {c.cd} 游戏时</b>
+                            : c.units < 6
+                              ? <b>货不足 · 需 6 件</b>
+                              : <b>发商队 · {c.units} 件 ≈ {c.gain}G</b>}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <p className="sis-foot">
+                  开埠以来：互市 {sis.tradeN} 次 · 援助邻城 {sis.aidN} 次{sis.sworn ? ' · 三城歃血为盟' : ''}
+                   —— 好感 ≥60 结为姊妹之城、三城 ≥80 歃血为盟；本城遭难时，好感 ≥60 的邻城会遣使驰援。
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* v37 姊妹城市：千里比邻（邻城卡片 + 求援急件 + 互市商队） */}
+      {modal === 'sis' && econ && (() => {
+        const eng = citzEng;   // 打开模态时捕获的引擎句柄（state，不读 ref）
+        const sis = econ.sis;
+        const rc = sis.req && sis.cities.find(c => c.id === sis.req!.id);
+        const poor = econ.coins < 150;
+        return (
+          <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
+            <div className="pxc-modal pxc-sis" role="dialog" aria-label="姊妹城市">
+              <header>
+                姊 妹 城 市
+                <button className="pxc-x" onClick={() => setModal('none')} aria-label="关闭">×</button>
+              </header>
+              <div className="pxc-body">
+                {sis.req && rc ? (
+                  <div className="sis-req" role="alert">
+                    <b className="sr-tag">邻城急件</b>
+                    <div className="sr-tx">
+                      <b>{rc.name}遣使求援 · 市长{rc.mayor}</b>
+                      <p>{sis.req.text}</p>
+                    </div>
+                    <span className="sr-ttl">使者再候 {sis.req.ttl} 游戏时</span>
+                    <div className="sr-opts" role="group" aria-label="求援作答">
+                      <button className={`sis-opt good${poor ? ' off' : ''}`} disabled={poor}
+                        title={poor ? '府库不足 —— 援银凑不出来' : '拨援银 150G 连夜送去：好感 +18'}
+                        onClick={() => eng?.tycoon?.decideSis(true)}>
+                        <i className="gd-seal" aria-hidden>准</i>
+                        <span className="gd-label">发援银 150G</span>
+                        <span className="gd-note">{poor ? '府库不足' : '好感 +18'}</span>
+                      </button>
+                      <button className="sis-opt bad"
+                        title="婉言谢绝：好感 −6，使者悻悻而归"
+                        onClick={() => eng?.tycoon?.decideSis(false)}>
+                        <i className="gd-seal" aria-hidden>驳</i>
+                        <span className="gd-label">婉言谢绝</span>
+                        <span className="gd-note">好感 −6</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="sis-calm">
+                    <b>四野安澜</b>
+                    <span>{sis.on ? '邻城眼下没有急事 —— 商队可随时发往各城，交情随商路一路生长。' : `市政厅升到 LV${sis.lv} 后通商开市：商队带货去邻城换银钱，交情也随商路生长。`}</span>
+                  </div>
+                )}
+                <div className="sis-cards">
+                  {sis.cities.map(c => (
+                    <div key={c.id} className={`sis-card${c.bonded ? ' bonded' : ''}`} data-city={c.id}>
+                      <div className="sc-head">
+                        <img src={iu(c.emblem)} alt="" width={24} height={24} />
+                        <div className="sc-name">
+                          <b>{c.name}{c.bonded ? <i className="sc-bond">姊妹</i> : null}</b>
+                          <span>市长 {c.mayor} · {c.trait}</span>
+                        </div>
+                        <em className="sc-band" data-rel={c.rel >= 60 ? 'hi' : c.rel >= 30 ? 'mid' : 'low'}>{c.band}</em>
+                      </div>
+                      <p className="sc-style">{c.style}</p>
+                      <div className="sc-bars">
+                        <div className="sc-bar" title={`${c.name}人口 ${c.pop} · 本市人口 ${econ.pop} —— 月评对照，评级首超邻城名声在外`}>
+                          <span>人口 {c.pop}</span>
+                          <i><b style={{ width: `${Math.min(100, Math.round(c.pop / Math.max(1, Math.max(c.pop, econ.pop)) * 100))}%` }} /></i>
+                        </div>
+                        <div className="sc-bar" title={`${c.name}评级 ${c.rating} · 本市评级 ${econ.rating}`}>
+                          <span>评级 {c.rating}</span>
+                          <i><b style={{ width: `${Math.min(100, Math.round(c.rating))}%` }} /></i>
+                        </div>
+                        <div className="sc-bar rel" title={`${c.name}好感 ${c.rel}/100 —— 互市 +2 · 援助 +18 · 赠礼 +1；婉拒 −6`}>
+                          <span>好感 {c.rel}</span>
+                          <i><b style={{ width: `${Math.min(100, Math.round(c.rel))}%` }} /></i>
+                        </div>
+                      </div>
+                      <button className={`pxc-btn sc-trade${!sis.on || c.cd > 0 || c.units < 6 ? ' off' : ''}`}
+                        disabled={!sis.on || c.cd > 0 || c.units < 6}
+                        title={!sis.on
+                          ? `市政厅 LV${sis.lv} 起通商 —— 先把自家的市政厅升起来`
+                          : c.cd > 0
+                            ? `商队还在路上 —— ${c.cd} 游戏时后可再发一队`
+                            : c.units < 6
+                              ? '货仓存货不足起运量（至少 6 件）—— 先建工厂/木材厂攒货'
+                              : `发 ${c.units} 件货去${c.name}互市，约可换回 ${c.gain}G，好感 +2`}
+                        onClick={() => eng?.tycoon?.tradeWith(c.id)}>
+                        <img src={iu('box')} alt="" />
+                        {!sis.on
+                          ? <b>未通商 · LV{sis.lv} 解锁</b>
+                          : c.cd > 0
+                            ? <b>商队途中 · {c.cd} 游戏时</b>
+                            : c.units < 6
+                              ? <b>货不足 · 需 6 件</b>
+                              : <b>发商队 · {c.units} 件 ≈ {c.gain}G</b>}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <p className="sis-foot">
+                  开埠以来：互市 {sis.tradeN} 次 · 援助邻城 {sis.aidN} 次{sis.sworn ? ' · 三城歃血为盟' : ''}
+                   —— 好感 ≥60 结为姊妹之城、三城 ≥80 歃血为盟；本城遭难时，好感 ≥60 的邻城会遣使驰援。
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* v27 城史长卷：全景编年史阅读页（全屏立轴 · 按纪元分卷；v28 增「大事年表」横轴总览） */}
       {chronWide && econ && (() => {
         const entries = econ.chron.entries;
@@ -3185,6 +3398,7 @@ export default function PixelCity() {
                     <tr><td>市民</td><td>顶栏「民」指标开<b>市民列传</b>：人口迁入迎来有名有姓的市民（传记/性格/住所/大事记），还能「去家里看看」；观察工具点击街上的行人也能遇到他们（在册市民就是本人，脸生的则是过路人）；成婚添丁会组成<b>家族谱系</b></td></tr>
                     <tr><td>信箱</td><td>顶栏「邮」指标开<b>市长信箱</b>：市民随城市状态来信（求助/吐槽/感谢/见闻），挑一种口吻回信会影响 TA 的心情；红点亮起就是有人盼着回信，回满 8 封解锁成就「见字如面」；信箱满八封后旧信永存于<b>书信合集</b>，分类翻阅、集齐 11 种主题再解「鱼雁往还」</td></tr>
                     <tr><td>公署</td><td>顶栏「批」指标开<b>市长公署</b>：每日清晨公文送抵案头（请愿/联名/风闻/献策…），每份两三道朱批各有代价与回响 —— 府库、人口、粮仓、民心随之而动，批注都落笔编年史「政令」卷；府库不足的批注会暂时下不去笔</td></tr>
+                    <tr><td>邻城</td><td>顶栏「盟」指标开<b>姊妹城市</b>：开埠即有三座邻城与您隔野相望 —— 市政厅 LV2 起商队带货互市换银钱添交情；邻城遭灾会遣使求援（发援银好感 +18，久候不答等于婉拒），好感深厚会赠礼、来访，本城遭难时好感 ≥60 的邻城还会遣使驰援；好感 ≥60 结为姊妹之城、三城 ≥80 歃血为盟</td></tr>
                     <tr><td>节庆</td><td>顶栏「庆」指标开<b>城市节庆</b>：随季节举办樱花祭/花火大会/丰收节/暖灯节（市政厅 LV3 起），90 秒全城增益 —— 春天樱吹雪加密、夏天夜空花火、秋天金叶满街、冬天孔明灯升空；节日会写进市民大事记，累计 8 场解锁成就「节庆之都」、四季各办一场解锁「四季轮庆」</td></tr>
                     <tr><td>引导</td><td>首次进入经营模式自动展开新手引导横幅（修路→建房→迎市民→开业→看面板→认市民）；随时可跳过，也可在这里点「重新查看新手引导」重看</td></tr>
                     <tr><td>音效</td><td>顶栏喇叭图标：音效开关 + 主音量滑杆（本地记忆）；建造/金币/灾害警报/警笛/电车铃/成就凯旋各有专属 8-bit 音色</td></tr>
@@ -3203,7 +3417,7 @@ export default function PixelCity() {
                     <tr><td>地形</td><td>真实海拔起伏：抬升造山、降低挖谷（挖到 0 化为水域）；山坡建房自动整地（另付小额费用）；行人车辆会爬坡</td></tr>
                     <tr><td>桥梁</td><td>道路工具拖过水面自动架桥（15G/格，物流网络科技打折），桥面与岸上路面齐平，行人车辆畅通无阻</td></tr>
                     <tr><td>四季</td><td>春樱/夏绿/秋红/冬雪随时钟轮转（每季 4 分钟×1）：春季樱花瓣飘落、冬季水面封冻大地积雪；粮产/商业/用电随季节联动</td></tr>
-                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>城市卫士应急联动</b>（交番驻巡逻警车·治安+220 护盾；火灾/疫病来袭消防车救护车沿路驰援——到场喷水/接载并免余损，设施邻路是关键）· <b>消防水网与火势蔓延</b>（消防局半径 5 格·消防栓半径 2 格织成水网：覆盖区火势减半；盲区起火蔓延更快且会蹿烧邻栋——受灾住户与街坊都写进个人史册，消防员到场还可能成为你家恩人）· <b>悬壶济世·医疗覆盖</b>（诊所半径 3 格·防疫站半径 4 格·医院半径 6 格织成医疗网，市政厅自带义诊棚：盲区住宅看病要跨半座城、商铺店员带病营业收入打折；疫病偏爱在盲区爆发且会蔓延邻栋——防疫站在城全城压制疫情，疫点住户与隔离街坊都写进个人史册，救护车零蔓延化解记「仁心妙术」）· <b>市民列传</b>（人口迁入迎来有名有姓的市民：顶栏「民」指标开名人册看传记与大事记，观察工具点击街上行人打招呼——在册市民就是本人、脸生的则是过路人，成婚添丁组成家族谱系，市民之声随城市状态轮播）· <b>市长信箱</b>（顶栏「邮」指标：市民随城市状态来信——求助/吐槽/感谢/见闻，回信影响他们的心情，回满 8 封解锁成就「见字如面」）· <b>市长公署</b>（顶栏「批」指标：每日清晨公文送抵案头——请愿/联名/风闻/献策，每份两三道朱批各有代价与回响，府库/人口/粮仓/民心随之而动，批注落笔编年史「政令」卷）· <b>城市节庆</b>（顶栏「庆」指标：随季节办节 —— 樱花祭/花火大会/丰收节/暖灯节，90 秒全城增益配专属街景特效）· <b>市况荣枯</b>（景气指数随时间起落：繁荣商业游客双旺、衰退市道冷清，大灾大喜震动市况，荣枯起落写入编年史；财政报告「市况荣枯」看行情条，金融枢纽科技解锁「平准均输」法令可熨平波动）· <b>城市联赛</b>（顶栏「球」指标：体育场落成后「市民联」联赛自动开张——每隔数日一场主场，比赛日商业 ×1.08 · 游客 ×1.22 · 幸福 +1，赢球彩带飘满全城 120 秒；客队档次随城市评级升级，每 6 场一赛季积分加冕，战绩奖杯写进编年史；「球场风云」看赛程战绩与荣誉墙）· <b>城市动物园</b>（顶栏「兽」指标：动物园落成后物种图鉴开册——巡查员定期进园评估，吸引力与评级越高动物住户来得越勤，每种住户给吸引力/幸福加成；冬季企鹅最爱来、夏天锦鲤挤破池塘、镇园之宝大熊猫要高评级才点头；集齐 9 种解锁「万兽来朝」）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
+                    <tr><td>经营</td><td>金币建造 · 人口迁入 · 电力供需 · <b>粮仓与饥荒</b> · <b>货物供应链</b>（工业产货→零售上货→港口出口，缺货商业打折）· <b>观光经济</b>（景点招游客·酒店定上限）· <b>市政法令</b>（财政报告内进政令厅）· <b>有轨电车</b>（两座电车站开通干线：交通+幸福双升）· <b>铁路货运与出口市场</b>（内陆出口 4 件/分；市价 55%-155% 波动，可惜售囤货低吸高抛）· <b>城市卫士应急联动</b>（交番驻巡逻警车·治安+220 护盾；火灾/疫病来袭消防车救护车沿路驰援——到场喷水/接载并免余损，设施邻路是关键）· <b>消防水网与火势蔓延</b>（消防局半径 5 格·消防栓半径 2 格织成水网：覆盖区火势减半；盲区起火蔓延更快且会蹿烧邻栋——受灾住户与街坊都写进个人史册，消防员到场还可能成为你家恩人）· <b>悬壶济世·医疗覆盖</b>（诊所半径 3 格·防疫站半径 4 格·医院半径 6 格织成医疗网，市政厅自带义诊棚：盲区住宅看病要跨半座城、商铺店员带病营业收入打折；疫病偏爱在盲区爆发且会蔓延邻栋——防疫站在城全城压制疫情，疫点住户与隔离街坊都写进个人史册，救护车零蔓延化解记「仁心妙术」）· <b>市民列传</b>（人口迁入迎来有名有姓的市民：顶栏「民」指标开名人册看传记与大事记，观察工具点击街上行人打招呼——在册市民就是本人、脸生的则是过路人，成婚添丁组成家族谱系，市民之声随城市状态轮播）· <b>市长信箱</b>（顶栏「邮」指标：市民随城市状态来信——求助/吐槽/感谢/见闻，回信影响他们的心情，回满 8 封解锁成就「见字如面」）· <b>市长公署</b>（顶栏「批」指标：每日清晨公文送抵案头——请愿/联名/风闻/献策，每份两三道朱批各有代价与回响，府库/人口/粮仓/民心随之而动，批注落笔编年史「政令」卷）· <b>城市节庆</b>（顶栏「庆」指标：随季节办节 —— 樱花祭/花火大会/丰收节/暖灯节，90 秒全城增益配专属街景特效）· <b>市况荣枯</b>（景气指数随时间起落：繁荣商业游客双旺、衰退市道冷清，大灾大喜震动市况，荣枯起落写入编年史；财政报告「市况荣枯」看行情条，金融枢纽科技解锁「平准均输」法令可熨平波动）· <b>城市联赛</b>（顶栏「球」指标：体育场落成后「市民联」联赛自动开张——每隔数日一场主场，比赛日商业 ×1.08 · 游客 ×1.22 · 幸福 +1，赢球彩带飘满全城 120 秒；客队档次随城市评级升级，每 6 场一赛季积分加冕，战绩奖杯写进编年史；「球场风云」看赛程战绩与荣誉墙）· <b>城市动物园</b>（顶栏「兽」指标：动物园落成后物种图鉴开册——巡查员定期进园评估，吸引力与评级越高动物住户来得越勤，每种住户给吸引力/幸福加成；冬季企鹅最爱来、夏天锦鲤挤破池塘、镇园之宝大熊猫要高评级才点头；集齐 9 种解锁「万兽来朝」）· <b>千里比邻·姊妹城市</b>（顶栏「盟」指标：开埠即有三座邻城隔野相望——市政厅 LV2 起商队带货互市换银钱添交情，邻城遭灾遣使求援、好感深厚会赠礼来访，本城遭难时好感 ≥60 的邻城驰援；好感 ≥60 结为姊妹之城、三城 ≥80 歃血为盟，月评评级首超邻城名声在外）· <b>十维指数与城市评级</b> · <b>税率政策</b>（0-20% 滑杆，高税伤幸福）· <b>水务覆盖</b>（水塔/净水厂）· 设施维护费；点击迷雾边缘<b>金色虚线框</b>购地扩张；点<b>市政厅</b>开财政报告（含税率滑杆）；点顶部「就业/评级」指标开<b>城市志</b>（指数条 + 历史曲线）；点顶部「科」指标进科技研究院；拆除设施可回收部分造价</td></tr>
                     <tr><td>Ctrl + Z / Ctrl + Shift + Z</td><td>撤销 / 重做</td></tr>
                     <tr><td>引导</td><td>首次进入经营模式自动展开新手引导横幅（修路→建房→迎市民→开业→看面板→认市民）；随时可跳过，也可在这里点「重新查看新手引导」重看</td></tr>
                     <tr><td>音效</td><td>顶栏喇叭图标：音效开关 + 主音量滑杆（本地记忆偏好）；建造/金币/灾害警报/应急警笛/电车铃/季节钟声/成就凯旋等 21 种专属 8-bit 音色</td></tr>

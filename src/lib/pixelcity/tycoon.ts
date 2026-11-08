@@ -9,6 +9,12 @@ import { CityMap, TERR_GRASS, TERR_WATER } from './map';
 import { CitizenRegistry, type CitzView, type MailView, type AnthView } from './citizens';
 import { Chronicle, EV_ICON, eraOfPop, type ChronView } from './chronicle';
 import { DOCS, pickDoc, nextMorningH, DOC_FIRST_H, fxSummary, type DocCtx, type DocDef } from './decisions';
+import {
+  type SisterCity, SIS_N, SIS_LV, SIS_ROLL_GAP, SIS_EVT_GAP, SIS_TRADE_CD, SIS_TRADE_UNITS, SIS_TRADE_MIN,
+  SIS_REQ_TTL, SIS_AID_COST, SIS_AID_REL, SIS_DECLINE_REL, SIS_TRADE_REL, SIS_FRIEND, SIS_SWORN,
+  SIS_REL_MAX, SIS_HELP_REL, SIS_HELP_CD, genSisters, tradeProfit, tradeGain, relBand,
+  clampRel, rollSisEvent, SIS_CALAMITIES,
+} from './sisters';
 
 export const CHUNK = 16;                 // 领地块边长（格）
 export const CHUNKS = 16;                // 256 / 16 = 16×16 块领地
@@ -266,6 +272,11 @@ export const PLAGUE_SPREAD_R = 2;
 /** 单次蔓延概率：医疗覆盖区（消毒隔离有序）与盲区（防疫站站在城再 ×0.6） */
 export const PLAGUE_P_IN = 0.16;
 export const PLAGUE_P_OUT = 0.55;
+// ---- v37 千里比邻：姊妹城市（常数与纯函数在 sisters.ts —— 生成 / 互市利润 / 事件抽取）----
+/** 互市出货量推导：货仓存货与邻城胃口取小（货物不够像样的货单，商队不出城） */
+export function sisTradeUnitsOf(goods: number, cityPop: number): number {
+  return Math.max(SIS_TRADE_MIN, Math.min(SIS_TRADE_UNITS, Math.min(goods, Math.round(12 + cityPop / 40))));
+}
 
 /** v21 垃圾产量（件/分）：住宅按人口、商业按营收、工业按污染规模推导；
  *  环卫设施自产归零（自家的账自家清）；市政厅/公园等 pop=0 公共设施天然零产。 */
@@ -865,6 +876,13 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 1, val: (_s, t) => (t.zooGot.length >= 1 ? 1 : 0) },
   { id: 'zoo9', name: '万兽来朝', desc: '集齐全部 9 种动物住户（冬来企鹅夏来锦鲤，镇园之宝大熊猫要评级 ≥80 且游客 ≥80 才点头 —— 图鉴集齐之日，全城游园）', icon: 'paw',
     goal: 9, val: (_s, t) => t.zooGot.length },
+  // ---- v37 千里比邻 ----
+  { id: 'sisfriend', name: '千里结好', desc: '与任一邻城好感达到 60，正式结为姊妹之城（互市添交情、患难见真情 —— 编年史会记下盟书落笔的这一天）', icon: 'flag',
+    goal: SIS_FRIEND, val: s => s.sisRelMax },
+  { id: 'sisaid3', name: '雪中送炭', desc: '累计援助邻城 3 次（邻城遭灾会遣使求援 —— 顶栏「盟」案头急件，援银发得快，交情长得深）', icon: 'heart',
+    goal: 3, val: s => s.sisAidN },
+  { id: 'sis3', name: '广结善缘', desc: '三座邻城好感尽数达到 80（互市、赠礼、援助都能处长交情 —— 三城歃血为盟之日，四方商旅闻风而至）', icon: 'people',
+    goal: SIS_N, val: s => s.sisHiN },
   // ---- v17 城市编年史 ----
   { id: 'chron60', name: '汗青永续', desc: '编年史累计记下 60 笔城市纪事（开埠/时代跃迁/事件/科技/节庆/法令/里程碑皆入册）', icon: 'book',
     goal: 60, val: (_s, t) => t.chron.total },
@@ -1054,6 +1072,11 @@ export type QS = {
   operas: number; expos: number; cultShops: number;
   // ---- v32 滨水都市 ----
   wfN: number; wfRes: number; marinas: number;
+  // ---- v37 千里比邻 ----
+  sisTradeN: number;   // 累计互市次数
+  sisAidN: number;     // 累计援助邻城次数
+  sisRelMax: number;   // 邻城好感最高值（结好成就口径）
+  sisHiN: number;      // 好感 ≥80 的邻城数（盟誓成就口径）
   // ---- v19 污染空间化 ----
   smogTiles: number; smogBad: number; smogRes: number; ecotowers: number;
   // ---- v20 电网空间化 ----
@@ -1251,6 +1274,9 @@ export const QUESTS: Quest[] = [
   // ---- v35 百兽之园 ----
   { id: 'zoo3', title: '百兽之园', hint: '建成动物园并迎来 3 位动物住户（需先研究「城市名片」；巡查员定期进园评估 —— 吸引力与评级越高住户来得越勤，冬季企鹅最爱来、镇园之宝大熊猫要高评级才点头；顶栏「兽」指标翻物种图鉴）', goal: 3,
     val: s => (s.zoos > 0 ? Math.min(3, s.zooN) : 0), rG: 520, rXp: 220 },
+  // ---- v37 千里比邻 ----
+  { id: 'sis1', title: '千里比邻', hint: '与邻城完成 1 次互市（市政厅 LV2 起通商：顶栏「盟」开姊妹城市面板，商队带货去邻城换银钱 —— 货仓先攒够 6 件货，交情随商路一路生长）', goal: 1,
+    val: s => s.sisTradeN, rG: 160, rXp: 80 },
 ];
 
 // ------------------------------------------------------------
@@ -1385,6 +1411,8 @@ export type EconView = {
     k: number;            // 镇园之宝游客乘数
   };
   zoos: number; zooN: number; zooAt: number; zooHap: number; zooK: number;
+  // ---- v37：千里比邻（姊妹城市）----
+  sis: SisView;
   // ---- v19：污染空间化 ----
   smogTiles: number;                // 雾霾格数（浓度 ≥45）
   smogBad: number;                  // 重污染格数（浓度 ≥75）
@@ -1453,6 +1481,27 @@ export type EconView = {
 };
 
 export type HistPoint = { t: number; pop: number; coins: number; net: number; hap: number };
+
+/** v37 姊妹城市视图（面板数据源） */
+export type SisView = {
+  on: boolean;                       // 通商已开通（市政厅 LV2 起）
+  lv: number;                        // 通商门槛等级
+  cities: Array<{
+    id: string; name: string; mayor: string; trait: string; style: string; emblem: string;
+    pop: number; rating: number; rel: number; band: string;
+    cd: number;                      // 互市冷却剩余（游戏时；0 = 可发商队）
+    gain: number;                    // 按当前货仓可赚概算（G）
+    units: number;                   // 本次可出货件数
+    bonded: boolean;                 // 已结为姊妹之城
+  }>;
+  req: null | {                      // 邻城求援待办（案头急件）
+    id: string; name: string; mayor: string;
+    text: string; ttl: number;       // 剩余处理时限（游戏时）
+  };
+  tradeN: number;                    // 累计互市次数
+  aidN: number;                      // 累计援助次数
+  sworn: boolean;                    // 三城已歃血为盟
+};
 
 // ------------------------------------------------------------
 // 经营引擎
@@ -1627,6 +1676,29 @@ export class Tycoon {
   zooGot: string[] = [];
   /** 动物园落成纪事（只写一次） */
   zooSeen = false;
+
+  // ---- v37：千里比邻（姊妹城市）----
+  /** 三座邻城（newGame 首个 tick 补建；旧档 resume 缺省补建） */
+  sisCities: SisterCity[] = [];
+  /** 邻城成长 / 月评步进时刻（游戏时） */
+  private sisGrowAt = SIS_ROLL_GAP;
+  /** 下次邻城事件 roll 时刻（游戏时） */
+  private sisEvtAt = SIS_EVT_GAP + 6;
+  /** 邻城求援待办（null = 无；到期不答 = 婉拒） */
+  sisReq: null | { id: string; text: string; expire: number } = null;
+  /** 各城互市冷却至的游戏时（下标对应 sisCities） */
+  private sisTradeAt: number[] = [0, 0, 0];
+  /** 累计互市 / 援助次数（成就与任务口径） */
+  sisTradeN = 0;
+  sisAidN = 0;
+  /** 已结好（好感 ≥60）的邻城 id —— 盟书只签一次 */
+  private sisBond = new Set<string>();
+  /** 三城歃血为盟（好感全部 ≥80）只记一次 */
+  private sisSworn = false;
+  /** 月评中已首次超越的邻城 id（名声在外只写一次） */
+  private sisBeat = new Set<string>();
+  /** 上次邻城驰援本城的游戏时（防连发） */
+  private sisSupAt = -999;
 
   // ---- v11：出口市场（随行就市 / 惜售囤货）----
   /** 出口市价系数（0.55..1.55；1 = 基准价；随机游走 + 均值回归） */
@@ -2530,6 +2602,10 @@ export class Tycoon {
       stadiums, lgPre, lgTourK, lgComK, lgW: this.lgW,
       // ---- v35 百兽之园 ----
       zoos, zooN: this.zooGot.length, zooAt: zooB.at, zooHap: zooB.hap, zooK: zooB.tourK,
+      // ---- v37 千里比邻 ----
+      sisTradeN: this.sisTradeN, sisAidN: this.sisAidN,
+      sisRelMax: this.sisCities.length ? Math.max(...this.sisCities.map(c => c.rel)) : 0,
+      sisHiN: this.sisCities.filter(c => c.rel >= SIS_SWORN).length,
       // ---- v33 经济周期 ----
       cycIdx: Math.round(this.cycIdx), cycPhase: this.cycPhase, cycHap,
       cycComK, cycTourK, cycIndK, cycMigK,
@@ -3288,6 +3364,207 @@ export class Tycoon {
     return true;
   }
 
+  // ---------------- v37：千里比邻（姊妹城市） ----------------
+
+  /** 邻城缺席时补建（newGame / 旧档 resume 首个 tick 共用；同档不重建） */
+  private sisEnsure(): void {
+    if (this.sisCities.length) return;
+    this.sisCities = genSisters();
+    this.sisGrowAt = this.gHours + SIS_ROLL_GAP;
+    this.sisEvtAt = this.gHours + SIS_EVT_GAP + 6;
+    this.sisTradeAt = [0, 0, 0];
+    this.msg?.('开埠即有三座邻城与您隔野相望 —— 顶栏「盟」打开姊妹城市，遣使互市、广结善缘');
+  }
+
+  /** 每帧心跳：待办过期 / 邻城成长月评 / 事件 roll（tick 调用） */
+  private stepSisters(): void {
+    this.sisEnsure();
+    // 求援待办过期：久候无音 = 婉拒（使者悻悻而归）
+    if (this.sisReq && this.gHours >= this.sisReq.expire) {
+      const c = this.sisCities.find(x => x.id === this.sisReq!.id);
+      if (c) c.rel = clampRel(c.rel + SIS_DECLINE_REL);
+      this.msg?.(`邻城使者久候无音，悻悻而归 —— ${c?.name ?? '邻城'}的市长有些不快`);
+      this.sisReq = null;
+    }
+    if (this.gHours < this.sisGrowAt) return;
+    this.sisGrowAt += SIS_ROLL_GAP;
+    // 邻城成长：人口缓增 / 评级漂移；月评张榜：评级首超邻城名声在外
+    const myRating = this.snap?.rating ?? 0;
+    for (const c of this.sisCities) {
+      c.pop = Math.max(60, Math.round(c.pop * (1 + 0.005 + Math.random() * 0.008)));
+      c.rating = Math.max(30, Math.min(95, c.rating + (Math.random() - 0.48) * 3));
+      if (!this.sisBeat.has(c.id) && myRating > c.rating && myRating > 0) {
+        this.sisBeat.add(c.id);
+        this.addXp(25);
+        this.chron.write('event', 'good', 'medal', '名声在外',
+          `月评张榜：本城评级首次超过${c.name} —— 四野商旅口中，这座城的名声一天响过一天。`, this.gHours);
+        this.msg?.(`✦ 月评张榜：本城评级首次超过${c.name}！`);
+        this.sfx?.('bell');
+      }
+    }
+    // 邻城事件：求援 / 赠礼 / 来访
+    if (this.gHours < this.sisEvtAt) return;
+    this.sisEvtAt += SIS_EVT_GAP * (0.5 + Math.random());
+    this.rollSisters();
+  }
+
+  /** 邻城事件抽取（互斥：待办未决不来新使） */
+  private rollSisters(): void {
+    if (this.sisReq) return;
+    const c = this.sisCities[(Math.random() * this.sisCities.length) | 0];
+    if (!c) return;
+    const kind = rollSisEvent(c.rel);
+    if (!kind) return;
+    if (kind === 'aid') {
+      const cal = SIS_CALAMITIES[(Math.random() * SIS_CALAMITIES.length) | 0];
+      this.sisReq = {
+        id: c.id,
+        text: `${cal}。市长${c.mayor}遣使来借粮借银，使者已在堂外候着`,
+        expire: this.gHours + SIS_REQ_TTL,
+      };
+      this.sfx?.('quest');
+      this.msg?.(`邻城急报：${c.name}遭了灾 —— 顶栏「盟」看个究竟（${SIS_REQ_TTL} 游戏时内须作答）`);
+      return;
+    }
+    if (kind === 'gift') {
+      const g = 60 + Math.round(c.pop / 8);
+      this.coins += g;
+      c.rel = clampRel(c.rel + 1);
+      this.chron.write('event', 'good', 'mail', '邻城赠礼',
+        `${c.name}的商队捎来一车土产，附市长${c.mayor}亲笔短笺：「小城薄礼，聊表邻里之谊。」`, this.gHours);
+      this.msg?.(`✦ ${c.name}遣使赠礼：土产变卖入库 +${g}G（好感 +1）`);
+      this.sfx?.('bell');
+      return;
+    }
+    // 来访：代表团进城参观（幸福小振）；已在进行中的民心增益不覆盖
+    if (2 >= this.docHap) { this.docHap = 2; this.docHapLeft = 90; }
+    this.chron.write('event', 'info', 'people', '邻城来访',
+      `${c.name}代表团来城参观两日，市长${c.mayor}的亲随在本市街巷里转了个遍，回去少不了要夸上一番。`, this.gHours);
+    this.msg?.(`· ${c.name}代表团来访：全城尽地主之谊（民心 +2 · 90 秒）`);
+    this.sfx?.('bell');
+  }
+
+  /** 互市：商队带货去邻城换银钱（LV2 起；有冷却；交情越深与邻城行情越好单价越高） */
+  tradeWith(id: string): boolean {
+    const i = this.sisCities.findIndex(c => c.id === id);
+    if (i < 0) return false;
+    const c = this.sisCities[i];
+    if (this.level < SIS_LV) return false;
+    if (this.gHours < this.sisTradeAt[i]) return false;   // 商队还在路上
+    const units = sisTradeUnitsOf(Math.floor(this.goods), c.pop);
+    if (Math.floor(this.goods) < units) {
+      this.msg?.(`货仓只存 ${Math.floor(this.goods)} 件货 —— 拿不出像样的货单（起运至少 ${SIS_TRADE_MIN} 件），先攒货`);
+      return false;
+    }
+    const earn = tradeGain(units, c.rel, c.rating);
+    this.goods -= units;
+    this.coins += earn;
+    c.rel = clampRel(c.rel + SIS_TRADE_REL);
+    this.sisTradeAt[i] = this.gHours + SIS_TRADE_CD;
+    this.sisTradeN++;
+    this.sfx?.('coin');
+    this.msg?.(`商队自${c.name}归来：${units} 件货换回 ${earn}G，交情也更进一分（好感 +${SIS_TRADE_REL}）`);
+    this.sisCheckBond(c);
+    return true;
+  }
+
+  /** 求援待办作答（UI 朱批式：准 = 发援银；驳 = 婉拒；府库不足批不动「准」） */
+  decideSis(accept: boolean): boolean {
+    const r = this.sisReq;
+    if (!r) return false;
+    const c = this.sisCities.find(x => x.id === r.id);
+    this.sisReq = null;
+    if (!c) return true;
+    if (!accept) {
+      c.rel = clampRel(c.rel + SIS_DECLINE_REL);
+      this.msg?.(`使者空手而回 —— ${c.name}的市长脸色不大好看（好感 ${SIS_DECLINE_REL}）`);
+      return true;
+    }
+    if (this.coins < SIS_AID_COST) {
+      this.msg?.(`府库不济，${SIS_AID_COST}G 援银实在凑不出 —— 使者只好先回（好感 ${SIS_DECLINE_REL}）`);
+      c.rel = clampRel(c.rel + SIS_DECLINE_REL);
+      return false;
+    }
+    this.coins -= SIS_AID_COST;
+    c.rel = clampRel(c.rel + SIS_AID_REL);
+    this.sisAidN++;
+    this.chron.write('event', 'good', 'heart', '雪中送炭',
+      `${c.name}遭灾，本市援银 ${SIS_AID_COST}G 由快马连夜送去 —— 市长${c.mayor}亲笔修书道谢，两城交情更笃。`, this.gHours);
+    this.msg?.(`✦ 援银已随快马送去${c.name} —— 谢书随后即到（好感 +${SIS_AID_REL}）`);
+    this.sfx?.('cheer');
+    this.sisCheckBond(c);
+    return true;
+  }
+
+  /** 结好 / 盟誓巡检（互市与援助后调用；成就达成由 achv 巡检自行拾取） */
+  private sisCheckBond(c: SisterCity): void {
+    if (c.rel >= SIS_FRIEND && !this.sisBond.has(c.id)) {
+      this.sisBond.add(c.id);
+      this.chron.write('mile', 'good', 'flag', '千里结好',
+        `${c.name}与本城互市经年、往来无隙 —— 市长${c.mayor}与本市共签盟书，自此结为姊妹之城。`, this.gHours);
+      this.msg?.(`✦ ${c.name}与本城正式结为姊妹城市！（好感 ≥${SIS_FRIEND}）`);
+      this.sfx?.('achieve');
+    }
+    if (!this.sisSworn && this.sisCities.length && this.sisCities.every(x => x.rel >= SIS_SWORN)) {
+      this.sisSworn = true;
+      this.chron.write('mile', 'big', 'flag', '广结善缘',
+        `${this.sisCities.map(x => x.name).join('、')} —— 三座邻城尽数与本城歃血为盟。四方商旅闻风而至，这座城的名字，从此在四野之间传扬。`, this.gHours);
+      this.msg?.(`✦ 三座邻城好感尽数过了 ${SIS_SWORN} —— 广结善缘，万邦来朝！`);
+      this.sfx?.('achieve');
+    }
+  }
+
+  /** 本城遭灾：好感 ≥60 的邻城遣使驰援（冷却内不重复；患难见真情但不是无限提款机） */
+  private sisReliefAid(): void {
+    if (this.gHours - this.sisSupAt < SIS_HELP_CD) return;
+    const best = this.sisCities.filter(c => c.rel >= SIS_HELP_REL).sort((a, b) => b.rel - a.rel)[0];
+    if (!best) return;
+    this.sisSupAt = this.gHours;
+    const gain = 60 + Math.round(best.pop / 10);
+    this.coins += gain;
+    best.rel = clampRel(best.rel + 1);
+    this.chron.write('event', 'good', 'mail', '邻邦驰援',
+      `本城遭难之际，${best.name}的赈济车队连夜进城 —— 市长${best.mayor}附信一封：「当年贵城援手，今日理当还席。」`, this.gHours);
+    this.msg?.(`✦ ${best.name}遣使驰援：赈灾银 ${gain}G 连夜入库（患难见真情）`);
+    this.sfx?.('bell');
+  }
+
+  // ---- v37 沙盒 / 测试钩子 ----
+
+  /** 沙盒：设定邻城好感（结好 / 盟誓判定照常走 sisCheckBond） */
+  sisSetRel(id: string, v: number): boolean {
+    const c = this.sisCities.find(x => x.id === id);
+    if (!c) return false;
+    c.rel = clampRel(v);
+    this.sisCheckBond(c);
+    return true;
+  }
+
+  /** 沙盒：强制邻城遭灾求援（与 rollSisters 同一条待办生成路） */
+  sisTestReq(id?: string): boolean {
+    if (!this.sisCities.length || this.sisReq) return false;
+    const c = id
+      ? this.sisCities.find(x => x.id === id)
+      : this.sisCities[(Math.random() * this.sisCities.length) | 0];
+    if (!c) return false;
+    const cal = SIS_CALAMITIES[(Math.random() * SIS_CALAMITIES.length) | 0];
+    this.sisReq = {
+      id: c.id,
+      text: `${cal}。市长${c.mayor}遣使来借粮借银，使者已在堂外候着`,
+      expire: this.gHours + SIS_REQ_TTL,
+    };
+    this.sfx?.('quest');
+    return true;
+  }
+
+  /** 沙盒：邻城成长步进立即执行一次（月评判定同步生效） */
+  sisTestGrow(): void {
+    if (this.gHours >= this.sisGrowAt) return;
+    this.sisGrowAt = this.gHours;
+    this.stepSisters();
+    this.sisEvtAt = this.gHours + 999;   // 顺手关掉事件 roll，避免测试被随机事件搅局
+  }
+
   // ---------------- 每帧心跳 ----------------
 
   tick(dt: number, map: CityMap): void {
@@ -3323,6 +3600,8 @@ export class Tycoon {
     this.stepLeague(dt);
     // v35 百兽之园：开园判定 + 动物巡查入住（物种加成已在 snapOf 生效）
     this.stepZoo();
+    // v37 千里比邻：待办过期 / 邻城成长月评 / 事件 roll（邻城静态数据，无经济乘数）
+    this.stepSisters();
     // 收入 − 维护（G/分 → 按秒累积；可能为负 = 赤字，需拆除减负）
     // 税收 v4：可调税率（0-20%）驱动，高税多金但市民不满
     const tax = this.pop * (this.taxRate / 100) * (this.has('taxref') ? 1.15 : 1) * s.happyMult * s.powerMult;
@@ -3737,6 +4016,9 @@ export class Tycoon {
       this.msg?.(`${pick.name}：${result}`);
     }
 
+    // v37 千里比邻：本城遭难，交情深厚的邻城遣使驰援（患难见真情）
+    if (pick.kind === 'bad') this.sisReliefAid();
+
     // v18 地震次生灾害：过半概率引燃另一处街区（消防队面临的真正考验；事件位有空才烧得起来）
     if (pick.key === 'quake' && this.events.length < 2 &&
         !this.events.some(e => e.key === 'fire') && Math.random() < 0.55) {
@@ -3968,6 +4250,36 @@ export class Tycoon {
       },
       zoos: s?.zoos ?? 0, zooN: this.zooGot.length,
       zooAt: s?.zooAt ?? 0, zooHap: s?.zooHap ?? 0, zooK: s?.zooK ?? 1,
+      // ---- v37：千里比邻 ----
+      sis: {
+        on: this.level >= SIS_LV,
+        lv: SIS_LV,
+        cities: this.sisCities.map((c, i) => {
+          const g0 = Math.floor(this.goods);
+          const units = g0 >= SIS_TRADE_MIN ? sisTradeUnitsOf(g0, c.pop) : 0;   // 不足起运量：概算为 0
+          return {
+            id: c.id, name: c.name, mayor: c.mayor, trait: c.trait, style: c.style, emblem: c.emblem,
+            pop: Math.round(c.pop), rating: Math.round(c.rating), rel: Math.round(c.rel),
+            band: relBand(c.rel),
+            cd: Math.max(0, Math.round((this.sisTradeAt[i] - this.gHours) * 10) / 10),
+            gain: tradeGain(Math.max(0, units), c.rel, c.rating),
+            units: Math.max(0, units),
+            bonded: this.sisBond.has(c.id),
+          };
+        }),
+        req: this.sisReq
+          ? {
+            id: this.sisReq.id,
+            name: this.sisCities.find(x => x.id === this.sisReq!.id)?.name ?? '邻城',
+            mayor: this.sisCities.find(x => x.id === this.sisReq!.id)?.mayor ?? '',
+            text: this.sisReq.text,
+            ttl: Math.max(0, Math.round((this.sisReq.expire - this.gHours) * 10) / 10),
+          }
+          : null,
+        tradeN: this.sisTradeN,
+        aidN: this.sisAidN,
+        sworn: this.sisSworn,
+      },
       // ---- v18：灾害链 ----
       quakes: this.quakes, floods: this.floods,
       levees: s?.levees ?? 0, waterNear: s?.waterNear ?? 0,
@@ -4132,6 +4444,11 @@ export class Tycoon {
     this.lgMood = 0; this.lgMoodT = 0; this.lgFxT = 0; this.lgSeen = false;
     // v35：百兽之园重置（园区未开张 —— 动物园落成后 stepZoo 自动开园）
     this.zooNext = -1; this.zooGot = []; this.zooSeen = false;
+    // v37：千里比邻重置（开埠即有三座邻城 —— 首个 tick 由 sisEnsure 补建并播报）
+    this.sisCities = []; this.sisBond.clear(); this.sisSworn = false; this.sisBeat.clear();
+    this.sisTradeN = 0; this.sisAidN = 0; this.sisSupAt = -999;
+    this.sisReq = null; this.sisTradeAt = [0, 0, 0];
+    this.sisGrowAt = SIS_ROLL_GAP; this.sisEvtAt = SIS_EVT_GAP + 6;
     // v29：市长公署重置（首份公文在开埠首日清晨 8 点）
     this.docPending = null; this.docNext = DOC_FIRST_H; this.docN = 0;
     this.docUsed = []; this.docLog = []; this.docHap = 0; this.docHapLeft = 0;
@@ -4228,6 +4545,17 @@ export class Tycoon {
       zooT: Math.round(this.zooNext * 10) / 10,
       zooG: this.zooGot.join(','),
       zooS: this.zooSeen ? 1 : 0,
+      // v37：千里比邻档（邻城全量 / 盟书 / 计数 / 冷却 / 待办 —— 旧档缺省 → resume 补建三邻城）
+      sis: this.sisCities.length ? this.sisCities : undefined,
+      sisB: [...this.sisBond],
+      sisSw: this.sisSworn ? 1 : 0,
+      sisBT: [...this.sisBeat],
+      sisT: this.sisTradeN, sisA: this.sisAidN,
+      sisSup: Math.round(this.sisSupAt * 10) / 10,
+      sisTr: this.sisTradeAt.map(v => Math.round(v * 10) / 10),
+      sisReq: this.sisReq ?? undefined,
+      sisGA: Math.round(this.sisGrowAt * 10) / 10,
+      sisEA: Math.round(this.sisEvtAt * 10) / 10,
       // v29：市长公署档（待批公文 / 已批数 / 用过池 / 朱批存档 / 民心增益）
       docP: this.docPending, docNext: this.docNext, docN: this.docN,
       docUsed: this.docUsed, docLog: this.docLog,
@@ -4403,6 +4731,30 @@ export class Tycoon {
       ? d.zooG.split(',').filter(id => ZOO_SPECIES.some(x => x.id === id))
       : [];
     this.zooSeen = d.zooS === 1;
+    // v37：千里比邻档恢复（旧档无字段 → 首个 tick 由 sisEnsure 补建三邻城）
+    this.sisCities = Array.isArray(d.sis)
+      ? (d.sis as SisterCity[]).filter(c => c && typeof c.id === 'string'
+        && typeof c.name === 'string' && Number.isFinite(Number(c.rel))).slice(0, SIS_N)
+      : [];
+    this.sisBond = new Set<string>(((d.sisB as string[]) ?? []).filter(x => typeof x === 'string'));
+    this.sisSworn = d.sisSw === 1;
+    this.sisBeat = new Set<string>(((d.sisBT as string[]) ?? []).filter(x => typeof x === 'string'));
+    this.sisTradeN = Math.max(0, Math.floor(Number(d.sisT) || 0));
+    this.sisAidN = Math.max(0, Math.floor(Number(d.sisA) || 0));
+    this.sisSupAt = Number.isFinite(Number(d.sisSup)) ? Number(d.sisSup) : -999;
+    this.sisTradeAt = Array.isArray(d.sisTr) && d.sisTr.length === SIS_N
+      ? (d.sisTr as number[]).map(v => Math.max(0, Number(v) || 0))
+      : [0, 0, 0];
+    this.sisReq = (d.sisReq && typeof d.sisReq === 'object'
+      && typeof (d.sisReq as { id?: unknown }).id === 'string')
+      ? {
+        id: String((d.sisReq as { id: string }).id),
+        text: String((d.sisReq as { text?: unknown }).text ?? '邻城遣使来借粮借银').slice(0, 120),
+        expire: Number((d.sisReq as { expire?: unknown }).expire) || 0,
+      }
+      : null;
+    this.sisGrowAt = Number(d.sisGA) > 0 ? Number(d.sisGA) : this.gHours + SIS_ROLL_GAP;
+    this.sisEvtAt = Number(d.sisEA) > 0 ? Number(d.sisEA) : this.gHours + SIS_EVT_GAP + 6;
     // v29：市长公署档恢复（旧档无字段 → 首份公文从下一个清晨八点起算；在批公文原样回到案头）
     this.docN = Math.max(0, Math.floor(Number(d.docN) || 0));
     this.docNext = Number(d.docNext) > 0 ? Number(d.docNext) : nextMorningH(this.gHours);
