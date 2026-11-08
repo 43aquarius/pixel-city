@@ -2420,6 +2420,30 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 .pxc.m .mt-cards { grid-template-columns: repeat(2, 1fr); }
 .pxc.m .mh-cover { margin-left: 0; width: 100%; }
 
+/* ============ v42 空港之城（机场与航线） ============ */
+.pxc-air { width: min(560px, calc(100vw - 24px)); }
+.air-chip.air-on { border-color: #3D78B8; background: #E8F1FA; }
+.air-chip.air-on, .air-chip.air-on b, .air-chip.air-on i { color: #1F5E96; }
+/* 航线表：每条一行（在飞高亮 · 待开通灰置） */
+.air-lines { border: 1px solid #B8CCE0; border-radius: 4px; padding: 6px 8px; margin-bottom: 10px; background: #F4F8FC; }
+.air-line {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 2px; font-size: 12px; color: #7a828c;
+}
+.air-line + .air-line { border-top: 1px dashed #D5E2EF; }
+.air-line b { color: #8A93A0; font-size: 12px; }
+.air-line img { opacity: 0.45; filter: grayscale(0.6); }
+.air-line.open { color: #33506e; }
+.air-line.open b { color: #1F5E96; }
+.air-line.open img { opacity: 1; filter: none; }
+.air-line .al-cond { margin-left: auto; font-size: 10.5px; color: #98a2ad; }
+.air-line.open .al-cond { color: #2E7D4F; font-weight: 700; }
+/* 商圈进度条（天青渐变，与通勤圈青碧错开色相） */
+.mt-bar.air i { background: linear-gradient(90deg, #6FA8DC, #3D78B8); }
+/* 空港卡数字天青系 */
+.pxc-air .ms-card b { color: #1F5E96; }
+.pxc-air .ms-card span { color: #55707f; }
+
 /* ============ v17 城市编年史 ============ */
 .pxc-chron { width: min(560px, calc(100vw - 24px)); }
 

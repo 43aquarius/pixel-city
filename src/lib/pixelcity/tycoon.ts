@@ -30,6 +30,12 @@ import {
 import {
   METRO_EARN_K, metroNetOf, metroCovered, metroBonusOf, metroHapOf, type MetroNode,
 } from './metro';
+import {
+  AIR_SERVE_R, AIR_EARN_K, AIR_NOISE_R, AIR_NOISE_K, AIR_NOISE_MAX, AIR_TOUR_K,
+  AIR_EXP_T, AIR_BONUS, AIR_ROUTE_N, AIR_FLIGHT_H, AIR_PAX_GOAL, AIR_FAR_POP, AIR_SIS_REL,
+  AIR_ROUTE_DEFS, airRouteOpen, paxPerFlight, airTourMult, airCovered, airNoisy,
+  noiseHapOf, airExpT, type AirAnchor,
+} from './aviation';
 
 export const CHUNK = 16;                 // 领地块边长（格）
 export const CHUNKS = 16;                // 256 / 16 = 16×16 块领地
@@ -479,6 +485,8 @@ export const ECON: Record<string, EconDef> = {
   // ---- v41 轨道时代：地下铁 ----
   metrodepot: D(2400, 7, { power: 10, amenity: 2, upk: 5.5 }),   // 全线锚点：车库/调度塔/检修坑，落成记入编年史
   metrostop: D(520, 7, { power: 4, amenity: 1, upk: 1.8 }),      // 接入车辆段才通车（通勤圈加成在 snapOf 结算）
+  // ---- v42 鲲鹏展翅：空港之城 ----
+  airport: D(3200, 8, { power: 18, amenity: 5, upk: 6, sp: 1.5, cul: 3 }),   // 对外门户：航站楼/塔台/停机坪，落成记入编年史（商圈与噪音圈在 snapOf 结算）
   cellmast: D(120, 7, { power: 2, upk: 0.25 }),
   // ---- 水务（v6：供水覆盖指数）----
   watertower: D(130, 2, { power: 2, amenity: 1, upk: 0.75, waterR: 9, waterCap: 260 }),
@@ -774,6 +782,24 @@ export const EVENT_TPLS: EventTpl[] = [
     note: '早晚高峰客流涌进沿街铺面：商业 ×1.1 —— 地铁把半座城送到了店门口',
     w: s => (s.metroConn >= 2 ? 6 : 0),
   },
+  // ---- v42 空港之城：航班延误 / 旅游包机 ----
+  {
+    key: 'flightdelay', name: '航班延误', kind: 'bad', dur: 35, hap: -2,
+    mult: { tour: 0.8 },
+    note: '雷雨搅了航班时刻表：游客 ×0.8（滞留的旅客在候机厅里打起了长牌）',
+    w: s => (s.airN > 0 ? 6 : 0),   // 有机场才有的新烦恼
+  },
+  {
+    key: 'charter', name: '旅游包机', kind: 'good', dur: 50, hap: 2,
+    mult: { tour: 1.5 },
+    note: '旅行社团包了一整架客机：游客 ×1.5（一整机的游客直奔景点）',
+    w: s => (s.airN > 0 && s.pop >= 100 ? 7 : 0),
+    fire: (t) => {
+      const gain = Math.round(60 + t.pop * 0.15);
+      t.coins += gain;
+      return `包机到港！机场服务费 +${gain}G`;
+    },
+  },
   // ---- v10 旅游事件 ----
   {
     key: 'tourseason', name: '旅游旺季', kind: 'good', dur: 70, hap: 2,
@@ -977,6 +1003,13 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 8, val: s => s.metroConn },
   { id: 'metroC', name: '轨道之城', desc: '人口 ≥100 且通勤覆盖 ≥90% —— 地下铁把半城人送到了家门口（接入站 5 格通勤圈，覆盖详情见城市志「轨道交通」行）', icon: 'medal',
     goal: 90, val: (s, t) => (t.pop >= 100 ? s.metroCover : 0) },
+  // ---- v42 空港之城三枚 ----
+  { id: 'air1', name: '首航起飞', desc: '空港航站楼落成且首条航线通航（交通 +8 · 游客 ×1.12 起 —— 编年史记下这一天）', icon: 'plane',
+    goal: 1, val: s => (s.airN > 0 && s.airRoutes >= 1 ? 1 : 0) },
+  { id: 'airP', name: '吞吐长虹', desc: '累计旅客吞吐 5000 人次（每条航线 8 小时一班，班班满客 —— 航线越多吞吐越旺）', icon: 'plane',
+    goal: AIR_PAX_GOAL, val: s => s.paxTotal },
+  { id: 'airR', name: '国际枢纽', desc: '在飞航线 ≥4 条（基础线 + 三条姊妹城国际线，或再加远洋枢纽线 —— 外交与门户互相成就）', icon: 'road',
+    goal: 4, val: s => s.airRoutes },
   { id: 'hall8', name: '满堂生辉', desc: '八大奖项各评出至少一次（劳动模范/见义勇为/仁心仁术/平安卫士/绿茵之星/杏坛春晖/寿星高照/创业先锋 —— 消防局医院交番学校体育场在城，才评得动相应的奖）', icon: 'star',
     goal: HALL_AWARDS.length, val: s => s.hallAwardsN },
   { id: 'hall12', name: '群星璀璨', desc: '累计评出 12 届城市之光（一季一届风雨无阻 —— 双雕像台前掌声一季比一季响，光荣榜写满一整年的星光）', icon: 'medal',
@@ -1052,6 +1085,7 @@ export const TECH_GATE: Record<string, string> = {
   hall: 'brand',          // v40 名人堂：荣誉殿堂需名声在外（城市名片）
   metrodepot: 'struct',   // v41 地铁车辆段：隧道与车库是大土木（建筑工程学）
   metrostop: 'struct',    // v41 地铁站：与车辆段同源「建筑工程学」
+  airport: 'struct',      // v42 空港航站楼：跑道与航站楼同是大土木（建筑工程学）
   opera: 'brand',         // v31 大剧院：文旅地标同源「城市名片」
   expo: 'struct',         // v31 会展中心：大跨度拱棚需「建筑工程学」
   dock: 'logistic',
@@ -1200,6 +1234,16 @@ export type QS = {
   metroOut: number;    // 通勤圈外建筑栋数（商铺+住宅）
   metroBonus: number;  // 交通加成（接入站×5，两站起算至多 +20）
   metroHap: number;    // 通勤圈住宅幸福加成（每栋 +1.2，至多 +7）
+  // ---- v42 空港之城 ----
+  airN: number;        // 空港航站楼座数
+  airRoutes: number;   // 在飞航线数（任务/成就口径）
+  paxTotal: number;    // 累计旅客吞吐（人次；成就口径，随档保存）
+  flights: number;     // 累计航班架次
+  airCover: number;    // 空港商圈覆盖率 %（圈内商铺+住宅 / 全部）
+  airIn: number;       // 商圈内建筑栋数（商铺+住宅）
+  airOut: number;      // 商圈外建筑栋数（商铺+住宅）
+  noiseRes: number;    // 噪音圈住宅栋数（幸福惩罚源）
+  airTourK: number;    // 游客乘数（1 + 0.12×航线；游客结算链尾）
   // ---- v19 污染空间化 ----
   smogTiles: number; smogBad: number; smogRes: number; ecotowers: number;
   // ---- v20 电网空间化 ----
@@ -1412,6 +1456,8 @@ export const QUESTS: Quest[] = [
   // ---- v41 轨道时代 ----
   { id: 'metro1', title: '轨道时代', hint: '建造地铁车辆段并接入 2 座地铁站成线通车（需先研究「建筑工程学」）：车辆段是全线锚点，车站沿切比雪夫 12 格逐站续链（站与站手拉手也能远距离延伸）—— 顶栏「轨」看线网状态', goal: 1,
     val: s => (s.metroDepots > 0 && s.metroConn >= 2 ? 1 : 0), rG: 480, rXp: 220 },
+  { id: 'air1', title: '临空而起', hint: '建成空港航站楼（需先研究「建筑工程学」）：航站楼落成即开邻省都会线 —— 顶栏「航」看航线状态；姊妹城好感到位各开花一条国际航线，人口 ≥500 再开远洋枢纽线', goal: 1,
+    val: s => (s.airN > 0 ? 1 : 0), rG: 560, rXp: 260 },
 ];
 
 // ------------------------------------------------------------
@@ -1594,6 +1640,20 @@ export type EconView = {
     out: number;                // 通勤圈外建筑栋数（商铺+住宅）
     bonus: number;              // 交通加成（接入站×5，两站起算至多 +20）
     hap: number;                // 通勤圈住宅幸福加成（每栋 +1.2 至多 +7）
+  };
+  // ---- v42：空港之城（机场与航线）----
+  air: {
+    n: number;                  // 航站楼座数（0 = 空港尚未破土）
+    routes: number;             // 在飞航线数
+    flown: number;              // 累计航班架次
+    pax: number;                // 累计旅客吞吐（人次）
+    paxPer: number;             // 每班旅客数（随人口增长）
+    cover: number;              // 空港商圈覆盖率 %
+    in: number;                 // 商圈内建筑栋数（商铺+住宅）
+    out: number;                // 商圈外建筑栋数（商铺+住宅）
+    noise: number;              // 噪音圈住宅栋数（幸福惩罚源）
+    tourK: number;              // 游客乘数（1 + 0.12×航线）
+    lines: Array<{ id: string; name: string; open: boolean; cond: string }>;  // 航线表
   };
   // ---- v19：污染空间化 ----
   smogTiles: number;                // 雾霾格数（浓度 ≥45）
@@ -2081,6 +2141,34 @@ export class Tycoon {
   /** 未接入车站提示（一档一次，全部接入后复位） */
   private metroWarned = false;
 
+  // ---- v42：空港之城（机场与航线）----
+  /** 空港商圈建筑锤点集合（商铺+住宅；引擎商圈渲染 / 收入加成源） */
+  airField = new Set<number>();
+  /** 商圈外建筑锤点集合（商铺+住宅；统计口径） */
+  airMissField = new Set<number>();
+  /** 噪音圈住宅锤点集合（引擎噪音层渲染 / 幸福惩罚源） */
+  noiseField = new Set<number>();
+  /** 空港场缓存版本（仅随 map.version 变化重算：摆盘即重算） */
+  private airVer = -1;
+  /** 航站楼锚点（ensureAir 回写；飞机起降渲染源） */
+  private airAnchor: AirAnchor | null = null;
+  /** 航站楼座数（事件权重 / 任务口径） */
+  private airCount = 0;
+  /** 累计航班架次（随档保存） */
+  flights = 0;
+  /** 累计旅客吞吐（人次；随档保存） */
+  paxTotal = 0;
+  /** 航班倒计时（秒；到点起飞一架） */
+  private flightTimer = 0;
+  /** 航站楼落成纪事旗（只写一次；随档保存） */
+  private airSeen = false;
+  /** 首航纪事旗（只写一次；随档保存） */
+  private firstFlightSeen = false;
+  /** 各航线开通纪事旗（只写一次；随档保存） */
+  private routeSeen: boolean[] = [false, false, false, false, false];
+  /** 噪音提醒旗（一档一次，缓解后复位） */
+  private noiseWarned = false;
+
   hasOrd(id: string): boolean { return this.ords.has(id); }
 
   /** v16 节日筹备费（随人口规模上浮，人口越多排场越大） */
@@ -2306,6 +2394,8 @@ export class Tycoon {
     this.ensureMed(map);
     // v41：地铁线网场先行（通勤圈收入幸福加成 / 站标渲染 / 统计判定源；仅随摆盘重算）
     this.ensureMetro(map);
+    // v42：空港商圈与噪音场先行（商圈商铺收入 / 噪音住宅幸福惩罚 / 飞机渲染源；仅随摆盘重算）
+    this.ensureAir(map);
     // v31：文化街区覆盖场先行（大剧院商圈商铺收入加成 / 统计判定源；仅随摆盘重算）
     this.ensureCult(map);
     // v32：滨水价值场先行（商铺收入加成 / 住宅幸福加成 / 统计判定源；随摆盘与涂地形重算）
@@ -2341,6 +2431,7 @@ export class Tycoon {
     // v41：地铁累计器（通勤圈内/外建筑栋数，商铺+住宅）
     let metroIn = 0, metroOut = 0;
     let metroDepots = 0, metroStops = 0;   // v41 地铁车辆段 / 车站座数
+    let airports = 0;                      // v42 空港航站楼座数（门户开关）
     // v10：货物 / 旅游累计器
     let goodsP = 0, goodsC = 0, goodsCapV = GOODS_BASE_CAP;
     let hotelBeds = 0, attract = 0, ports = 0;
@@ -2397,10 +2488,12 @@ export class Tycoon {
         const wfK = this.nearWater.has(map.idx(o.ax, o.ay)) ? (this.marinaN > 0 ? WF_EARN_K_MARINA : WF_EARN_K) : 1;
         // v41 地铁通勤圈：站口出就是店门口，客流坐地铁来（收入 ×1.06）
         const metroK = this.metroField.has(map.idx(o.ax, o.ay)) ? METRO_EARN_K : 1;
+        // v42 空港商圈：机场就在隔壁，外来的客商与赶飞机的旅人都在这条街（收入 ×1.08）
+        const airK = this.airField.has(map.idx(o.ax, o.ay)) ? AIR_EARN_K : 1;
         // v41 通勤圈判定（圈内 → 站口客流；圈外 → 统计口径）
         if (this.metroField.has(map.idx(o.ax, o.ay))) metroIn++; else metroOut++;
         // v20 电网：断电商铺收入归零（黑暗的店谁也进不去）；未断电才计入
-        if (!offGrid) earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK * wasteK * secK * fireK * medK * cultK * wfK * metroK;
+        if (!offGrid) earnCom += (e?.earn ?? 0) * (brandB ? 1.2 : 1) * smogK * wasteK * secK * fireK * medK * cultK * wfK * metroK * airK;
         // v36 医疗判定（覆盖 → 员工顾客小病不出街区；盲区 → 疫病偏爱的巷子）
         if (this.medField.has(map.idx(o.ax, o.ay))) medIn++; else medOut++;
         // v23 巡防判定（覆盖 → 安心做买卖；盲区 → 失窃目标池）
@@ -2438,6 +2531,7 @@ export class Tycoon {
         if (o.id === 'hall') halls++;                       // v40 名人堂（开评开关）
         if (o.id === 'metrodepot') metroDepots++;           // v41 地铁车辆段（线网锚点）
         if (o.id === 'metrostop') metroStops++;             // v41 地铁站
+        if (o.id === 'airport') airports++;                 // v42 空港航站楼（门户开关）
       }
       // v6 水务设施：登记覆盖圆心（半径含足迹）
       if (e?.waterR) {
@@ -2671,9 +2765,11 @@ export class Tycoon {
     const tramBonus = tramStops >= 2 ? Math.min(12, tramStops * 3) : 0;
     // v41 地铁交通加成：接入站×5，两站起算至多 +20
     const metroBonus = metroBonusOf(this.metroConnN);
+    // v42 空港交通加成：机场大巴与高速引道（机场落成 +8）
+    const airBonus = airports > 0 ? AIR_BONUS : 0;
     const trafficIdx = buildings > 0
       ? Math.max(0, Math.min(100, Math.round(
-          roadsTotal * 100 / (buildings * 3) * multTraffic) + busBonus + tramBonus + metroBonus))
+          roadsTotal * 100 / (buildings * 3) * multTraffic) + busBonus + tramBonus + metroBonus + airBonus))
       : 100;
 
     // 智慧：教育容量覆盖人口的比率（图书馆 / 学校 / 博物馆…）
@@ -2757,13 +2853,21 @@ export class Tycoon {
     const medHap = Math.min(MED_HAP_MAX, Math.round(medMissRes * 1.4));
     // v41 通勤圈住宅幸福：出门就是地铁站（每栋 +1.2，至多 +7）
     const metroHap = metroHapOf(this.metroResN);
+    // v42 噪音圈住宅幸福惩罚：起降航线正下方（每栋 −0.8，至多 −5）
+    const noiseRes = this.noiseField.size;
+    const airNoise = noiseHapOf(noiseRes);
+    // v42 航线开通判定：机场在城是总开关；姊妹城线看好感、远洋线看人口
+    const sisRel = this.sisCities.map(c => c.rel);
+    const routeOpen = AIR_ROUTE_DEFS.map(d => airRouteOpen(d, airports > 0, pop, sisRel));
+    const routesOpen = routeOpen.filter(Boolean).length;
+    const airTourK = airTourMult(routesOpen);
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
       0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap + this.docHap + cycHap + lgHap + zooB.hap + relicB.hap + (this.hallHapT > 0 ? HALL_HAP : 0)
       + (operas > 0 ? 2 : 0)
       + Math.min(WF_HAP_MAX, wfRes)
-      + (tramStops >= 2 ? 2 : 0) + metroHap - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap - medHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区/v36 医疗盲区扣减；v29 朱批民心增益；v31 大剧院全市幸福 +2；v32 滨水住宅每栋 +1；v33 市况荣枯 ±2/0/+1/+3；v34 比赛日沸腾 + 赛后情绪；v35 物种住户幸福（企鹅冬季加成）
+      + (tramStops >= 2 ? 2 : 0) + metroHap - airNoise - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap - medHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区/v36 医疗盲区扣减；v29 朱批民心增益；v31 大剧院全市幸福 +2；v32 滨水住宅每栋 +1；v33 市况荣枯 ±2/0/+1/+3；v34 比赛日沸腾 + 赛后情绪；v35 物种住户幸福（企鹅冬季加成）；v42 噪音圈住宅扣减
     const happyMult = 0.6 + happiness / 125;
 
     // ---- v10 旅游：景点吸引力 × 文化/幸福 × 季节/天气 → 游客（酒店床位为接待上限）----
@@ -2772,7 +2876,7 @@ export class Tycoon {
     const appeal = attract * (0.6 + 0.4 * cultureIdx / 100) * (0.5 + 0.5 * happiness / 100);
     const capVisit = hotelBeds * 2 + 30;
     const tourists = attract < 1 ? 0
-      : Math.min(capVisit, appeal * seasonTourK * weatherTourK * multTour * cycTourK * lgTourK * zooB.tourK * relicB.tourK);   // v33：市况荣枯也牵动游客的出行计划；v34：比赛日客队球迷远道而来；v35：镇园之宝的招牌效应；v38：国宝镇馆的招牌效应
+      : Math.min(capVisit, appeal * seasonTourK * weatherTourK * multTour * cycTourK * lgTourK * zooB.tourK * relicB.tourK * airTourK);   // v33：市况荣枯也牵动游客的出行计划；v34：比赛日客队球迷远道而来；v35：镇园之宝的招牌效应；v38：国宝镇馆的招牌效应；v42：航线直通远方，客源不再只靠口碑
     const tourIdx = Math.max(0, Math.min(100, Math.round(attract * 2.4)));
 
     // ---- v10 货物供应链：工业产货 → 零售上货 → 港口外销 ----
@@ -2785,9 +2889,9 @@ export class Tycoon {
     const goodsIdx = Math.round(100 * goodsSupply);
     const goodsNet = goodsProd - goodsCons;
     earnCom *= goodsMult;
-    // v11 出口：货仓 >80% 且产大于销 → 港口 2.2 / 铁路 4.0 件/分·座（惜售囤货时暂停外销）
-    const expThroughput = 2.2 * ports + 4.0 * railHubs;
-    const exportRate = (ports + railHubs) > 0 && goodsNet > 0 && stockRatio >= 0.8 && !this.exportHold
+    // v11 出口：货仓 >80% 且产大于销 → 港口 2.2 / 铁路 4.0 / 空港 3.0 件/分·座（惜售囤货时暂停外销）
+    const expThroughput = 2.2 * ports + 4.0 * railHubs + airExpT(airports);
+    const exportRate = (ports + railHubs + airports) > 0 && goodsNet > 0 && stockRatio >= 0.8 && !this.exportHold
       ? Math.min(goodsNet, expThroughput) : 0;
     // v11 出口单价：基准 × 市价 × 事件 × 冶金加成
     const expPrice = EXPORT_PRICE * this.mkt * multExp * (this.has('metal') ? 1.25 : 1);
@@ -2858,6 +2962,12 @@ export class Tycoon {
       metroDepots, metroStops, metroConn: this.metroConnN,
       metroCover: (metroIn + metroOut) > 0 ? Math.round(100 * metroIn / (metroIn + metroOut)) : 100,
       metroIn, metroOut, metroBonus, metroHap,
+      // ---- v42 空港之城 ----
+      airN: airports, airRoutes: routesOpen, paxTotal: this.paxTotal, flights: this.flights,
+      airCover: (this.airField.size + this.airMissField.size) > 0
+        ? Math.round(100 * this.airField.size / (this.airField.size + this.airMissField.size)) : 100,
+      airIn: this.airField.size, airOut: this.airMissField.size,
+      noiseRes, airTourK,
       // ---- v33 经济周期 ----
       cycIdx: Math.round(this.cycIdx), cycPhase: this.cycPhase, cycHap,
       cycComK, cycTourK, cycIndK, cycMigK,
@@ -2921,6 +3031,45 @@ export class Tycoon {
     this.metroMissField = miss;
     this.metroStopField = new Set(connStops.map(p => map.idx(p.x, p.y)));
     this.metroResN = resN;
+  }
+
+  // ---------------- v42：空港之城（机场与航线） ----------------
+
+  /** 重算空港商圈与噪音场（版本缓存：仅随 map.version 变化重算：摆盘即重算）。
+   *  Pass A：登记航站楼锚点（多座取首座作锚 —— 空港是一座城的门户，通常只建一座）；
+   *  Pass B：商圈半径 7 格内的商铺与住宅 → airField（商铺收入 ×1.08），
+   *          圈外 → airMissField（统计口径；商圈只 buff 不打折，圈外照旧营生）；
+   *  Pass C：噪音圈半径 4 格内的住宅 → noiseField（幸福 −0.8/栋，至多 −5）——
+   *          商圈要近、噪音要远，机场选址是一道权衡题 */
+  private ensureAir(map: CityMap): void {
+    if (map.version === this.airVer) return;
+    this.airVer = map.version;
+    let anchor: AirAnchor | null = null;
+    this.airCount = 0;
+    for (const o of map.objs.values()) {
+      if (o.id === 'airport') {
+        this.airCount++;
+        if (!anchor) anchor = { x: o.ax, y: o.ay };
+      }
+    }
+    this.airAnchor = anchor;
+    const served = new Set<number>();
+    const miss = new Set<number>();
+    const noisy = new Set<number>();
+    for (const o of map.objs.values()) {
+      const cat = defById(o.id).cat;
+      if (cat !== 'com' && cat !== 'res') continue;
+      const i = map.idx(o.ax, o.ay);
+      if (anchor) {
+        if (airCovered(o.ax, o.ay, anchor)) served.add(i); else miss.add(i);
+        if (cat === 'res' && airNoisy(o.ax, o.ay, anchor)) noisy.add(i);
+      } else {
+        miss.add(i);
+      }
+    }
+    this.airField = served;
+    this.airMissField = miss;
+    this.noiseField = noisy;
   }
 
   // ---------------- v19：污染空间场（工业之殇 · 绿水青山） ----------------
@@ -4160,6 +4309,67 @@ export class Tycoon {
     } else if (stops === conn) this.metroWarned = false;
   }
 
+  // ---------------- v42：空港之城（机场与航线）心跳 ----------------
+
+  /** v42 空港之城：航站楼落成纪事 + 首航纪事 + 航线开通纪事 + 航班起降计数 + 噪音提醒
+   *  （商圈收入 ×1.08 / 噪音幸福惩罚 / 游客乘数 / 交通加成已在 snapOf 生效） */
+  private stepAviation(): void {
+    const airN = this.snap?.airN ?? 0;
+    const routes = this.snap?.airRoutes ?? 0;
+    // 航站楼落成 → 破土纪事（只写一次；拆楼复建不重记）
+    if (airN > 0 && !this.airSeen) {
+      this.airSeen = true;
+      this.chron.write('mile', 'good', 'plane', '空港破土',
+        '城郊的推土机推出了第一条跑道，航站楼的玻璃幕墙在阳光下亮成一面镜子 —— 这座城从此有了自己的机场，天上的航线正等着铺出去。', this.gHours);
+      this.msg?.('空港航站楼落成 —— 邻省都会线即将首航，顶栏「航」看航线状态');
+      this.sfx?.('metro');
+      this.flightTimer = 6;   // 首航六秒后起飞（破土即见首航，仪式感拉满）
+    }
+    // 首航起飞（基础线开通；只记一次）
+    if (airN > 0 && routes >= 1 && !this.firstFlightSeen) {
+      this.firstFlightSeen = true;
+      this.chron.write('mile', 'big', 'plane', '首航起飞',
+        '第一架客机从跑道尽头拉起，掠过全城上空 —— 航线直通邻省都会：游客 ×1.12 起、空运出口舱位已开，这座城的大门从陆路和水路，开到了天上。', this.gHours);
+      this.msg?.('✦ 首航起飞 —— 游客 ×1.12 · 空运出口 +3 件/分 · 交通 +8');
+      this.sfx?.('metro');
+    }
+    // 航线开通纪事（每条只记一次；姊妹城线在结好那日开花）
+    if (airN > 0) {
+      const sisRel = this.sisCities.map(c => c.rel);
+      AIR_ROUTE_DEFS.forEach((d, k) => {
+        if (this.routeSeen[k]) return;
+        if (!airRouteOpen(d, true, this.pop, sisRel)) return;
+        this.routeSeen[k] = true;
+        if (d.kind === 'base') return;   // 基础线已由首航纪事覆盖
+        const name = d.kind === 'sister'
+          ? `${this.sisCities[k - 1]?.name ?? '姊妹城'}线`
+          : '远洋枢纽线';
+        this.chron.write('mile', 'good', 'plane', `新航线开通：${name}`,
+          d.kind === 'sister'
+            ? `与${this.sisCities[k - 1]?.name ?? '姊妹城'}正式结好，国际航线随即通航 —— 两座城从此隔空相望，商旅与书信坐飞机往来，情分越飞越近。`
+            : '城市够大、客人够多，远洋枢纽线通航 —— 从此这座城的航班图上，有了跨越大洋的航线。',
+          this.gHours);
+        this.msg?.(`✦ 新航线开通：${name} —— 游客乘数 +12%/条 · 空运舱位同步加宽`);
+        this.sfx?.('metro');
+      });
+    }
+    // 航班起降（每 AIR_FLIGHT_H 游戏时一班×航线数；游戏时 1 = 60 实秒的节奏按 tick 秒计）
+    if (airN > 0 && routes > 0) {
+      this.flightTimer -= 1;
+      if (this.flightTimer <= 0) {
+        this.flightTimer = AIR_FLIGHT_H * 60 / Math.max(1, routes);   // 航线越多航班越密（总吞吐按航线数放大）
+        this.flights++;
+        this.paxTotal += paxPerFlight(this.pop);
+      }
+    }
+    // 噪音提醒（一档一次，缓解后复位）
+    const noiseN = this.snap?.noiseRes ?? 0;
+    if (noiseN > 0 && !this.noiseWarned) {
+      this.noiseWarned = true;
+      this.msg?.(`${noiseN} 栋住宅落在了起降航线正下方 —— 噪音圈住宅幸福 −0.8/栋，机场选址也是一道权衡题`);
+    } else if (noiseN === 0) this.noiseWarned = false;
+  }
+
   /** 沙盒/测试：直读线网（返回接入车站数与通勤圈规模；不改状态） */
   metroTest(): { conn: number; in: number; out: number; hap: number } {
     return {
@@ -4167,6 +4377,17 @@ export class Tycoon {
       in: this.metroField.size,
       out: this.metroMissField.size,
       hap: metroHapOf(this.metroResN),
+    };
+  }
+
+  /** 沙盒/测试：直读空港（返回航站楼座数/商圈规模/噪音住宅数/航线数；不改状态） */
+  airTest(): { n: number; in: number; out: number; noise: number; routes: number } {
+    return {
+      n: this.airCount,
+      in: this.airField.size,
+      out: this.airMissField.size,
+      noise: this.noiseField.size,
+      routes: this.snap?.airRoutes ?? 0,
     };
   }
 
@@ -4211,6 +4432,8 @@ export class Tycoon {
     this.stepHall();
     // v41 轨道时代：车辆段落成纪事 + 首线通车纪事 + 未接入提示（通勤圈加成已在 snapOf 生效）
     this.stepMetro();
+    // v42 空港之城：落成/首航/航线纪事 + 航班起降计数 + 噪音提醒（商圈/噪音/游客/交通已在 snapOf 生效）
+    this.stepAviation();
     // v37 千里比邻：待办过期 / 邻城成长月评 / 事件 roll（邻城静态数据，无经济乘数）
     this.stepSisters();
     // 收入 − 维护（G/分 → 按秒累积；可能为负 = 赤字，需拆除减负）
@@ -4316,6 +4539,8 @@ export class Tycoon {
       fireOut: s.fireOut,                      // v24：消防盲区心声（火险保贵的街区）
       medOut: s.medMissRes,                    // v36：医疗盲区心声（看病要跨半座城）
       metro: s.metroConn,                      // v41：地铁接入车站数（通车心声）
+      air: s.airRoutes,                        // v42：在飞航线数（通航心声）
+      airNoise: s.noiseRes,                    // v42：噪音圈住宅栋数（噪音心声）
       cyc: s.cycPhase,                         // v33：市况相位心声（衰退抱怨生意淡 / 繁荣夸市道）
       lg: this.lgMoodT > 0 ? (this.lgMood > 0 ? 2 : 3) : s.lgPre,   // v34：绿茵心声（比赛日预热 / 赢球余温 / 输球低落）
       zooN: s.zooN,                            // v35：动物园住户数（住户在园时市民谈动物）
@@ -4949,6 +5174,31 @@ export class Tycoon {
         bonus: s?.metroBonus ?? 0,
         hap: s?.metroHap ?? 0,
       },
+      // ---- v42：空港之城 ----
+      air: {
+        n: s?.airN ?? 0,
+        routes: s?.airRoutes ?? 0,
+        flown: this.flights,
+        pax: this.paxTotal,
+        paxPer: paxPerFlight(this.pop),
+        cover: s?.airCover ?? 100,
+        in: s?.airIn ?? 0,
+        out: s?.airOut ?? 0,
+        noise: s?.noiseRes ?? 0,
+        tourK: s?.airTourK ?? 1,
+        lines: AIR_ROUTE_DEFS.map((d, k) => {
+          const open = (s?.airN ?? 0) > 0 && (d.kind === 'base'
+            || (d.kind === 'sister' && (this.sisCities[k - 1]?.rel ?? 0) >= AIR_SIS_REL)
+            || (d.kind === 'far' && this.pop >= AIR_FAR_POP));
+          const cond = d.kind === 'base' ? '航站楼落成即开'
+            : d.kind === 'sister' ? `姊妹城好感 ≥${AIR_SIS_REL}（当前 ${(this.sisCities[k - 1]?.rel ?? 0)}）`
+            : `人口 ≥${AIR_FAR_POP}（当前 ${Math.floor(this.pop)}）`;
+          const name = d.kind === 'base' ? '邻省都会线'
+            : d.kind === 'sister' ? `${this.sisCities[k - 1]?.name ?? '姊妹城'}线`
+            : '远洋枢纽线';
+          return { id: d.id, name, open, cond };
+        }),
+      },
       // ---- v18：灾害链 ----
       quakes: this.quakes, floods: this.floods,
       levees: s?.levees ?? 0, waterNear: s?.waterNear ?? 0,
@@ -5130,6 +5380,12 @@ export class Tycoon {
     this.metroField = new Set(); this.metroMissField = new Set(); this.metroStopField = new Set();
     this.metroVer = -1; this.metroConnN = 0; this.metroResN = 0;
     this.metroDepotSeen = false; this.metroLineSeen = false; this.metroPain = false; this.metroWarned = false;
+    // v42：空港之城重置（航站楼未落成 —— 落成后 stepAviation 自动纪事）
+    this.airField = new Set(); this.airMissField = new Set(); this.noiseField = new Set();
+    this.airVer = -1; this.airAnchor = null; this.airCount = 0;
+    this.flights = 0; this.paxTotal = 0; this.flightTimer = 0;
+    this.airSeen = false; this.firstFlightSeen = false;
+    this.routeSeen = [false, false, false, false, false]; this.noiseWarned = false;
     // v29：市长公署重置（首份公文在开埠首日清晨 8 点）
     this.docPending = null; this.docNext = DOC_FIRST_H; this.docN = 0;
     this.docUsed = []; this.docLog = []; this.docHap = 0; this.docHapLeft = 0;
@@ -5258,6 +5514,12 @@ export class Tycoon {
       mtD: this.metroDepotSeen ? 1 : 0,
       mtL1: this.metroLineSeen ? 1 : 0,
       mtP: this.metroPain ? 1 : 0,
+      // v42：空港之城档（纪事旗 + 航班累计 —— 旧档缺省 → 空港未破土；商圈与噪音为派生场随图重算）
+      airD: this.airSeen ? 1 : 0,
+      airF1: this.firstFlightSeen ? 1 : 0,
+      airR: this.routeSeen.map(x => x ? 1 : 0),
+      airFl: this.flights,
+      airPax: Math.round(this.paxTotal),
       // v29：市长公署档（待批公文 / 已批数 / 用过池 / 朱批存档 / 民心增益）
       docP: this.docPending, docNext: this.docNext, docN: this.docN,
       docUsed: this.docUsed, docLog: this.docLog,
@@ -5536,6 +5798,16 @@ export class Tycoon {
     this.metroLineSeen = d.mtL1 === 1;
     this.metroPain = d.mtP === 1;
     this.metroWarned = false;
+    // v42：空港之城档恢复（旧档无字段 → 空港未破土；商圈与噪音为派生场，
+    // 落成后首个 tick 由 ensureAir 随图重算；纪事旗与航班累计随档恢复）
+    this.airSeen = d.airD === 1;
+    this.firstFlightSeen = d.airF1 === 1;
+    this.routeSeen = Array.isArray(d.airR) && d.airR.length === AIR_ROUTE_N
+      ? d.airR.map((x: unknown) => x === 1) : [false, false, false, false, false];
+    this.flights = Math.max(0, Math.floor(Number(d.airFl) || 0));
+    this.paxTotal = Math.max(0, Number(d.airPax) || 0);
+    this.flightTimer = 0;
+    this.noiseWarned = false;
     // v29：市长公署档恢复（旧档无字段 → 首份公文从下一个清晨八点起算；在批公文原样回到案头）
     this.docN = Math.max(0, Math.floor(Number(d.docN) || 0));
     this.docNext = Number(d.docNext) > 0 ? Number(d.docNext) : nextMorningH(this.gHours);

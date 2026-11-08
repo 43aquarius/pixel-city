@@ -39,6 +39,7 @@ const ICON_NAMES = [
   'spr', 'sum', 'fall', 'win', 'drop', 'bridge',
   'camera', 'box', 'fire', 'shield', 'mail', 'fest', 'scroll', 'ball',
   'paw', 'rabbit', 'goat', 'deer', 'peacock', 'flamingo', 'redpanda', 'penguin', 'koi', 'panda',
+  'plane',
 ];
 
 type Phase = 'loading' | 'ready';
@@ -271,7 +272,7 @@ export default function PixelCity() {
   /** v27 移动端卷目横条：左右渐隐暗示（滚动感知） */
   const [cwNavMore, setCwNavMore] = useState({ l: false, r: false });
   const cwNavScrollRef = useRef<HTMLDivElement | null>(null);
-  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'zoo' | 'chron' | 'gov' | 'sis' | 'news' | 'hall' | 'metro'>('none');
+  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'zoo' | 'chron' | 'gov' | 'sis' | 'news' | 'hall' | 'metro' | 'air'>('none');
   const [econ, setEcon] = useState<EconView | null>(null);
   /** v39 城市日报：当前翻阅的过刊下标（0 = 最新一期） */
   const [npSel, setNpSel] = useState(0);
@@ -635,7 +636,7 @@ export default function PixelCity() {
     }
   }, [say]);
 
-  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'zoo' | 'chron' | 'gov' | 'sis' | 'news' | 'hall' | 'metro') => {
+  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'zoo' | 'chron' | 'gov' | 'sis' | 'news' | 'hall' | 'metro' | 'air') => {
     if (m === 'save') {
       setSlotMeta([0, 1, 2].map(i => Engine.slotMeta(i)));
     }
@@ -1318,6 +1319,12 @@ export default function PixelCity() {
                   : '轨道交通：建成地铁车辆段（需「建筑工程学」）并沿链接入地铁站 —— 两站成线通车，通勤圈商铺与住宅同沾其利'}>
                 <img src={iu('bolt')} alt="" /><b>{econ.metro.conn > 0 ? econ.metro.conn : '—'}</b><i>轨</i>
               </button>
+              <button className={`chip air-chip${econ.air.n > 0 ? ' air-on' : ''}`} onClick={() => openModal('air')}
+                title={econ.air.n > 0
+                  ? `空港航线：在飞 ${econ.air.routes}/${econ.air.lines.length} 条 · 累计 ${econ.air.flown} 架次 · 旅客 ${econ.air.pax} 人次 · 商圈覆盖 ${econ.air.cover}% · 游客 ×${econ.air.tourK.toFixed(2)}${econ.air.noise > 0 ? ` · 噪音圈 ${econ.air.noise} 栋` : ''}`
+                  : '空港航线：建成空港航站楼（需「建筑工程学」）即开邻省都会线 —— 姊妹城好感到位各开花一条国际航线，游客与空运双旺'}>
+                <img src={iu('plane')} alt="" /><b>{econ.air.routes > 0 ? econ.air.routes : '—'}</b><i>航</i>
+              </button>
               <button className={`chip gov${econ.gov.pending ? ' has' : ''}`} onClick={() => openModal('gov')}
                 title={econ.gov.pending
                   ? `市长公署：${econ.gov.pending.from}呈「${econ.gov.pending.title}」待您朱批 —— 每道批注都有代价与回响，并记入编年史「政令」卷`
@@ -1877,6 +1884,11 @@ export default function PixelCity() {
                       <td>{econ.metro.conn >= 2 ? `线网运转中（车辆段 ${econ.metro.depots} · 接入车站 ${econ.metro.conn}/${econ.metro.stops} · 覆盖 ${econ.metro.cover}% · 交通 +${econ.metro.bonus}${econ.metro.hap > 0 ? ` · 幸福 +${econ.metro.hap}` : ''}）`
                         : econ.metro.depots > 0 ? `车辆段已落成 —— 沿链 12 格布站，已接入 ${econ.metro.conn} 座（两站成线通车）`
                         : '无 —— 建成车辆段并沿链接入地铁站开通地铁（需「建筑工程学」）'}</td>
+                    </tr>
+                    <tr className={econ.air.n > 0 ? 'g' : ''}>
+                      <td>空港</td>
+                      <td>{econ.air.n > 0 ? `空港运转中（在飞航线 ${econ.air.routes}/${econ.air.lines.length} · 累计 ${econ.air.flown} 架次 · 旅客 ${econ.air.pax} 人次 · 商圈覆盖 ${econ.air.cover}% · 游客 ×${econ.air.tourK.toFixed(2)}${econ.air.noise > 0 ? ` · 噪音圈住宅 ${econ.air.noise} 栋` : ''}，顶栏「航」翻空港航线）`
+                        : '无 —— 建成空港航站楼即开邻省都会线（需「建筑工程学」；姊妹城好感到位各开花一条国际航线）'}</td>
                     </tr>
                     <tr className={econ.ferries > 0 ? 'g' : ''}>
                       <td>航运</td>
@@ -2561,6 +2573,75 @@ export default function PixelCity() {
                     接入站以 5 格通勤圈服务商铺与住宅（收入 +6% · 幸福 +1.2/栋）——
                     未接入的车站只是摆设；孤立车站上会出现「未接入」提示，
                     信号故障时列车限速缓行（交通 −15%），通勤高峰沿线商铺客流更旺
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* v42 空港航线模态（机场与航线） */}
+      {modal === 'air' && econ && (
+        <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
+          <div className="pxc-modal pxc-air" role="dialog" aria-label="空港航线">
+            <header>
+              空 港 航 线
+              <button className="pxc-x" onClick={() => setModal('none')} aria-label="关闭">×</button>
+            </header>
+            <div className="pxc-body">
+              {econ.air.n === 0 ? (
+                <div className="mt-empty">
+                  <div className="me-t">空港尚未破土</div>
+                  <div className="me-d">建成一座<b>空港航站楼</b>（需研究「建筑工程学」）即开<b>邻省都会线</b> ——
+                    每条航线 8 小时一班，航班起降计入旅客吞吐：
+                    游客 ×1.12 起（每条航线再 +12%）、空运出口 +3 件/分、交通 +8、
+                    半径 7 格空港商圈商铺收入 +8%；
+                    但半径 4 格起降航线正下方的住宅要忍受噪音（幸福 −0.8/栋，至多 −5）——
+                    商圈要近、噪音要远，选址是一道权衡题；
+                    姊妹城好感到位各开花一条国际航线，人口 ≥500 再开远洋枢纽线</div>
+                </div>
+              ) : (
+                <>
+                  {/* 航线状态头 */}
+                  <div className="mt-head">
+                    <span className="mh-prog">航站楼 <b>{econ.air.n}</b> 座 · 在飞航线 <b>{econ.air.routes}</b>/{econ.air.lines.length} 条</span>
+                    <span className={`mh-net${econ.air.routes > 0 ? ' on' : ''}`}>{econ.air.routes > 0 ? '航班运转中 —— 客机起降如常' : '航站楼已落成 —— 首条航线即将开航'}</span>
+                    <span className="mh-cover">商圈覆盖 <b>{econ.air.cover}</b>%（圈内 {econ.air.in} 栋 · 圈外 {econ.air.out} 栋）</span>
+                  </div>
+                  {/* 商圈进度条 */}
+                  <div className="mt-bar air"><i style={{ width: `${Math.min(100, econ.air.cover)}%` }} /></div>
+                  {/* 航线表 */}
+                  <div className="air-lines" role="list" aria-label="航线表">
+                    {econ.air.lines.map(l => (
+                      <div key={l.id} role="listitem" className={`air-line${l.open ? ' open' : ''}`}>
+                        <img src={iu('plane')} alt="" width={14} height={14} />
+                        <b>{l.name}</b>
+                        <span className="al-cond">{l.open ? '在飞' : l.cond}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {/* 空港四卡 */}
+                  <div className="mt-cards">
+                    <div className="ms-card" title="累计航班架次（每条航线 8 小时一班，航线越多航班越密）">
+                      <b>{econ.air.flown}</b><span>累计架次</span>
+                    </div>
+                    <div className="ms-card" title="累计旅客吞吐（人次）—— 成就「吞吐长虹」的口径">
+                      <b>{econ.air.pax}</b><span>旅客吞吐</span>
+                    </div>
+                    <div className="ms-card" title={`每班旅客数随城市规模增长（当前 ${econ.air.paxPer} 人/班）`}>
+                      <b>{econ.air.paxPer}</b><span>人 / 班</span>
+                    </div>
+                    <div className={`ms-card${econ.air.noise > 0 ? ' warn' : ''}`} title="起降航线正下方 4 格内的住宅 —— 幸福 −0.8/栋（至多 −5），机场选址是一道权衡题">
+                      <b>{econ.air.noise}</b><span>噪音圈住宅</span>
+                    </div>
+                  </div>
+                  <div className="mt-note">
+                    空港是城市的对外门户：游客 ×{econ.air.tourK.toFixed(2)}（每条航线 +12%）、
+                    空运出口 +3 件/分·座、交通 +8、商圈商铺收入 +8% ——
+                    姊妹城结好即开花国际航线（千里比邻与鲲鹏展翅互相成就）；
+                    航班延误时游客打折扣，旅游包机到港游客 ×1.5；
+                    噪音圈上的住宅幸福受损，机场尽量建在城郊
                   </div>
                 </>
               )}
@@ -3697,6 +3778,7 @@ export default function PixelCity() {
                     <tr><td>报馆</td><td>顶栏「闻」指标开<b>城市日报</b>：建成报馆（需「义务教育」）即创刊，每七游戏日一期 —— 头版头条自动选编年史大事，大事出号外加印；市况栏报景气、气象栏报季节、来信选登摘市长信箱、广告栏随商户开门念词、「城南旧事」连载八回轮刊登；发行量随人口与识字率浮动，卖报所得进府库；报馆被拆则停刊，过刊保留，复建自动复刊</td></tr>
                     <tr><td>名人堂</td><td>顶栏「光」指标开<b>荣誉殿堂</b>：建成名人堂（需「城市名片」）即开榜，每逢换季整点评出一颗「本季城市之光」—— 八大奖项按城市状态加权（消防局在城才评得动见义勇为、赢球才有人捧绿茵之星），获奖市民名镌光荣榜、心情大振，全城幸福 +1；授勋大事入编年史，报馆在城还能上号外；拆堂停评光荣榜保留，复建自动复评</td></tr>
                     <tr><td>地铁</td><td>顶栏「轨」指标开<b>轨道交通</b>：建成地铁车辆段（需「建筑工程学」）作全线锚点 —— 地铁站沿切比雪夫 12 格逐站续链（站与站手拉手也能远距离延伸），两站接入即通车；接入站以 5 格通勤圈服务商铺与住宅（收入 +6% · 幸福 +1.2/栋），每接入站交通 +5 至多 +20；未接入的车站只是摆设，施工期车马为患的城通车那日编年史补写「通途重开」</td></tr>
+                    <tr><td>空港</td><td>顶栏「航」指标开<b>空港航线</b>：建成空港航站楼（需「建筑工程学」）即开邻省都会线 —— 每条航线 8 小时一班，游客 ×1.12 起（每条航线再 +12%）、空运出口 +3 件/分、交通 +8、商圈（半径 7 格）商铺收入 +8%；姊妹城好感 ≥60 各开花一条国际航线，人口 ≥500 再开远洋枢纽线；但半径 4 格噪音圈住宅幸福 −0.8/栋（至多 −5）—— 商圈要近、噪音要远，机场选址是一道权衡题</td></tr>
                     <tr><td>节庆</td><td>顶栏「庆」指标开<b>城市节庆</b>：随季节举办樱花祭/花火大会/丰收节/暖灯节（市政厅 LV3 起），90 秒全城增益 —— 春天樱吹雪加密、夏天夜空花火、秋天金叶满街、冬天孔明灯升空；节日会写进市民大事记，累计 8 场解锁成就「节庆之都」、四季各办一场解锁「四季轮庆」</td></tr>
                     <tr><td>引导</td><td>首次进入经营模式自动展开新手引导横幅（修路→建房→迎市民→开业→看面板→认市民）；随时可跳过，也可在这里点「重新查看新手引导」重看</td></tr>
                     <tr><td>音效</td><td>顶栏喇叭图标：音效开关 + 主音量滑杆（本地记忆）；建造/金币/灾害警报/警笛/电车铃/成就凯旋各有专属 8-bit 音色</td></tr>

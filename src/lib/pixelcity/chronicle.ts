@@ -236,6 +236,7 @@ export const EV_ICON: Record<string, string> = {
   tourseason: 'people', badreview: 'star', bullmkt: 'coin', tradewar: 'box',
   quake: 'land', flood: 'drop',   // v18 灾害链
   crime: 'shield',                // v23 治安
+  flightdelay: 'plane', charter: 'plane',   // v42 空港
 };
 
 // ------------------------------------------------------------

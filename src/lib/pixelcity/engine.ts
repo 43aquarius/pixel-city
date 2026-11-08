@@ -122,6 +122,9 @@ export class Engine {
   // ---- v7 飞艇：复古观光飞艇定时巡航（高空慢速横穿 · 地面投影随行）----
   private blimp: { x: number; y: number; dx: number; dy: number } | null = null;
   private blimpTimer = 40;
+  // ---- v42 空港之城：客机起降（进场 → 机场上空 → 爬升离场；高度 V 形变化）----
+  private plane: { x: number; y: number; dx: number; dy: number; alt: number; out: boolean } | null = null;
+  private planeTimer = 30;
   // 拆除尘土 / 金币浮字（细节反馈）
   private puffs: Array<{ x: number; y: number; t0: number; big: boolean }> = [];
   private floats: Array<{ x: number; y: number; t0: number; text: string; color: string }> = [];
@@ -1473,6 +1476,106 @@ export class Engine {
     }
   }
 
+  // ---------------- v42 空港之城：客机起降 ----------------
+
+  /** 客机状态机：空港在城时定时起降 —— 从领地外进场（高度渐降），
+   *  掠过机场上空后爬升离场；起降间隔随航班节奏（50-110 秒一班） */
+  private stepPlane(dt: number): void {
+    const n = this.map.n;
+    const anch = this.tycoon?.['airAnchor'] ?? null;
+    if (!this.plane) {
+      this.planeTimer -= dt;
+      if (this.planeTimer > 0 || !anch) return;
+      // 从随机一侧边缘飞入，直指机场上空
+      const SP = 3.2;                                   // 航速（格/秒）
+      let x: number, y: number;
+      if (Math.random() < 0.5) {
+        const fromLeft = Math.random() < 0.5;
+        x = fromLeft ? -14 : n + 14;
+        y = Math.max(8, Math.min(n - 8, anch.y + (Math.random() - 0.5) * 30));
+      } else {
+        const fromTop = Math.random() < 0.5;
+        y = fromTop ? -14 : n + 14;
+        x = Math.max(8, Math.min(n - 8, anch.x + (Math.random() - 0.5) * 30));
+      }
+      const len = Math.hypot(anch.x - x, anch.y - y) || 1;
+      this.plane = { x, y, dx: (anch.x - x) / len * SP, dy: (anch.y - y) / len * SP, alt: 118, out: false };
+      return;
+    }
+    const anchor = anch;
+    if (!anchor) return;
+    const p = this.plane;
+    p.x += p.dx * dt;
+    p.y += p.dy * dt;
+    // 高度剖面：进场渐降（118→46）→ 掠过机场上空 → 离场爬升（→150）
+    if (!p.out) {
+      p.alt = Math.max(46, p.alt - 22 * dt);
+      const d = Math.hypot(p.x - anchor.x, p.y - anchor.y);
+      if (d < 2.2) p.out = true;                        // 过顶即拉起
+    } else {
+      p.alt = Math.min(150, p.alt + 26 * dt);
+    }
+    if (p.x < -24 || p.y < -24 || p.x > n + 24 || p.y > n + 24) {
+      this.plane = null;
+      this.planeTimer = 50 + Math.random() * 60;        // 50-110 秒一班
+    }
+  }
+
+  /** 客机绘制：白机身（逐行椭圆）+ 主翼 + 尾翼 + 舷窗带 + 航行灯 + 地面投影（随高度缩放） */
+  private drawPlane(ctx: CanvasRenderingContext2D, now: number): void {
+    const p = this.plane;
+    if (!p) return;
+    const n = this.map.n;
+    const anchor = this.tycoon?.['airAnchor'];
+    const sx = this.w2sx(p.x, p.y);
+    const gy = this.w2sy(p.x, p.y) + this.groundHpx(p.x, p.y);
+    if (sx < -120 || sx > this.lw + 120 || gy < -220 || gy > this.lh + 220) return;
+    // 地面投影（高度越高投影越小越淡）
+    const shA = 0.2 * Math.max(0.25, 1 - p.alt / 150);
+    ctx.globalAlpha = shA;
+    ctx.fillStyle = '#0B0F24';
+    ctx.beginPath();
+    ctx.ellipse(Math.round(sx), Math.round(gy + 4), 13, 5, 0, 0, 6.3);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    const bx = Math.round(sx), by = Math.round(gy - p.alt);
+    const fx = (p.dx >= 0 ? 1 : -1) * (Math.abs(p.dx) >= Math.abs(p.dy) ? 1 : 0.5);
+    // 机身：逐行椭圆（白主色 + 底部灰腹 + 驾驶舱深头）
+    for (let yy = -4; yy <= 4; yy++) {
+      const wHalf = Math.round(Math.sqrt(Math.max(0, 1 - (yy / 5) ** 2)) * 21);
+      if (wHalf <= 1) continue;
+      let col = '#F4F2E8';
+      if (yy >= 3) col = '#CFB379';
+      else if (yy <= -3) col = '#FFFFFF';
+      ctx.fillStyle = col;
+      ctx.fillRect(bx - wHalf, by + yy, wHalf * 2, 1);
+    }
+    // 机头（行进方向：深色驾驶舱窗 + 鼻锥）
+    const nx = Math.round(fx * 20);
+    ctx.fillStyle = '#85878F';
+    ctx.fillRect(bx + nx - 2, by - 1, 4, 3);
+    ctx.fillStyle = '#23252E';
+    ctx.fillRect(bx + nx - 4, by - 1, 2, 2);
+    // 舷窗带（中段一排蓝点）
+    ctx.fillStyle = '#4A86C8';
+    for (let xx = -14; xx <= 14; xx += 3) ctx.fillRect(bx + xx, by - 2, 1, 1);
+    // 主翼（横穿机身中段：白色薄板 + 翼尖航灯）
+    ctx.fillStyle = '#E8DFC8';
+    ctx.fillRect(bx - 9, by + 1, 18, 2);
+    ctx.fillStyle = Math.floor(now / 600) % 2 === 0 ? '#E05548' : '#8A3323';
+    ctx.fillRect(bx - 10, by + 1, 1, 2);
+    // 尾翼（行进反方向：垂直尾翼红板 + 平尾）
+    const tx = -Math.round(fx * 19);
+    ctx.fillStyle = '#B3452E';
+    ctx.fillRect(bx + tx - 1, by - 8, 3, 9);
+    ctx.fillRect(bx + tx - 4, by - 2, 7, 2);
+    // 顶灯频闪（白色）
+    if (Math.floor(now / 2100) % 2 === 0) {
+      ctx.fillStyle = '#F4F2E8';
+      ctx.fillRect(bx + tx + 2, by - 8, 2, 2);
+    }
+  }
+
   /** 飞艇绘制：高空艇身（像素风椭圆 + 红腹带 + 尾翼 + 吊舱）+ 地面投影 */
   private drawBlimp(ctx: CanvasRenderingContext2D, now: number): void {
     const b = this.blimp;
@@ -1605,6 +1708,59 @@ export class Engine {
     }
   }
 
+  // ---------------- v42 空港之城：空港商圈层与噪音圈层 ----------------
+
+  /** v42 空港层：商圈天青光罩（与通勤圈青碧错开色相）+ 噪音圈灰紫淡纹（起降航线正下方） */
+  private drawAirOverlay(ctx: CanvasRenderingContext2D, t: number): void {
+    const eco = this.tycoon;
+    if (!eco) return;
+    const n = this.map.n;
+    // ---- 商圈光罩（天青呼吸：客商旅人在这条街）----
+    for (const i of eco.airField) {
+      const tx = i % n, ty = (i / n) | 0;
+      const sx = this.w2sx(tx, ty);
+      const sy = this.w2sy(tx, ty) + this.hOfs(tx, ty);
+      if (sx < -40 || sx > this.lw + 40 || sy < -56 || sy > this.lh + 40) continue;
+      const br = 0.72 + 0.34 * Math.sin(t / 1150 + (tx * 5 + ty * 2) * 0.8);
+      ctx.fillStyle = `rgba(74,148,214,${(0.4 * br).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.moveTo(sx - 19, sy + 2);
+      ctx.lineTo(sx, sy + 12);
+      ctx.lineTo(sx + 19, sy + 2);
+      ctx.lineTo(sx, sy - 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = `rgba(150,204,244,${(0.24 * br).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.moveTo(sx - 9, sy + 2);
+      ctx.lineTo(sx, sy + 7);
+      ctx.lineTo(sx + 9, sy + 2);
+      ctx.lineTo(sx, sy - 3);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // ---- 噪音圈警示罩（灰紫斜纹淡罩：飞机掠过屋顶的日子）----
+    for (const i of eco.noiseField) {
+      const tx = i % n, ty = (i / n) | 0;
+      const sx = this.w2sx(tx, ty);
+      const sy = this.w2sy(tx, ty) + this.hOfs(tx, ty);
+      if (sx < -40 || sx > this.lw + 40 || sy < -56 || sy > this.lh + 40) continue;
+      const br = 0.6 + 0.4 * Math.sin(t / 980 + (tx * 3 + ty * 7) * 0.9);
+      ctx.fillStyle = `rgba(128,106,156,${(0.36 * br).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.moveTo(sx - 19, sy + 2);
+      ctx.lineTo(sx, sy + 12);
+      ctx.lineTo(sx + 19, sy + 2);
+      ctx.lineTo(sx, sy - 8);
+      ctx.closePath();
+      ctx.fill();
+      // 屋顶小飞机掠影（随呼吸明暗：一竖一横的机形剪影）
+      ctx.fillStyle = `rgba(58,50,80,${(0.62 * br).toFixed(3)})`;
+      ctx.fillRect(sx - 3, sy - 6, 6, 1);
+      ctx.fillRect(sx - 1, sy - 9, 1, 4);
+    }
+  }
+
   cycleZoom(dir: number): void {
     const i = ZOOMS.indexOf(this.zoom);
     const j = Math.max(0, Math.min(ZOOMS.length - 1, i + dir));
@@ -1660,6 +1816,7 @@ export class Engine {
     // v5 天气状态机（雨雪粒子 / 云影 / 色调）+ 经营联动回写
     this.stepWeather(dt / 1000);
     this.stepBlimp(dt / 1000);                   // v7：飞艇巡航
+    this.stepPlane(dt / 1000);                   // v42：客机起降
     if (this.tycoon) {
       this.tycoon.weather = { kind: this.wx.kind, t: this.wx.t };
       this.tycoon.season = this.season;   // v6：季节回写（快照层经济联动）
@@ -2149,12 +2306,16 @@ export class Engine {
     this.drawEduOverlay(ctx, t);
     // ---- v41：地铁通勤圈层（圈内青碧光罩 + 接入站 M 站标脉冲；与学区同层位）----
     this.drawMetroOverlay(ctx, t);
+    // ---- v42：空港层（商圈天青光罩 + 噪音圈灰紫掠影；与通勤圈同层位）----
+    this.drawAirOverlay(ctx, t);
     // ---- v21：垃圾堆积层（清运不到的巷口垃圾成堆；雾霾之下）----
     this.drawWasteOverlay(ctx, t);
     // ---- v19：雾霾层（污染空间场可视化；笼罩建筑，事件特效之下）----
     this.drawSmogOverlay(ctx, t);
     // ---- v7：飞艇巡航（建筑之上 / 云层之下）----
     this.drawBlimp(ctx, t);
+    // ---- v42：客机起降（云层之下 / 天际最高 —— 高度高于飞艇）----
+    this.drawPlane(ctx, t);
     // ---- v5：云影（缓速漂移的大团软影，覆盖一切顶面）----
     this.drawCloudShade(ctx, t);
     // ---- v5：雨天水面涟漪（白点闪斑，贴地）----

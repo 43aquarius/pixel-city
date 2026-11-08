@@ -22,7 +22,7 @@ import {
   genManor, genResTower, genConvenience, genHotel, genMall, genParking,
   genRefinery, genPower, genChurch, genMuseum, genFireStation, genKoban,
   genLighthouse, genCastle, genPoliceHQ, genHydrant, genClinic, genHealthst,
-  genPress, genHall, genMetrostop, genMetrodepot,
+  genPress, genHall, genMetrostop, genMetrodepot, genAirport,
 } from './b_extra';
 import {
   genMachiya, genDanchi, genIzakaya, genCinema, genMarket,
@@ -243,6 +243,8 @@ export const CATALOG: Def[] = [
     gen: genMetrodepot, desc: '锯齿顶车库与调度塔的地下铁中枢：全线网络的锚点 —— 地铁站须沿链接入车辆段（12 格内逐站续链）才能通车；落成记入编年史，施工期路面会拥堵加剧（需「建筑工程学」）' },
   { id: 'metrostop', name: '地铁站', cat: 'civ', w: 2, h: 2, variants: 2, pop: 6,
     gen: genMetrostop, desc: '玻璃雨棚与 M 立柱的地下铁出入口：接入车辆段即通车（两站成线）—— 接入站半径 5 格通勤圈商铺收入 +6%、住宅幸福 +1.2/栋，每接入站交通 +5（至多 +20）；孤立车站只是摆设' },
+  { id: 'airport', name: '空港航站楼', cat: 'civ', w: 3, h: 3, variants: 2, pop: 55,
+    gen: genAirport, desc: '玻璃幕墙航站楼与八角塔台的对外门户：落成即开邻省都会线 —— 半径 7 格空港商圈商铺收入 +8%、游客 ×1.12 起、空运出口 +3 件/分、交通 +8；但半径 4 格起降航线正下方的住宅要忍受噪音（幸福 −0.8/栋，至多 −5）—— 商圈要近、噪音要远，选址是一道权衡题（需「建筑工程学」）' },
   // ---- 剧情（经营模式专属，不可直接建造）----
   { id: 'cityhall', name: '市政厅', cat: 'civ', w: 2, h: 2, variants: 1, pop: 0,
     gen: genCityhall, hidden: true, desc: '城市的心脏：金顶钟塔与旗帜' },

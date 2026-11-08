@@ -960,3 +960,94 @@ export function genMetrodepot(seed: number): BuildResult {
   box(faces, 11.6, 42.8, 14.2, 45.2, 4.6, 6.2, { top: pAwning(P.RFTEAL), right: pAwning(P.RFTEAL), left: pAwning(P.RFTEAL) });
   return { model: buildModel(faces, 48, 48), blinkAt: [41, 43.8, 25.1] };
 }
+
+// ============================================================
+// v42 鲲鹏展翅：空港航站楼（对外门户 —— 商圈 ×1.08 · 噪音圈权衡）
+// ============================================================
+
+/** 登机口引导线（停机坪黄色短标线） */
+const pApronLine: PatFn = (u, v) => {
+  const row = Math.floor(v / 2.4);
+  const seg = row % 2 === 0;
+  if (Math.abs(((u + (seg ? 0 : 1.2)) % 4.8) - 4.8 / 2) < 1.6) return cell(P.PAINTY, 0);
+  return cell(P.RFGRAY, 1);
+};
+
+/** 空港航站楼（3×3）：航站楼主楼（玻璃幕墙两层）+ 入口雨棚 + 塔台 + 停机坪标线 + 停靠客机 */
+export function genAirport(seed: number): BuildResult {
+  const r = mulberry32(seed);
+  const faces: Face[] = [];
+  const band = pick([P.RFTEAL, P.PBLUE], r());     // 变体：楼顶腰线色（航空青 / 藏青）
+  const tail = pick([P.RED, P.RFRED], r());        // 变体：停靠客机尾翼色
+  // ---- 混凝土停机坪（大坪：整块灰坪 + 引导线）----
+  box(faces, 1.2, 1.2, 46.8, 46.8, 0, 0.7, {
+    top: pApronLine, right: pWall(P.SIDE), left: pWall(P.SIDE),
+  });
+  // ---- 航站楼主楼（北侧：两层 —— 下层玻璃幕墙 + 上层白墙横带 + 白平顶）----
+  box(faces, 5, 26, 34, 44, 0.7, 7.5, {
+    right: pGlassCurtain(seed),
+    left: pGlassCurtain(seed ^ 5),
+  });
+  box(faces, 5, 25.4, 34, 44.6, 7.5, 11.5, {
+    right: pWindows(P.CREAM, { seed: seed ^ 3, lit: 0.34, floorH: 4.0, gapX: 3.0 }),
+    left: pWindows(P.CREAM, { seed: seed ^ 9, lit: 0.34, floorH: 4.0, gapX: 3.0 }),
+    top: pFlatRoof(P.WHITE, 1),
+  });
+  box(faces, 4.4, 24.8, 34.6, 45.2, 11.5, 12.3, {
+    top: pWall(band), right: pWall(band), left: pWall(band),
+  });   // 楼顶腰线色带（远处认得出航站楼）
+  // ---- 入口雨棚（+Y 面：挑棚 + 双柱 + 银灰顶）----
+  box(faces, 14.5, 44.8, 27.5, 47.2, 6.4, 8.0, {
+    top: pFlatRoof(P.RFGRAY, 1), right: pWall(P.RFGRAY), left: pWall(P.RFGRAY),
+  });
+  for (const px of [16.2, 25.8]) {
+    box(faces, px - 0.5, 45.0, px + 0.5, 46.6, 0.7, 6.4, {
+      right: pWall(P.METAL), left: pWall(P.METAL),
+    });
+  }
+  // ---- 塔台（东南：细高塔身 + 八角控制室玻璃环 + 顶灯）----
+  box(faces, 37.5, 39.5, 43.5, 45.5, 0.7, 16.5, {
+    right: pWall(P.METAL), left: pWall(P.METAL),
+  });
+  box(faces, 35.8, 37.8, 45.2, 47.2, 16.5, 20.5, {
+    right: pGlassCurtain(seed ^ 13),
+    left: pGlassCurtain(seed ^ 17),
+    top: pFlatRoof(P.METAL, 1),
+  });
+  box(faces, 38.9, 40.9, 42.1, 44.1, 20.5, 21.7, {
+    right: () => cell(P.RED, 0), left: () => cell(P.RED, 0), top: () => cell(P.RED, 0),
+  });   // 塔台顶灯
+  // ---- 旅客连廊（主楼西端 → 停机位：矮廊 + 顶）----
+  box(faces, 8.5, 33.5, 24.5, 36.5, 0.7, 4.6, {
+    right: pWindows(P.CREAM, { seed: seed ^ 21, lit: 0.2, floorH: 4.6, gapX: 3.4 }),
+    left: pWindows(P.CREAM, { seed: seed ^ 23, lit: 0.2, floorH: 4.6, gapX: 3.4 }),
+    top: pFlatRoof(P.WHITE, 1),
+  });
+  // ---- 停靠客机（西侧停机位：白机身 + 红尾翼 + 主翼 + 发动机吊舱 + 舷窗带）----
+  // 机身（横向圆管：三层叠盒近似）
+  box(faces, 3.5, 12.5, 21.5, 16.5, 1.6, 3.2, { right: pWall(P.METAL), left: pWall(P.METAL) });
+  box(faces, 3.5, 12.8, 21.5, 16.2, 3.2, 5.6, {
+    right: pWindows(P.WHITE, { seed: seed ^ 27, lit: 0.0, floorH: 5.6, gapX: 1.7 }),
+    left: pWindows(P.WHITE, { seed: seed ^ 29, lit: 0.0, floorH: 5.6, gapX: 1.7 }),
+    top: pFlatRoof(P.WHITE, 0),
+  });
+  box(faces, 3.0, 13.4, 4.2, 15.6, 2.2, 5.9, { right: pWall(tail), left: pWall(tail), top: pWall(tail) });   // 机头
+  // 尾翼（垂直：红色立板）+ 平尾
+  box(faces, 19.8, 14.2, 20.8, 15.0, 5.6, 9.8, { right: pWall(tail), left: pWall(tail), top: pWall(tail) });
+  box(faces, 19.2, 12.6, 21.4, 16.4, 5.6, 6.4, { top: pWall(tail), right: pWall(tail), left: pWall(tail) });
+  // 主翼（横穿机身下侧的白色薄板）+ 双发动机吊舱
+  box(faces, 9.0, 8.5, 16.5, 20.5, 1.7, 2.3, { top: pWall(P.WHITE), right: pWall(P.METAL), left: pWall(P.METAL) });
+  for (const ey of [9.6, 19.2]) {
+    box(faces, 12.0, ey - 1.0, 15.5, ey + 1.0, 2.3, 3.6, {
+      right: pWall(P.METAL), left: pWall(P.METAL), top: pWall(P.METAL),
+    });
+  }
+  // ---- 地勤设备（行李拖车 + 油罐车剪影：停机坪角落的小点缀）----
+  box(faces, 30.5, 30.0, 35.5, 33.5, 0.7, 2.6, {
+    right: pWall(P.WHITE), left: pWall(P.WHITE), top: pFlatRoof(P.RFGRAY, 1),
+  });
+  box(faces, 30.5, 35.0, 35.5, 37.5, 0.7, 3.4, {
+    right: pWall(P.RFTEAL), left: pWall(P.RFTEAL), top: pFlatRoof(P.RFGRAY, 1),
+  });
+  return { model: buildModel(faces, 48, 48), blinkAt: [40.4, 42.4, 21.4] };
+}
