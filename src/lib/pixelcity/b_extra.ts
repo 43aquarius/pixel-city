@@ -772,3 +772,53 @@ export function genPress(seed: number): BuildResult {
   box(faces, 6.5, 14.2, 15.5, 15.6, 0, 1.1, { top: pWall(P.SIDE), right: pWall(P.SIDE), left: pWall(P.SIDE) });
   return { model: buildModel(faces, 32, 32), blinkAt };
 }
+
+// ============================================================
+// v40 城市之光：名人堂（2×2，双变体）—— 柱廊主殿 + 金字塔鎏金顶 +
+// 双雕像台 + 侧墙金星徽 —— 每逢换季整点评出一颗「本季城市之光」
+// ============================================================
+
+/** 名人堂（2×2，v40 城市之光）：荣誉殿堂与季评授勋的礼台 */
+export function genHall(seed: number): BuildResult {
+  const faces: Face[] = [];
+  const r = mulberry32(seed);
+  const wall = pick([P.CREAM, P.TAN], r());          // 变体：主殿墙色
+  const stone = pStone();
+  const cream = pStone(wall);
+  // ---- 基座 ----
+  box(faces, 2, 2, 30, 30, 0, 3, { top: stone, right: stone, left: stone });
+  // ---- 主殿（比博物馆矮壮：荣誉殿堂的敦厚气象）----
+  box(faces, 5.5, 5.5, 26.5, 26.5, 3, 11, { right: cream, left: cream });
+  // ---- 前廊柱列 + 檐口 ----
+  for (let i = 0; i < 5; i++) {
+    const cx = 7.5 + i * 4.3;
+    box(faces, cx - 0.9, 27.2, cx + 0.9, 30.2, 3, 9.6, { right: stone, left: stone });
+  }
+  box(faces, 5.5, 26.2, 26.5, 31.2, 9.6, 11, { top: stone, right: stone, left: stone });
+  // ---- 鎏金金字塔顶（荣誉的尖顶，夜间也醒目）----
+  pyramid(faces, 6.5, 6.5, 25.5, 25.5, 11, 19.2,
+    (u, v, px, py) => pShingle(P.YELLOW)(u, v, px, py));
+  box(faces, 15.2, 15.2, 16.8, 16.8, 19.2, 20.8, { right: pWall(P.METAL), left: pWall(P.METAL) });
+  box(faces, 14.6, 14.6, 17.4, 17.4, 20.8, 21.6, {
+    right: () => cell(P.YELLOW, 0), left: pWall(P.METAL), top: () => cell(P.YELLOW, 0),
+  });
+  // ---- 双雕像台（+Y 正脸两侧：铜像站在石台上 —— 每一届的光都在墙上）----
+  for (const sx of [5.6, 24.4]) {
+    box(faces, sx - 2.6, 27.6, sx + 2.6, 32.4, 0, 2.2, { top: stone, right: pWall(P.SIDE), left: pWall(P.SIDE) });
+    // 铜像：座 + 身 + 头（三段方盒，像素纪念像）
+    box(faces, sx - 1.0, 28.8, sx + 1.0, 31.0, 2.2, 3.4, { right: pWall(P.TAN), left: pWall(P.TAN) });
+    box(faces, sx - 0.8, 29.2, sx + 0.8, 30.8, 3.4, 5.8, { right: pWall(P.TAN), left: pWall(P.TAN) });
+    box(faces, sx - 0.6, 29.5, sx + 0.6, 30.5, 5.8, 7.0, { right: pWall(P.TAN), left: pWall(P.TAN) });
+  }
+  // ---- 侧墙金星徽（+X 面：金底 + 白色星点意象）----
+  box(faces, 26.5, 14.2, 27.3, 17.8, 5.4, 8.2, {
+    right: pWall(P.YELLOW), left: pWall(P.SIDE), top: pWall(P.SIDE),
+  });
+  box(faces, 27.3, 15.2, 27.7, 16.8, 6.0, 7.6, {
+    right: () => cell(P.WHITE, 0), left: pWall(P.SIDE), top: pWall(P.SIDE),
+  });
+  // ---- 正门台阶 ----
+  box(faces, 7, 30.2, 25, 31.8, 0, 1.1, { top: stone, right: pWall(P.SIDE), left: pWall(P.SIDE) });
+  box(faces, 7.8, 31.8, 24.2, 32.6, 0, 2.2, { top: stone, right: pWall(P.SIDE), left: pWall(P.SIDE) });
+  return { model: buildModel(faces, 32, 32) };
+}

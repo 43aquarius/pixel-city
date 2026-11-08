@@ -924,6 +924,11 @@ export class CitizenRegistry {
         react(pick(), `亲眼看见蒙面人从隔壁铺子后窗翻出来，报了警`, -7);
         break;
       }
+      // ---- v40 名人堂：民意荐贤 ----
+      case 'hallnom': {
+        react(pick(), `被街坊们联名荐上了名人堂光荣榜，走路都带风`, +8);
+        break;
+      }
       // ---- v16 城市节庆：开幕式 / 落幕 ----
       case 'fest0': {
         react(pick(), `在樱花祭的樱树下拍了全家福`, +8);
@@ -1306,6 +1311,15 @@ export class CitizenRegistry {
   markRead(id: number): void {
     const L = this.letters.find(l => l.id === id);
     if (L && !L.read) L.read = true;
+  }
+
+  /** v40 授勋：个人史册添荣衔一笔 + 心情提振（名人堂季评调用；找不到市民返回 false） */
+  awardHonor(id: number, text: string, dm: number, t: number): boolean {
+    const c = this.roster.find(x => x.id === id);
+    if (!c) return false;
+    this.pushLog(c, t, text);
+    c.mood = clamp(c.mood + dm, 5, 100);
+    return true;
   }
 
   /** v30 归档入合集（送信即归档；上限 240 封，满了挤最旧 —— 卷帙有涯，纸墨有限） */

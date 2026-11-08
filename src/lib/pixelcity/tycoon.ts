@@ -22,6 +22,10 @@ import {
   PRESS_DAY_GAP, PRESS_FIRST_GAP, PRESS_KEEP, PRESS_CIRC_GOAL, genPaperIssue,
   SERIAL_TITLE, type PaperIssue,
 } from './newspaper';
+import {
+  HALL_GAP, HALL_MOOD, HALL_HAP, HALL_HAP_T, HALL_KEEP, HALL_AWARDS,
+  hallAwardKinds, pickHallWinner, type HallRoll, type HallNominee, type HallCtx,
+} from './hall';
 
 export const CHUNK = 16;                 // 领地块边长（格）
 export const CHUNKS = 16;                // 256 / 16 = 16×16 块领地
@@ -466,6 +470,8 @@ export const ECON: Record<string, EconDef> = {
   zoo: D(1500, 6, { power: 10, amenity: 4, upk: 3.2, cul: 3, edu: 6, sp: 0.3 }),   // 物种图鉴引擎：住户越多吸引力越高（基础吸引力 5）
   // ---- v39 城市之声：报馆 ----
   press: D(520, 4, { power: 5, amenity: 2, upk: 1.8, cul: 3, sp: 0.8 }),   // 每七日出版《城市日报》：发行收入随人口/识字率浮动（出版时另计）
+  // ---- v40 城市之光：名人堂 ----
+  hall: D(900, 6, { power: 6, amenity: 4, upk: 2.4, cul: 4 }),   // 季评授勋殿堂：每逢换季整点评一颗城市之光（授勋幸福 buff 另计）
   cellmast: D(120, 7, { power: 2, upk: 0.25 }),
   // ---- 水务（v6：供水覆盖指数）----
   watertower: D(130, 2, { power: 2, amenity: 1, upk: 0.75, waterR: 9, waterCap: 260 }),
@@ -737,6 +743,17 @@ const EVENT_TPLS: EventTpl[] = [
       return `号外一售而空，报馆进账 +${gain}G —— 街头巷尾都在议论这桩新闻`;
     },
   },
+  // ---- v40 名人堂事件：民意荐贤 ----
+  {
+    key: 'hallnom', name: '民意荐贤', kind: 'good', dur: 0, hap: 1,
+    mult: {},
+    note: '街坊联名把一位好邻居荐上了光荣榜',
+    w: s => (s.hallN > 0 && s.pop >= 60 ? 6 : 0),   // 开过榜的城市才有提名栏
+    fire: (t) => {
+      t.citz.onCityEvent('hallnom', t.playtime);
+      return '光荣榜的提名栏里多了一个街坊们热议的名字';
+    },
+  },
   // ---- v10 旅游事件 ----
   {
     key: 'tourseason', name: '旅游旺季', kind: 'good', dur: 70, hap: 2,
@@ -930,6 +947,13 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: 10, val: s => s.pressIss },
   { id: 'pressCirc', name: '洛阳纸贵', desc: `单期发行量达 ${PRESS_CIRC_GOAL} 份（人口与识字率是发行量的底气，大事出号外加印 —— ${SERIAL_TITLE}连载还有读者追更）`, icon: 'coin',
     goal: PRESS_CIRC_GOAL, val: s => s.pressCirc },
+  // ---- v40 城市之光 ----
+  { id: 'hall1', name: '城市之光', desc: '名人堂评出首届「本季城市之光」（每逢换季整点开榜：八大奖项按城市状态加权，授勋市民名镌光荣榜、心情大振，全城幸福也沾光）', icon: 'medal',
+    goal: 1, val: s => s.hallN },
+  { id: 'hall8', name: '满堂生辉', desc: '八大奖项各评出至少一次（劳动模范/见义勇为/仁心仁术/平安卫士/绿茵之星/杏坛春晖/寿星高照/创业先锋 —— 消防局医院交番学校体育场在城，才评得动相应的奖）', icon: 'star',
+    goal: HALL_AWARDS.length, val: s => s.hallAwardsN },
+  { id: 'hall12', name: '群星璀璨', desc: '累计评出 12 届城市之光（一季一届风雨无阻 —— 双雕像台前掌声一季比一季响，光荣榜写满一整年的星光）', icon: 'medal',
+    goal: 12, val: s => s.hallN },
   // ---- v17 城市编年史 ----
   { id: 'chron60', name: '汗青永续', desc: '编年史累计记下 60 笔城市纪事（开埠/时代跃迁/事件/科技/节庆/法令/里程碑皆入册）', icon: 'book',
     goal: 60, val: (_s, t) => t.chron.total },
@@ -998,6 +1022,7 @@ export const TECH_GATE: Record<string, string> = {
   aquarium: 'brand',
   zoo: 'brand',           // v35 动物园：与水族馆同源「城市名片」（圈养保育需名声在外）
   press: 'compul',        // v39 报馆：先有义务教育，市民识字才有人读报
+  hall: 'brand',          // v40 名人堂：荣誉殿堂需名声在外（城市名片）
   opera: 'brand',         // v31 大剧院：文旅地标同源「城市名片」
   expo: 'struct',         // v31 会展中心：大跨度拱棚需「建筑工程学」
   dock: 'logistic',
@@ -1133,6 +1158,10 @@ export type QS = {
   // ---- v39 城市之声 ----
   pressN: number;      // 报馆座数（任务口径）
   pressIss: number;    // 累计出版期数（成就口径）
+  // ---- v40 城市之光 ----
+  halls: number;       // 名人堂座数（任务口径）
+  hallN: number;       // 累计评选届数（成就口径）
+  hallAwardsN: number; // 已评出奖项种类数（满堂生辉口径）
   // ---- v19 污染空间化 ----
   smogTiles: number; smogBad: number; smogRes: number; ecotowers: number;
   // ---- v20 电网空间化 ----
@@ -1339,6 +1368,9 @@ export const QUESTS: Quest[] = [
   // ---- v39 城市之声 ----
   { id: 'press1', title: '城市之声', hint: '建造一座报馆（需「义务教育」）：每七游戏日出版一期《城市日报》—— 头版头条自动选编年史大事，大事出号外；发行量随人口与识字率浮动，卖报所得进府库；顶栏「闻」翻阅最新版面', goal: 1,
     val: s => s.pressN, rG: 260, rXp: 120 },
+  // ---- v40 城市之光 ----
+  { id: 'hall1', title: '光荣榜', hint: '建造名人堂（需「城市名片」）：每逢换季整点评出一颗「本季城市之光」—— 八大奖项按城市状态加权授勋（消防局在城才评得动见义勇为、赢球才有人捧绿茵之星），获奖市民名镌光荣榜、心情大振，全城幸福 +1；顶栏「光」翻荣誉殿堂', goal: 1,
+    val: s => s.halls, rG: 340, rXp: 150 },
 ];
 
 // ------------------------------------------------------------
@@ -1500,6 +1532,17 @@ export type EconView = {
     circT: number;              // 累计发行量
     issues: PaperIssue[];       // 过刊（最近 PRESS_KEEP 期，新在前）
   };
+  // ---- v40：城市之光（季评名人堂）----
+  hall: {
+    on: boolean;                // 名人堂在城（开评中）
+    n: number;                  // 累计届数
+    next: number;               // 下届开榜游戏时（-1 未开榜）
+    gap: number;                // 评选周期（游戏时；展示用）
+    hapOn: boolean;             // 授勋幸福加成生效中
+    hapT: number;               // 幸福加成剩余秒数
+    awards: Array<{ id: string; name: string; icon: string; note: string; got: boolean }>;
+    rolls: HallRoll[];          // 光荣榜（最近 HALL_KEEP 届，新在前）
+  };
   // ---- v19：污染空间化 ----
   smogTiles: number;                // 雾霾格数（浓度 ≥45）
   smogBad: number;                  // 重污染格数（浓度 ≥75）
@@ -1640,6 +1683,10 @@ type Snap = QS & {
   // ---- v39：报馆 ----
   pressN: number;         // 报馆座数（出版开关与任务口径）
   pressCirc: number;      // 最近一期发行量（成就「洛阳纸贵」口径）
+  // ---- v40：名人堂 ----
+  halls: number;          // 名人堂座数（开评开关与任务口径）
+  hallN: number;          // 累计评选届数
+  hallAwardsN: number;    // 已评出奖项种类数（成就「满堂生辉」口径）
 };
 
 export class Tycoon {
@@ -2220,6 +2267,7 @@ export class Tycoon {
     let hotelBeds = 0, attract = 0, ports = 0;
     let museumsN = 0;   // v38 博物馆座数（文物展出开关）
     let pressN = 0;     // v39 报馆座数（出版开关与任务口径）
+    let halls = 0;      // v40 名人堂座数（开评开关与任务口径）
     const upkFarm = { v: 0 }, upkInd = { v: 0 };
     // v6 水务设施清单（覆盖半径）与住宅清单（覆盖人口统计）
     const waterFacs: Array<{ x: number; y: number; r: number }> = [];
@@ -2302,6 +2350,7 @@ export class Tycoon {
         if (o.id === 'stadium') stadiums++;                 // v34 体育场
         if (o.id === 'zoo') zoos++;                         // v35 动物园
         if (o.id === 'press') pressN++;                     // v39 报馆（出版开关）
+        if (o.id === 'hall') halls++;                       // v40 名人堂（开评开关）
       }
       // v6 水务设施：登记覆盖圆心（半径含足迹）
       if (e?.waterR) {
@@ -2620,7 +2669,7 @@ export class Tycoon {
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
-      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap + this.docHap + cycHap + lgHap + zooB.hap + relicB.hap
+      0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap + this.docHap + cycHap + lgHap + zooB.hap + relicB.hap + (this.hallHapT > 0 ? HALL_HAP : 0)
       + (operas > 0 ? 2 : 0)
       + Math.min(WF_HAP_MAX, wfRes)
       + (tramStops >= 2 ? 2 : 0) - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap - medHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区/v36 医疗盲区扣减；v29 朱批民心增益；v31 大剧院全市幸福 +2；v32 滨水住宅每栋 +1；v33 市况荣枯 ±2/0/+1/+3；v34 比赛日沸腾 + 赛后情绪；v35 物种住户幸福（企鹅冬季加成）
@@ -2712,6 +2761,8 @@ export class Tycoon {
       museumsN,
       // ---- v39 城市之声 ----
       pressN, pressCirc: this.pressCirc, pressIss: this.pressIss,
+      // ---- v40 城市之光 ----
+      halls, hallN: this.hallN, hallAwardsN: hallAwardKinds(this.hallRolls),
       // ---- v33 经济周期 ----
       cycIdx: Math.round(this.cycIdx), cycPhase: this.cycPhase, cycHap,
       cycComK, cycTourK, cycIndK, cycMigK,
@@ -3842,6 +3893,94 @@ export class Tycoon {
     return this.pressIssues[0] ?? null;
   }
 
+  // ---------------- v40：城市之光（季评名人堂） ----------------
+
+  /** 下届开榜游戏时（-1 = 名人堂未落成：还没开榜） */
+  hallNext = -1;
+  /** 累计评选届数（成就「城市之光/群星璀璨」口径） */
+  hallN = 0;
+  /** 开榜纪事标记（只写一次；停评复建不重记） */
+  private hallSeen = false;
+  /** 已评出的奖项 id 集（满堂生辉口径；随档保留） */
+  hallAwards = new Set<string>();
+  /** 光荣榜（最近 HALL_KEEP 届，新在前；随档保留） */
+  hallRolls: HallRoll[] = [];
+  /** 授勋幸福加成剩余（秒；每届授勋重置） */
+  hallHapT = 0;
+
+  /** 每帧心跳：名人堂落成 → 开榜；换季整点 → 评选授勋（tick 调用） */
+  private stepHall(): void {
+    const halls = this.snap?.halls ?? 0;
+    // 名人堂落成 → 逢下一个换季整点开榜（与城事回望同源对齐）
+    if (this.hallNext < 0 && halls > 0) {
+      this.hallNext = Math.ceil((this.gHours + 0.001) / HALL_GAP) * HALL_GAP;
+      if (!this.hallSeen) {
+        this.hallSeen = true;
+        this.chron.write('mile', 'good', 'medal', '名人堂开榜',
+          '柱廊主殿的鎏金尖顶立起来了，双雕像台在正门前恭候 —— 这座城从此每逢换季整点，都有一颗「本季城市之光」在这里被全城记住。', this.gHours);
+        this.msg?.('名人堂开榜 —— 顶栏「光」翻荣誉殿堂：每逢换季整点评出一位本季城市之光');
+        this.sfx?.('achieve');
+      }
+    }
+    if (this.hallNext < 0) return;
+    if (halls === 0) return;   // 拆堂停评（光荣榜保留，复建自动复评）
+    if (this.gHours >= this.hallNext) {
+      this.conductHall();
+      // 下届阈值：至少 +一季；若游戏时跳档（读档/离线/加速）直接跳到下一个换季整点，不回补错过的届数
+      this.hallNext = Math.max(this.hallNext + HALL_GAP, Math.ceil((this.gHours + 0.001) / HALL_GAP) * HALL_GAP);
+    }
+  }
+
+  /** 评出一届「本季城市之光」：加权抽奖 → 授勋 → 幸福 buff → 编年史大事记（报纸号外联动） */
+  private conductHall(forceId?: string): void {
+    const s = this.snap;
+    if (!s) return;
+    const sn = SEASONS[Math.max(0, Math.min(3, this.season))];
+    const nominees: HallNominee[] = this.citz.roster.map(c => ({
+      id: c.id, name: c.name, job: c.job, gender: c.gender, age: c.age,
+      body: c.body, mood: c.mood, homeName: c.homeName, hobby: c.hobby,
+    }));
+    const ctx: HallCtx = {
+      season: sn.name, pop: Math.floor(this.pop),
+      firestation: s.firestations > 0,
+      hospital: s.hospitals > 0, clinic: s.clinics + s.healthsts > 0,
+      police: s.kobans + s.policehqN > 0,
+      school: s.hasSchool + s.hasLib + s.universities > 0,
+      stadium: s.stadiums > 0, lgWin: this.lgMoodT > 0 && this.lgMood > 0,
+      shopsN: s.com,
+    };
+    const awards = forceId
+      ? HALL_AWARDS.filter(a => a.id === forceId).map(a => ({ ...a, w: () => 5 }))   // 沙盒直评：绕开城市门槛（候选职别判定照常）
+      : HALL_AWARDS;
+    const roll = pickHallWinner(nominees, ctx, this.hallN + 1, this.gHours, Math.random, awards);
+    if (!roll) {
+      this.chron.write('event', 'info', 'medal', '授勋空缺',
+        '本季名人堂开榜 —— 城里还没有够格的候选人，评审们把金奖杯擦了又擦，留到下季再颁。', this.gHours);
+      return;
+    }
+    this.hallN++;
+    this.hallRolls.unshift(roll);
+    if (this.hallRolls.length > HALL_KEEP) this.hallRolls.length = HALL_KEEP;
+    const awardDef = HALL_AWARDS.find(a => a.name === roll.award);
+    if (awardDef) this.hallAwards.add(awardDef.id);
+    // 授勋：个人史册 + 心情提振；全城幸福沾光一季
+    this.citz.awardHonor(roll.id,
+      `荣获本季「${roll.award}」荣衔，在名人堂授勋大典上受全城致敬`, HALL_MOOD, this.playtime);
+    this.hallHapT = HALL_HAP_T;
+    // 编年史大事记（big → 报纸号外自动联动）
+    this.chron.write('mile', 'big', 'medal', `城市之光 · 第 ${roll.n} 届`,
+      `本季「${roll.award}」花落${roll.nm}（${roll.job}）—— ${roll.cite}`, this.gHours);
+    this.msg?.(`✦ 城市之光·第 ${roll.n} 届：「${roll.award}」授予${roll.nm}（${roll.job}）—— 名镌光荣榜，全城幸福 +1`);
+    this.sfx?.('achieve');
+  }
+
+  /** 沙盒/测试：立即评选一届（可指定奖项 id 绕开加权；授勋与结算照常） */
+  hallTest(forceId?: string): HallRoll | null {
+    if ((this.snap?.halls ?? 0) === 0) return null;
+    this.conductHall(forceId);
+    return this.hallRolls[0] ?? null;
+  }
+
   // ---------------- 每帧心跳 ----------------
 
   tick(dt: number, map: CityMap): void {
@@ -3879,6 +4018,8 @@ export class Tycoon {
     this.stepZoo();
     // v39 城市之声：报馆落成创刊 + 到期出版（发行收入出版时结算）
     this.stepPress(map);
+    // v40 城市之光：名人堂开榜 + 换季整点评选授勋
+    this.stepHall();
     // v37 千里比邻：待办过期 / 邻城成长月评 / 事件 roll（邻城静态数据，无经济乘数）
     this.stepSisters();
     // 收入 − 维护（G/分 → 按秒累积；可能为负 = 赤字，需拆除减负）
@@ -4083,6 +4224,8 @@ export class Tycoon {
       this.docHapLeft = Math.max(0, this.docHapLeft - dt);
       if (this.docHapLeft === 0) this.docHap = 0;   // 增益到期归零
     }
+    // v40 授勋幸福：每届授勋重置，到期归零
+    if (this.hallHapT > 0) this.hallHapT = Math.max(0, this.hallHapT - dt);
     if (!this.docPending && this.gHours >= this.docNext) this.arriveDoc(s);
 
     // ---- v5：随机事件调度（人口 ≥ 30 后启动；最多同时 2 个）----
@@ -4592,6 +4735,17 @@ export class Tycoon {
         circT: this.pressCircT,
         issues: this.pressIssues.map(x => ({ ...x, ads: [...x.ads] })),
       },
+      // ---- v40：城市之光 ----
+      hall: {
+        on: (s?.halls ?? 0) > 0,
+        n: this.hallN,
+        next: this.hallNext,
+        gap: HALL_GAP,
+        hapOn: this.hallHapT > 0,
+        hapT: Math.ceil(this.hallHapT),
+        awards: HALL_AWARDS.map(a => ({ id: a.id, name: a.name, icon: a.icon, note: a.note, got: this.hallAwards.has(a.id) })),
+        rolls: this.hallRolls.map(r => ({ ...r })),
+      },
       // ---- v18：灾害链 ----
       quakes: this.quakes, floods: this.floods,
       levees: s?.levees ?? 0, waterNear: s?.waterNear ?? 0,
@@ -4766,6 +4920,9 @@ export class Tycoon {
     // v39：城市之声重置（报馆未落成 —— 落成后 stepPress 自动创刊）
     this.pressNext = -1; this.pressIss = 0; this.pressCirc = 0; this.pressCircT = 0;
     this.pressSeen = false; this.pressSinceId = 0; this.pressIssues = [];
+    // v40：城市之光重置（名人堂未落成 —— 落成后 stepHall 自动开榜）
+    this.hallNext = -1; this.hallN = 0; this.hallSeen = false;
+    this.hallAwards.clear(); this.hallRolls = []; this.hallHapT = 0;
     // v29：市长公署重置（首份公文在开埠首日清晨 8 点）
     this.docPending = null; this.docNext = DOC_FIRST_H; this.docN = 0;
     this.docUsed = []; this.docLog = []; this.docHap = 0; this.docHapLeft = 0;
@@ -4883,6 +5040,13 @@ export class Tycoon {
       prsS1: this.pressSeen ? 1 : 0,
       prsSince: this.pressSinceId,
       prsIss: this.pressIssues,
+      // v40：城市之光档（届数/开榜时刻/奖项集/光荣榜/幸福 buff —— 旧档缺省 → 未开榜，名人堂落成后自动开榜）
+      hlT: Math.round(this.hallNext * 10) / 10,
+      hlN: this.hallN,
+      hlS1: this.hallSeen ? 1 : 0,
+      hlA: [...this.hallAwards],
+      hlHT: Math.round(this.hallHapT),
+      hlR: this.hallRolls,
       // v29：市长公署档（待批公文 / 已批数 / 用过池 / 朱批存档 / 民心增益）
       docP: this.docPending, docNext: this.docNext, docN: this.docN,
       docUsed: this.docUsed, docLog: this.docLog,
@@ -5129,6 +5293,31 @@ export class Tycoon {
       }
       this.pressIssues = this.pressIssues
         .sort((a, b) => b.n - a.n).slice(0, PRESS_KEEP);   // 新在前，截留最近 PRESS_KEEP 期
+    }
+    // v40：城市之光档恢复（旧档无字段 → 未开榜；名人堂在城时首个 tick 由 stepHall 自动开榜；
+    // 光荣榜逐届校验届号/市民/奖项字符串，新在前截留 HALL_KEEP 届；奖项集与幸福 buff 同步恢复）
+    this.hallNext = Number.isFinite(Number(d.hlT)) ? Number(d.hlT) : -1;
+    this.hallN = Math.max(0, Math.floor(Number(d.hlN) || 0));
+    this.hallSeen = d.hlS1 === 1;
+    this.hallAwards = new Set<string>(((d.hlA as string[]) ?? []).filter(x => typeof x === 'string' && HALL_AWARDS.some(a => a.id === x)));
+    this.hallHapT = Math.max(0, Math.min(HALL_HAP_T * 2, Number(d.hlHT) || 0));
+    this.hallRolls = [];
+    if (Array.isArray(d.hlR)) {
+      for (const it of d.hlR as Array<Record<string, unknown>>) {
+        if (!it || !Number.isFinite(Number(it.n)) || typeof it.nm !== 'string' || typeof it.award !== 'string') continue;
+        this.hallRolls.push({
+          n: Math.max(1, Math.floor(Number(it.n) || 1)),
+          season: String(it.season ?? ''),
+          day: Math.max(1, Math.floor(Number(it.day) || 1)),
+          id: Math.max(0, Math.floor(Number(it.id) || 0)),
+          nm: String(it.nm).slice(0, 12),
+          job: String(it.job ?? '').slice(0, 12),
+          award: String(it.award).slice(0, 12),
+          cite: String(it.cite ?? '').slice(0, 160),
+        });
+      }
+      this.hallRolls = this.hallRolls
+        .sort((a, b) => b.n - a.n).slice(0, HALL_KEEP);   // 新在前，截留最近 HALL_KEEP 届
     }
     // v29：市长公署档恢复（旧档无字段 → 首份公文从下一个清晨八点起算；在批公文原样回到案头）
     this.docN = Math.max(0, Math.floor(Number(d.docN) || 0));

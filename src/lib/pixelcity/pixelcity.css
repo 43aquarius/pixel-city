@@ -2314,6 +2314,66 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 .pxc.m .np-meta { gap: 8px; flex-wrap: wrap; }
 .pxc.m .np-sheet { padding: 10px 11px 8px; }
 
+/* ============ v40 城市之光（季评名人堂） ============ */
+.pxc-hall { width: min(560px, calc(100vw - 24px)); }
+.hall-chip.hall-on { border-color: #C9A227; background: #FAF3D9; }
+.hall-chip.hall-glow { border-color: #8a6d1a; box-shadow: 0 0 0 1px #E8D48B inset; }
+
+/* 空册 */
+.hall-empty { border: 1px dashed #C9C2A8; border-radius: 4px; padding: 14px 12px; text-align: center; }
+.hall-empty .he-t { font-size: 15px; font-weight: 800; color: #23252E; letter-spacing: 2px; }
+.hall-empty .he-d { margin-top: 8px; font-size: 12px; color: #555c66; line-height: 1.7; text-align: left; }
+.hall-empty .he-d b { color: #8a6d1a; }
+
+/* 评选进度头 */
+.hall-head {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  border-bottom: 1px solid #E5E0CE; padding-bottom: 8px; margin-bottom: 9px;
+}
+.hh-progress { font-size: 13px; color: #3d434e; font-weight: 700; }
+.hh-progress b { color: #8a6d1a; font-size: 16px; }
+.hh-hap { font-size: 11px; color: #85878f; font-weight: 600; }
+.hh-hap.on { color: #3B7138; }
+.hh-next { margin-left: auto; font-size: 11px; color: #85878f; font-variant-numeric: tabular-nums; }
+
+/* 八大奖项图鉴 */
+.hall-awards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
+.hk-card {
+  border: 1px solid #C9C2A8; border-radius: 4px; padding: 6px 5px 5px;
+  background: #F2EFE3; text-align: center; min-width: 0;
+}
+.hk-card img { width: 20px; height: 20px; image-rendering: pixelated; filter: grayscale(1) opacity(0.4); }
+.hk-card b { display: block; margin-top: 2px; font-size: 11px; color: #9a958a; letter-spacing: 0.5px; }
+.hk-card span { display: block; margin-top: 2px; font-size: 9px; color: #b0a992; }
+.hk-card.on { border-color: #C9A227; background: #FAF3D9; }
+.hk-card.on img { filter: none; }
+.hk-card.on b { color: #23252E; }
+.hk-card.on span.got { color: #8a6d1a; font-weight: 700; }
+
+/* 光荣榜 */
+.hall-rolls h4 {
+  margin: 0 0 7px; font-size: 12px; color: #8a6d1a; letter-spacing: 3px;
+  border-bottom: 1px solid #C9C2A8; padding-bottom: 4px;
+}
+.hr-roll {
+  border-left: 3px solid #C9A227; background: #F7F4E8; border-radius: 0 3px 3px 0;
+  padding: 6px 9px 7px; margin-bottom: 6px;
+}
+.hrr-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.hr-n { font-size: 10px; color: #85878f; font-variant-numeric: tabular-nums; }
+.hr-season { font-size: 10px; color: #555c66; }
+.hr-award { font-size: 12.5px; color: #8a6d1a; letter-spacing: 0.5px; }
+.hr-nm { font-size: 12px; color: #23252E; font-weight: 700; }
+.hr-day { margin-left: auto; font-size: 10px; color: #9a958a; font-variant-numeric: tabular-nums; }
+.hr-cite { margin: 4px 0 0; font-size: 11px; color: #555c66; line-height: 1.65; text-align: justify; }
+.hr-empty { border: 1px dashed #C9C2A8; border-radius: 3px; padding: 10px; text-align: center; font-size: 11px; color: #9a958a; }
+.hall-note { margin-top: 10px; font-size: 11px; color: #85878f; line-height: 1.65; }
+
+/* 移动端 */
+.pxc.m .hall-awards { grid-template-columns: repeat(2, 1fr); }
+.pxc.m .hh-next { margin-left: 0; width: 100%; }
+.pxc.m .hr-day { margin-left: 0; width: 100%; }
+
 /* ============ v17 城市编年史 ============ */
 .pxc-chron { width: min(560px, calc(100vw - 24px)); }
 

@@ -22,7 +22,7 @@ import {
   genManor, genResTower, genConvenience, genHotel, genMall, genParking,
   genRefinery, genPower, genChurch, genMuseum, genFireStation, genKoban,
   genLighthouse, genCastle, genPoliceHQ, genHydrant, genClinic, genHealthst,
-  genPress,
+  genPress, genHall,
 } from './b_extra';
 import {
   genMachiya, genDanchi, genIzakaya, genCinema, genMarket,
@@ -235,6 +235,9 @@ export const CATALOG: Def[] = [
   // ---- v39 城市之声：报馆 ----
   { id: 'press', name: '报馆', cat: 'civ', w: 2, h: 2, variants: 2, pop: 24,
     gen: genPress, desc: '米白编辑楼与锯齿天窗排字房：落成即创刊《城市日报》，每七日出版一期 —— 头版头条自动选编年史大事，大事出号外；发行量随人口与识字率浮动，卖报所得进府库（需「义务教育」）' },
+  // ---- v40 城市之光：名人堂 ----
+  { id: 'hall', name: '名人堂', cat: 'civ', w: 2, h: 2, variants: 2, pop: 30,
+    gen: genHall, desc: '柱廊主殿鎏金尖顶与双雕像台：落成即开榜，每逢换季整点评出一颗「本季城市之光」—— 八大奖项按城市状态加权授勋，获奖市民心情大振、全城幸福沾光、荣衔永录光荣榜（需「城市名片」）' },
   // ---- 剧情（经营模式专属，不可直接建造）----
   { id: 'cityhall', name: '市政厅', cat: 'civ', w: 2, h: 2, variants: 1, pop: 0,
     gen: genCityhall, hidden: true, desc: '城市的心脏：金顶钟塔与旗帜' },
@@ -250,6 +253,7 @@ export const ATTRACT: Record<string, number> = {
   ferris: 5, aquarium: 5, castle: 5, opera: 5,
   zoo: 5,   // v35 动物园基础吸引力（住户加成另计：zooBonusOf）
   press: 2, // v39 报馆：城中有了自己的声音，远客也愿来看看
+  hall: 3,  // v40 名人堂：荣誉殿堂是中型景点（瞻仰授勋大典）
   museum: 4, stadium: 4, expo: 4,
   temple: 3, observatory: 3, marina: 3,
   church: 2, monument: 2, lighthouse: 2, torii: 2,
