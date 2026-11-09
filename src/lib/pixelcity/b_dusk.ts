@@ -869,3 +869,93 @@ export function genZoo(seed: number): BuildResult {
   }
   return { model: buildModel(faces, 48, 48) };
 }
+
+// ============================================================
+// v43 渔业之城：渔港码头(2×2) / 海鲜市场(1×1)
+// ============================================================
+
+/** 渔港码头（2×2）：石板岸场 + 主栈桥 + 停泊渔船 + 晒网架 + 渔获筐 + 鱼具房 —— 临水而建的渔业锚点 */
+export function genFishport(seed: number): BuildResult {
+  const faces: Face[] = [];
+  // 岸侧石板场
+  box(faces, 2, 2, 30, 16, 0, 0.8, {
+    top: (u, v, px, py) => (bayer(px, py, 0.14) ? cell(P.SIDE, 1) : cell(P.SIDE, 0)),
+    right: pStone(P.SIDE), left: pStone(P.SIDE),
+  });
+  // 主木栈桥伸向泊位
+  box(faces, 12, 14, 20, 30, 0.8, 2.0, {
+    top: (u, v, px, py) => (bayer(px, py, 0.3) ? cell(P.TAN, 1) : cell(P.TAN, 0)),
+    right: pWall(P.BRICK), left: pWall(P.BRICK),
+  });
+  // 栈桥桩 ×4
+  for (const [px, py] of [[12.6, 15.4], [19.4, 15.4], [12.6, 28.8], [19.4, 28.8]] as const) {
+    box(faces, px - 0.5, py - 0.5, px + 0.5, py + 0.5, 0, 2.6, { right: pWall(P.BRICK), left: pWall(P.BRICK) });
+  }
+  // 停泊渔船（红棕船身 + 白色驾驶舱 + 桅杆小旗 —— 与 v7 渔船涂装呼应）
+  box(faces, 6, 18, 16, 22.4, 2.0, 3.6, {
+    right: pWall(P.TAN), left: pWall(P.RED), top: pWall(P.WHITE),
+  });
+  box(faces, 9, 19, 13, 21.8, 3.6, 5.4, {
+    right: pWall(P.WHITE), left: pWall(P.WHITE),
+  });
+  box(faces, 10.8, 20.2, 11.2, 20.6, 5.4, 8.0, { right: pWall(P.METAL), left: pWall(P.METAL) });
+  // 晒网架：双立杆 + 横梁 + 格网
+  box(faces, 22.6, 6.4, 23.4, 7.2, 0.8, 9.0, { right: pWall(P.BRICK), left: pWall(P.BRICK) });
+  box(faces, 22.6, 13.4, 23.4, 14.2, 0.8, 9.0, { right: pWall(P.BRICK), left: pWall(P.BRICK) });
+  box(faces, 22.4, 6.6, 23.6, 14.0, 8.6, 9.2, { top: pWall(P.METAL), right: pWall(P.METAL), left: pWall(P.METAL) });
+  box(faces, 22.8, 7.2, 23.2, 13.6, 4.4, 8.4, { right: pLattice(), left: pLattice() });
+  // 渔获筐堆（黄框木箱 ×3，高矮错落）
+  for (const [bx, by, bh] of [[4.6, 5.0, 2.2], [7.2, 5.4, 1.8], [5.8, 8.2, 2.0]] as const) {
+    box(faces, bx - 1.0, by - 1.0, bx + 1.0, by + 1.0, 0.8, 0.8 + bh, {
+      right: pWall(P.YELLOW), left: pWall(P.TAN), top: pWall(P.WHITE),
+    });
+  }
+  // 鱼具房（灰顶小屋 + 冰鲜蓝门帘）
+  box(faces, 24, 22, 30, 30, 0.8, 8.0, {
+    right: pWindows(P.CREAM, { seed, lit: 0.4, floorH: 5.6, gapX: 3.4, winH: 2.2 }),
+    left: pWindows(P.CREAM, { seed: seed ^ 7, lit: 0.4, floorH: 5.6, gapX: 3.4, winH: 2.2 }),
+  });
+  hipRoof(faces, 23, 21, 31, 31, 7.6, 11.0, 0.6, { slope: pShingle(P.RFSLATE) });
+  box(faces, 26.4, 29.6, 28.6, 30.0, 0.8, 4.6, { right: pWall(P.NEONC), left: pWall(P.NEONC) });
+  // 码头灯杆
+  box(faces, 20.6, 10.4, 21.4, 11.2, 0.8, 10.0, { right: pWall(P.METAL), left: pWall(P.METAL) });
+  box(faces, 20.2, 10.0, 21.8, 11.6, 10.0, 11.2, { right: pWall(P.LAMP), left: pWall(P.LAMP) });
+  return { model: buildModel(faces, 32, 32) };
+}
+
+/** 海鲜市场（1×1）：条纹雨棚摊房 + 白冰台 + 鱼形招牌 —— 渔获按筐上集市 */
+export function genFishmkt(seed: number): BuildResult {
+  const r = mulberry32(seed);
+  const wall = pick([P.CREAM, P.TAN], r());
+  const awn = r() < 0.5 ? P.RFTEAL : P.RED;
+  const faces: Face[] = [];
+  const x0 = 2.6, y0 = 2.6, x1 = 13.4, y1 = 13.4;
+  const h = 9.8;
+  box(faces, x0, y0, x1, y1, 0, h, {
+    right: pWindows(wall, { seed, lit: 0.55, floorH: 5.4, gapX: 3.0, winW: 2.4, winH: 2.2 }),
+    left: pWindows(wall, { seed: seed ^ 3, lit: 0.55, floorH: 5.4, gapX: 3.0, winW: 2.4, winH: 2.2, door: true }),
+  });
+  // 大出檐坡顶
+  hipRoof(faces, x0 - 1.2, y0 - 1.2, x1 + 1.2, y1 + 1.2, h - 0.4, h + 5.0, 0.62, {
+    slope: pShingle(P.RFSLATE),
+  });
+  // 条纹雨棚（+Y 门面）
+  box(faces, x0 + 1.2, y1 + 0.2, x1 - 1.2, y1 + 2.6, 4.4, 6.2, {
+    left: pAwning(awn), right: pAwning(awn), top: pWall(P.WHITE),
+  });
+  // 白冰台（门前鲜鱼案台 + 台面渔获点缀）
+  box(faces, x0 + 1.6, y1 + 2.6, x1 - 1.6, y1 + 4.4, 0, 2.2, {
+    right: pWall(P.WHITE), left: pWall(P.WHITE), top: pWall(P.CYAN),
+  });
+  box(faces, x0 + 2.6, y1 + 3.0, x0 + 3.6, y1 + 3.9, 2.2, 2.9, { top: pWall(P.CYAN), right: pWall(P.METAL), left: pWall(P.METAL) });
+  box(faces, x1 - 4.0, y1 + 3.0, x1 - 3.0, y1 + 3.9, 2.2, 2.8, { top: pWall(P.YELLOW), right: pWall(P.TAN), left: pWall(P.TAN) });
+  // 鱼形招牌（+X）
+  box(faces, x1, y0 + 2.4, x1 + 1.1, y1 - 2.4, 5.2, 8.0, {
+    right: pSign(P.PAINTY, seed), top: () => cell(P.WHITE, 0),
+  });
+  // 侧边渔获筐
+  box(faces, x0 - 2.0, y0 + 8.0, x0 - 0.4, y0 + 9.6, 0, 1.8, {
+    right: pWall(P.YELLOW), left: pWall(P.TAN), top: pWall(P.WHITE),
+  });
+  return { model: buildModel(faces, 16, 16) };
+}

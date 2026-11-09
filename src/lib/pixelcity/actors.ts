@@ -25,6 +25,7 @@
 
 import type { CityMap } from './map';
 import { defById, ATTRACT } from './catalog';
+import { FISH_BOATS_PER_PORT, FISH_BOAT_MAX } from './fishing';
 import { box, buildModel, type Face, type Model, type BoxMats } from './geo';
 import { pWall, pFlatRoof, cell } from './patterns';
 import { RAMP, bayer } from './palette';
@@ -1205,6 +1206,7 @@ export type Actor = {
   flee?: number;          // 鸽子受惊剩余秒
   thx?: number; thy?: number;      // 威胁来源坐标（受惊时记录）
   tour?: boolean;                  // v10 系统游客（景点漫步，短行程，独立于市民行人池）
+  fishBoat?: boolean;              // v43 渔港作业渔船（归航收车时与渡轮船舶分开记账）
   /** v12 应急任务（消防车/救护车）：tx,ty=事故格 hx,hy=归队设施格 phase=0前往/1处置/2返程
    *  v18：evKey = 触发事件 key（到场后精准 resolve 对应事件；缺省按车型回退 fire/plague） */
   mission?: { tx: number; ty: number; hx: number; hy: number; phase: 0 | 1 | 2; evKey?: string };
@@ -1380,6 +1382,7 @@ export class ActorSystem {
   private targetBus = 0;
   private targetTram = 0;
   private targetBoat = 0;
+  private targetFishBoat = 0;   // v43 渔船编制（渔港泊位 × 2）
   private targetTourist = 0;
   private dirty = true;
   private spawnCd = 0;
@@ -1390,6 +1393,10 @@ export class ActorSystem {
   /** v12 交班邻路格缓存（巡逻车出生点） */
   private kobanTiles: Array<[number, number]> = [];
   private ferryDocks: Array<[number, number]> = [];
+  /** v43 渔港泊位（渔船出海点；渔港码头足迹外 1-2 环内最近水面格） */
+  private fishDocks: Array<[number, number]> = [];
+  /** v43 作业渔船在航数（归航收车记账） */
+  private fishBoats = 0;
   /** v10 景点周边路格缓存（游客出生点） */
   private attractTiles: Array<[number, number]> = [];
 
@@ -1494,6 +1501,10 @@ export class ActorSystem {
     this.targetBoat = this.winterIce
       ? 0
       : Math.min(ActorSystem.BOAT_MAX, this.ferryDocks.length);
+    // v43 渔船：渔港泊位逐座出海（每港 2 艘；冬季冰封全数归港）
+    this.targetFishBoat = this.winterIce
+      ? 0
+      : Math.min(FISH_BOAT_MAX, this.fishDocks.length * FISH_BOATS_PER_PORT);
     // v10 游客：游客人数 /6 名出街漫步（夜间回酒店，白天观光）
     this.targetTourist = this.attractTiles.length
       ? Math.max(0, Math.min(ActorSystem.TOURIST_MAX,
@@ -1507,6 +1518,7 @@ export class ActorSystem {
     this.stopTiles = [];
     this.tramTiles = [];
     this.ferryDocks = [];
+    this.fishDocks = [];   // v43 渔港泊位（重扫重置，防兜底 invalidate 累积）
     this.attractTiles = [];
     this.kobanTiles = [];
     for (const o of map.objs.values()) {
@@ -1548,28 +1560,32 @@ export class ActorSystem {
         }
       } else if (o.id === 'ferry') {
         // 码头 2×2：足迹外 1-2 环内找最近水面泊位（生成器常把码头放在离岸一格处，兼容玩家自摆）
-        let dock: [number, number] | null = null;
-        for (const ring of [1, 2]) {
-          for (let dy = -ring; dy <= d.h + ring - 1; dy++) {
-            for (let dx = -ring; dx <= d.w + ring - 1; dx++) {
-              const ox = dx < 0 ? -dx : (dx >= d.w ? dx - d.w + 1 : 0);   // 足迹外 x 向距离
-              const oy = dy < 0 ? -dy : (dy >= d.h ? dy - d.h + 1 : 0);   // 足迹外 y 向距离
-              if (Math.max(ox, oy) !== ring) continue;                    // 只看第 ring 环
-              const nx = o.ax + dx, ny = o.ay + dy;
-              if (!map.inB(nx, ny)) continue;
-              const i = map.idx(nx, ny);
-              if (map.terr[i] === 1 && !map.road[i] && map.occ[i] < 0) {
-                dock = [nx, ny];
-                break;
-              }
-            }
-            if (dock) break;
-          }
-          if (dock) break;
-        }
+        const dock = this.dockTileOf(map, o.ax, o.ay, d.w, d.h);
         if (dock) this.ferryDocks.push(dock);
+      } else if (o.id === 'fishport') {
+        // v43 渔港码头 2×2：与渡轮码头同一套泊位寻法（足迹外 1-2 环内最近水面格）
+        const dock = this.dockTileOf(map, o.ax, o.ay, d.w, d.h);
+        if (dock) this.fishDocks.push(dock);
       }
     }
+  }
+
+  /** 码头类建筑（渡轮/渔港）泊位寻格：足迹外 1-2 环内第一个水面格（非路非占用） */
+  private dockTileOf(map: CityMap, ax: number, ay: number, w: number, h: number): [number, number] | null {
+    for (const ring of [1, 2]) {
+      for (let dy = -ring; dy <= h + ring - 1; dy++) {
+        for (let dx = -ring; dx <= w + ring - 1; dx++) {
+          const ox = dx < 0 ? -dx : (dx >= w ? dx - w + 1 : 0);   // 足迹外 x 向距离
+          const oy = dy < 0 ? -dy : (dy >= h ? dy - h + 1 : 0);   // 足迹外 y 向距离
+          if (Math.max(ox, oy) !== ring) continue;                // 只看第 ring 环
+          const nx = ax + dx, ny = ay + dy;
+          if (!map.inB(nx, ny)) continue;
+          const i = map.idx(nx, ny);
+          if (map.terr[i] === 1 && !map.road[i] && map.occ[i] < 0) return [nx, ny];
+        }
+      }
+    }
+    return null;
   }
 
   private randomRoad(map: CityMap): [number, number] | null {
@@ -1958,6 +1974,31 @@ export class ActorSystem {
     this.boats++;
   }
 
+  /** v43 渔船出海：渔港泊位发船，水路慢速巡曳拖网（渔船涂装；冬季冰封归港） */
+  private spawnFishBoat(map: CityMap): void {
+    if (!this.fishDocks.length) return;
+    const spot = this.fishDocks[Math.floor(Math.random() * this.fishDocks.length)];
+    const [x, y] = spot;
+    const opts = DIRS.filter(([dx, dy]) => {
+      const nx = x + dx, ny = y + dy;
+      return map.inB(nx, ny) && map.terr[map.idx(nx, ny)] === 1 && !map.road[map.idx(nx, ny)];
+    });
+    if (!opts.length) return;
+    const d = opts[Math.floor(Math.random() * opts.length)];
+    const a: Actor = {
+      kind: 6, fx: x, fy: y, dx: d[0], dy: d[1], t: 0,
+      speed: 0.48 + Math.random() * 0.2,          // 拖网作业，慢于巡游渡轮
+      look: 0,                                    // 固定渔船涂装（红棕船身白驾驶舱）
+      body: 0, role: 0, phase: Math.random() * 1000,
+      offX: 0, offY: 0, path: null, wait: 1.4, master: null, gone: false,
+      fishBoat: true,
+    };
+    const p = findWaterPath(map, a.fx, a.fy, 10, 56);
+    a.path = p;
+    this.actors.push(a);
+    this.fishBoats++;
+  }
+
   /** v10 游客出生：景点旁路格上路，短途观光行程（3-16 格） */
   private spawnTourist(map: CityMap): void {
     if (!this.attractTiles.length) return;
@@ -2252,6 +2293,14 @@ export class ActorSystem {
       } else if (deficitBoat < 0) {
         const i = this.actors.findIndex(x => x.kind === 6);
         if (i >= 0) { this.actors[i].gone = true; this.actors.splice(i, 1); this.boats--; }
+      }
+      // v43 渔船：渔港泊位驱动出海 / 归港（冬季冰封全数归港；只收渔船不动渡轮）
+      const deficitFish = this.targetFishBoat - this.fishBoats;
+      if (deficitFish > 0) {
+        if (Math.random() < 0.5) this.spawnFishBoat(map);
+      } else if (deficitFish < 0) {
+        const i = this.actors.findIndex(x => x.kind === 6 && x.fishBoat);
+        if (i >= 0) { this.actors[i].gone = true; this.actors.splice(i, 1); this.fishBoats--; }
       }
       // v10 游客：游客人数驱动景点漫步（酒店歇脚，景点打卡）
       const deficitTourist = this.targetTourist - this.tourists;

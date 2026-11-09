@@ -34,6 +34,7 @@ import {
   genBakery, genGas, genFerry, genWindmill, genGreenhouse,
   genBrewery, genPavilion, genAquarium, genCellmast,
   genOpera, genExpo, genBoardwalk, genMarina, genZoo,
+  genFishport, genFishmkt,
 } from './b_dusk';
 import { genWatertower, genWaterplant, genLevee } from './b_water';
 import { genBinshed, genRecycle, genIncin } from './b_waste';
@@ -115,6 +116,8 @@ export const CATALOG: Def[] = [
     gen: genGas, desc: '红条雨棚下双泵与价目牌' },
   { id: 'ferry', name: '渡轮码头', cat: 'com', w: 2, h: 2, variants: 1, pop: 20,
     gen: genFerry, ground: 'parking', desc: '栈桥候船楼：邻水而建即有渡轮出港巡游（冬季冰封停航）' },
+  { id: 'fishmkt', name: '海鲜市场', cat: 'com', w: 1, h: 1, variants: 2, pop: 10,
+    gen: genFishmkt, desc: '白冰台与条纹雨棚的鲜鱼集市：渔获按筐变现（每座每日可售 10 筐）· 鲜货折粮入仓补口粮' },
   // ---- 工业 ----
   { id: 'factory', name: '工厂', cat: 'ind', w: 2, h: 2, variants: 4, pop: 45,
     gen: genFactory, desc: '锯齿屋顶厂房，烟囱冒烟' },
@@ -229,6 +232,9 @@ export const CATALOG: Def[] = [
     gen: genBoardwalk, desc: '木栈道白栏杆遮阳伞：临水摆放串成水岸风景线，景点吸引力 +1.5/座' },
   { id: 'marina', name: '游船码头', cat: 'civ', w: 2, h: 2, variants: 1, pop: 12,
     gen: genMarina, desc: 'T 字栈桥与双桅游船：码头周围 3 格也算滨水带（水岸氛围外推）· 游客与收入兼得' },
+  // ---- v43 渔业之城：鱼米之乡 ----
+  { id: 'fishport', name: '渔港码头', cat: 'civ', w: 2, h: 2, variants: 1, pop: 14,
+    gen: genFishport, desc: '石板岸场主栈桥与停泊渔船的渔业锚点：每 24 游戏时一汛，渔获随季节起落（春汛 1.5×/秋汛 1.8×/冬季冰封歇海）· 水质好鱼更旺（污染倒进水里鱼群绕道）· 泊位渔船出海拖网，渔获经海鲜市场变现' },
   // ---- v35 百兽之园 ----
   { id: 'zoo', name: '动物园', cat: 'civ', w: 3, h: 3, variants: 2, pop: 30,
     gen: genZoo, desc: '木围栏兽舍与游园小径：动物巡查员定期进园评估，住户逐步入住 —— 每种动物给吸引力/幸福加成，集齐 9 种翻满物种图鉴（需「城市名片」）' },

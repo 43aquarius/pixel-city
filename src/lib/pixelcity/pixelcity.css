@@ -3182,3 +3182,25 @@ table.pxc-help td:first-child { width: 118px; background: #b3b9c1; }
 /* 移动端 */
 .pxc.m .rlk-grid { grid-template-columns: repeat(3, 1fr); }
 .pxc.m .rs-head span { white-space: normal; }
+
+/* ============ v43 渔业之城：渔汛与渔获 ============ */
+.pxc-fish { width: min(560px, calc(100vw - 24px)); }
+.fish-chip.fish-on { border-color: #3B7138; background: #EDF4EA; }
+.fish-chip.fish-on, .fish-chip.fish-on b, .fish-chip.fish-on i { color: #2C5A2A; }
+/* 渔汛旺季（春/秋）：汛字金亮 —— 桃花水暖与秋风蟹肥的日子 */
+.fish-chip.fish-run { border-color: #C9861F; background: #FAF1DC; box-shadow: 0 0 6px rgba(201, 134, 31, 0.35); }
+.fish-chip.fish-run b, .fish-chip.fish-run i { color: #9A6412; }
+/* 渔港与市场齐备：海味上桌（青瓷色微光） */
+.fish-chip.fish-table { box-shadow: 0 0 7px rgba(79, 168, 160, 0.45); }
+/* 季节汛进度条（青碧渐变，与空港天青错开：水色系） */
+.mt-bar.fish i { background: linear-gradient(90deg, #5BC8B8, #2C8A7E); }
+/* 渔业卡数字青瓷系 */
+.pxc-fish .ms-card b, .pxc-fish .zh-progress b { color: #1F6E64; }
+.pxc-fish .zh-bonus { color: #2C5A2A; }
+/* 图鉴卡上钩尾注（季节汛口径） */
+.pxc-fish .zk-bonus { color: #1F6E64; font-weight: 600; }
+/* 未录鱼种剪影（灰置压暗 —— 与动物园图鉴同一套语言） */
+.zk-sil { filter: grayscale(1) opacity(0.45) !important; }
+/* 十格图鉴在窄模态里更紧凑 */
+.fish-grid { grid-template-columns: repeat(3, 1fr); }
+.pxc.m .fish-grid { grid-template-columns: repeat(2, 1fr); }

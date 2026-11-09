@@ -18,7 +18,7 @@ import { PALETTE } from '@/lib/pixelcity/palette';
 import { iconURI } from '@/lib/pixelcity/icons';
 import {
   Tycoon, ECON, costOf, unlockOf, fmtG, QUESTS, TECHS, BRANCHES, TECH_GATE, techNameOf,
-  taxMood, TAX_MIN, TAX_MAX, SEASONS, FESTS, CYC_PHASES, CYC_MIN, CYC_MAX, ZOO_SPECIES,
+  taxMood, TAX_MIN, TAX_MAX, SEASONS, FESTS, CYC_PHASES, CYC_MIN, CYC_MAX, ZOO_SPECIES, FISH_SPECIES,
   type EconView, type HistPoint,
 } from '@/lib/pixelcity/tycoon';
 import { RELICS } from '@/lib/pixelcity/relics';   // v38 出土图鉴（三套系 12 件渲染源）
@@ -40,6 +40,8 @@ const ICON_NAMES = [
   'camera', 'box', 'fire', 'shield', 'mail', 'fest', 'scroll', 'ball',
   'paw', 'rabbit', 'goat', 'deer', 'peacock', 'flamingo', 'redpanda', 'penguin', 'koi', 'panda',
   'plane',
+  'fishChip', 'fishCrucian', 'fishSilver', 'fishShrimp', 'fishClam', 'fishCatfish',
+  'fishMandarin', 'fishWhitefish', 'fishCrab', 'fishSilverfish', 'fishSturgeon',
 ];
 
 type Phase = 'loading' | 'ready';
@@ -272,7 +274,7 @@ export default function PixelCity() {
   /** v27 移动端卷目横条：左右渐隐暗示（滚动感知） */
   const [cwNavMore, setCwNavMore] = useState({ l: false, r: false });
   const cwNavScrollRef = useRef<HTMLDivElement | null>(null);
-  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'zoo' | 'chron' | 'gov' | 'sis' | 'news' | 'hall' | 'metro' | 'air'>('none');
+  const [modal, setModal] = useState<'none' | 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'zoo' | 'chron' | 'gov' | 'sis' | 'news' | 'hall' | 'metro' | 'air' | 'fish'>('none');
   const [econ, setEcon] = useState<EconView | null>(null);
   /** v39 城市日报：当前翻阅的过刊下标（0 = 最新一期） */
   const [npSel, setNpSel] = useState(0);
@@ -636,7 +638,7 @@ export default function PixelCity() {
     }
   }, [say]);
 
-  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'zoo' | 'chron' | 'gov' | 'sis' | 'news' | 'hall' | 'metro' | 'air') => {
+  const openModal = useCallback((m: 'save' | 'help' | 'fiscal' | 'tech' | 'data' | 'policy' | 'citz' | 'mail' | 'anth' | 'fest' | 'lg' | 'zoo' | 'chron' | 'gov' | 'sis' | 'news' | 'hall' | 'metro' | 'air' | 'fish') => {
     if (m === 'save') {
       setSlotMeta([0, 1, 2].map(i => Engine.slotMeta(i)));
     }
@@ -1325,6 +1327,12 @@ export default function PixelCity() {
                   : '空港航线：建成空港航站楼（需「建筑工程学」）即开邻省都会线 —— 姊妹城好感到位各开花一条国际航线，游客与空运双旺'}>
                 <img src={iu('plane')} alt="" /><b>{econ.air.routes > 0 ? econ.air.routes : '—'}</b><i>航</i>
               </button>
+              <button className={`chip fish-chip${econ.fish.ports > 0 ? ' fish-on' : ''}${econ.fish.seasonK >= 1.5 ? ' fish-run' : ''}${econ.fish.mkts > 0 && econ.fish.hapOn > 0 ? ' fish-table' : ''}`} onClick={() => openModal('fish')}
+                title={econ.fish.ports > 0
+                  ? `渔业之城：渔港 ${econ.fish.ports} 座 · 海鲜市场 ${econ.fish.mkts} 座 · 预估日渔获 ${econ.fish.catch} 筐 · 累计 ${econ.fish.total} 筐 · 图鉴 ${econ.fish.dex.length}/${econ.fish.dex.length ? econ.fish.dex.length : 0}${econ.fish.seasonK === 0 ? ' · 冬季冰封歇海' : ` · ${econ.fish.seasonName}汛 ×${econ.fish.seasonK}`}`
+                  : '渔业之城：在水畔建起渔港码头（LV6）即开渔汛 —— 春汛 1.5×、秋汛 1.8×、冬季冰封歇海；渔获经海鲜市场变现，集齐渔获图鉴十种'}>
+                <img src={iu('fishChip')} alt="" /><b>{econ.fish.ports > 0 ? econ.fish.dex.length : '—'}</b><i>渔</i>
+              </button>
               <button className={`chip gov${econ.gov.pending ? ' has' : ''}`} onClick={() => openModal('gov')}
                 title={econ.gov.pending
                   ? `市长公署：${econ.gov.pending.from}呈「${econ.gov.pending.title}」待您朱批 —— 每道批注都有代价与回响，并记入编年史「政令」卷`
@@ -1889,6 +1897,11 @@ export default function PixelCity() {
                       <td>空港</td>
                       <td>{econ.air.n > 0 ? `空港运转中（在飞航线 ${econ.air.routes}/${econ.air.lines.length} · 累计 ${econ.air.flown} 架次 · 旅客 ${econ.air.pax} 人次 · 商圈覆盖 ${econ.air.cover}% · 游客 ×${econ.air.tourK.toFixed(2)}${econ.air.noise > 0 ? ` · 噪音圈住宅 ${econ.air.noise} 栋` : ''}，顶栏「航」翻空港航线）`
                         : '无 —— 建成空港航站楼即开邻省都会线（需「建筑工程学」；姊妹城好感到位各开花一条国际航线）'}</td>
+                    </tr>
+                    <tr className={econ.fish.ports > 0 ? 'g' : ''}>
+                      <td>渔业</td>
+                      <td>{econ.fish.ports > 0 ? `渔汛运转中（渔港 ${econ.fish.ports} 座 · 海鲜市场 ${econ.fish.mkts} 座 · 预估日渔获 ${econ.fish.catch} 筐 · 累计 ${econ.fish.total} 筐 · 图鉴 ${econ.fish.dex.filter(f => f.got).length}/${econ.fish.dex.length}${econ.fish.seasonK === 0 ? ' · 冬季冰封歇海' : ` · ${econ.fish.seasonName}汛 ×${econ.fish.seasonK}`}${econ.fish.hapOn > 0 ? ' · 海味上桌幸福 +1' : ''}，顶栏「渔」翻渔获图鉴）`
+                        : '无 —— 在水畔建起渔港码头即开渔汛（春汛 1.5× · 秋汛 1.8× · 冬季冰封歇海），渔获经海鲜市场按筐变现'}</td>
                     </tr>
                     <tr className={econ.ferries > 0 ? 'g' : ''}>
                       <td>航运</td>
@@ -2642,6 +2655,70 @@ export default function PixelCity() {
                     姊妹城结好即开花国际航线（千里比邻与鲲鹏展翅互相成就）；
                     航班延误时游客打折扣，旅游包机到港游客 ×1.5；
                     噪音圈上的住宅幸福受损，机场尽量建在城郊
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* v43 渔业之城模态（渔汛与渔获图鉴） */}
+      {modal === 'fish' && econ && (
+        <div className="pxc-mask" onClick={e => { if (e.target === e.currentTarget) setModal('none'); }}>
+          <div className="pxc-modal pxc-fish" role="dialog" aria-label="渔汛与渔获图鉴">
+            <header>
+              渔 汛 与 渔 获
+              <button className="pxc-x" onClick={() => setModal('none')} aria-label="关闭">×</button>
+            </header>
+            <div className="pxc-body">
+              {econ.fish.ports === 0 ? (
+                <div className="zoo-empty">
+                  <div className="ze-t">渔港尚未落成</div>
+                  <div className="ze-d">在水畔建起一座<b>渔港码头</b>（LV6），渔船即从泊位出海拖网 ——
+                    每 24 游戏时一汛，渔获随季节起落：<b>春汛 ×1.5</b>（桃花水暖鳜鱼肥）、<b>秋汛 ×1.8</b>（秋风起蟹脚痒）、
+                    <b>冬季冰封歇海</b>；渔获要经<b>海鲜市场</b>按筐变现（每座每日可售 10 筐 ×26G），鲜货折粮入仓补口粮；
+                    水质是渔家的命根 —— 环境指数走低鱼群绕道，清波见底才钓得上银鱼与中华鲟</div>
+                </div>
+              ) : (
+                <>
+                  {/* 渔汛状态头 */}
+                  <div className="mt-head">
+                    <span className="mh-prog">渔港 <b>{econ.fish.ports}</b> 座 · 海鲜市场 <b>{econ.fish.mkts}</b> 座</span>
+                    <span className={`mh-net${econ.fish.seasonK > 0 ? ' on' : ''}`}>{econ.fish.seasonK === 0 ? '冬季冰封歇海 —— 开春桃花水暖再开网' : `${econ.fish.seasonName}汛运转中 —— 渔船出海拖网如常`}</span>
+                    <span className="mh-cover">水质系数 ×{econ.fish.envK.toFixed(2)}（环境指数说了算）</span>
+                  </div>
+                  {/* 季节汛进度条 */}
+                  <div className="mt-bar fish"><i style={{ width: `${Math.min(100, econ.fish.seasonK / 1.8 * 100)}%` }} /></div>
+                  {/* 图鉴进度 */}
+                  <div className="zoo-head">
+                    <span className="zh-progress">图鉴 <b>{econ.fish.dex.filter(f => f.got).length}</b>/{econ.fish.dex.length} 种</span>
+                    <span className="zh-bonus">累计 <b>{econ.fish.total}</b> 筐 · 最近一汛 <b>{econ.fish.today}</b> 筐</span>
+                    <span className="zh-next">预估日收入 {econ.fish.income}G{econ.fish.mkts === 0 ? '（还没开海鲜市场 —— 渔获卖不出价）' : ''}</span>
+                  </div>
+                  {/* 十格渔获图鉴卡 */}
+                  <div className="zoo-grid fish-grid">
+                    {econ.fish.dex.map(f => {
+                      const got = f.got;
+                      return (
+                        <div key={f.id} className={`zk-card${got ? ' on' : ''}${f.rare === 2 ? ' rare2' : f.rare === 1 ? ' rare1' : ''}`}>
+                          <div className="zk-head">
+                            <img src={iu(f.icon)} alt="" width={22} height={22} className={got ? '' : 'zk-sil'} />
+                            <b>{got ? f.name : '？？？'}</b>
+                            {f.rare === 2 ? <i className="zk-badge r2">镇册</i> : f.rare === 1 ? <i className="zk-badge r1">稀有</i> : null}
+                          </div>
+                          <div className="zk-note">{got ? f.note : '图鉴未录 —— 等它上钩那天再告诉你'}</div>
+                          <div className="zk-bonus">{f.season}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-note">
+                    渔汛看天时：<b>春汛 ×1.5</b>（鳜鱼桃花水里才上钩）、<b>秋汛 ×1.8</b>（大闸蟹横行将军 · 白鱼银白细长）、
+                    夏汛青虾黄颡最欢实、冬季冰封歇海；渔获经海鲜市场按筐变现，多出的鲜货折粮入仓 ——
+                    渔港与市场齐备全城幸福 +1（海味上桌）；
+                    水质看环保：污染倒进水里鱼群绕道（环境指数 &lt;40 渔获 ×0.6），赤潮来袭渔获 ×0.4、鱼汛爆发渔获 ×2 ——
+                    清波见底才有银鱼，水质极佳才迎得来中华鲟
                   </div>
                 </>
               )}
@@ -3779,6 +3856,7 @@ export default function PixelCity() {
                     <tr><td>名人堂</td><td>顶栏「光」指标开<b>荣誉殿堂</b>：建成名人堂（需「城市名片」）即开榜，每逢换季整点评出一颗「本季城市之光」—— 八大奖项按城市状态加权（消防局在城才评得动见义勇为、赢球才有人捧绿茵之星），获奖市民名镌光荣榜、心情大振，全城幸福 +1；授勋大事入编年史，报馆在城还能上号外；拆堂停评光荣榜保留，复建自动复评</td></tr>
                     <tr><td>地铁</td><td>顶栏「轨」指标开<b>轨道交通</b>：建成地铁车辆段（需「建筑工程学」）作全线锚点 —— 地铁站沿切比雪夫 12 格逐站续链（站与站手拉手也能远距离延伸），两站接入即通车；接入站以 5 格通勤圈服务商铺与住宅（收入 +6% · 幸福 +1.2/栋），每接入站交通 +5 至多 +20；未接入的车站只是摆设，施工期车马为患的城通车那日编年史补写「通途重开」</td></tr>
                     <tr><td>空港</td><td>顶栏「航」指标开<b>空港航线</b>：建成空港航站楼（需「建筑工程学」）即开邻省都会线 —— 每条航线 8 小时一班，游客 ×1.12 起（每条航线再 +12%）、空运出口 +3 件/分、交通 +8、商圈（半径 7 格）商铺收入 +8%；姊妹城好感 ≥60 各开花一条国际航线，人口 ≥500 再开远洋枢纽线；但半径 4 格噪音圈住宅幸福 −0.8/栋（至多 −5）—— 商圈要近、噪音要远，机场选址是一道权衡题</td></tr>
+                    <tr><td>渔业</td><td>顶栏「渔」指标开<b>渔汛与渔获</b>：在水畔建起渔港码头（LV6）即开渔汛 —— 每 24 游戏时一汛，春汛 ×1.5、秋汛 ×1.8、冬季冰封歇海；渔获要经海鲜市场按筐变现（每座每日可售 10 筐 ×26G），鲜货折粮入仓补口粮，渔港与市场齐备全城幸福 +1；渔获随水质起落 —— 环境指数 &lt;40 渔获 ×0.6、赤潮 ×0.4、鱼汛爆发 ×2，清波见底（≥75）才钓得上银鱼，水质极佳才迎得来中华鲟；渔获图鉴十种各有各的汛，集齐解锁成就「满舱而归」</td></tr>
                     <tr><td>节庆</td><td>顶栏「庆」指标开<b>城市节庆</b>：随季节举办樱花祭/花火大会/丰收节/暖灯节（市政厅 LV3 起），90 秒全城增益 —— 春天樱吹雪加密、夏天夜空花火、秋天金叶满街、冬天孔明灯升空；节日会写进市民大事记，累计 8 场解锁成就「节庆之都」、四季各办一场解锁「四季轮庆」</td></tr>
                     <tr><td>引导</td><td>首次进入经营模式自动展开新手引导横幅（修路→建房→迎市民→开业→看面板→认市民）；随时可跳过，也可在这里点「重新查看新手引导」重看</td></tr>
                     <tr><td>音效</td><td>顶栏喇叭图标：音效开关 + 主音量滑杆（本地记忆）；建造/金币/灾害警报/警笛/电车铃/成就凯旋各有专属 8-bit 音色</td></tr>

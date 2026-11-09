@@ -36,6 +36,15 @@ import {
   AIR_ROUTE_DEFS, airRouteOpen, paxPerFlight, airTourMult, airCovered, airNoisy,
   noiseHapOf, airExpT, type AirAnchor,
 } from './aviation';
+import {
+  FISH_DAY_H, FISH_MKT_CAP, FISH_PRICE, FISH_HAP, FISH_BOUNTY_CATCH, FISH_CATCH_GOAL,
+  FISH_BOATS_PER_PORT, FISH_BOAT_MAX, FISH_SPECIES, FISH_DEX_TOTAL,
+  seasonKOf, envKOf, fishCatchOf, fishIncomeOf, fishFoodOf, fishHapOf,
+  fishWeightOf, rollFish, type FishSpeciesDef,
+} from './fishing';
+
+// v43 渔业之城：图鉴物种表转发给 UI（定义在 fishing.ts 纯函数模块）
+export { FISH_SPECIES } from './fishing';
 
 export const CHUNK = 16;                 // 领地块边长（格）
 export const CHUNKS = 16;                // 256 / 16 = 16×16 块领地
@@ -487,6 +496,9 @@ export const ECON: Record<string, EconDef> = {
   metrostop: D(520, 7, { power: 4, amenity: 1, upk: 1.8 }),      // 接入车辆段才通车（通勤圈加成在 snapOf 结算）
   // ---- v42 鲲鹏展翅：空港之城 ----
   airport: D(3200, 8, { power: 18, amenity: 5, upk: 6, sp: 1.5, cul: 3 }),   // 对外门户：航站楼/塔台/停机坪，落成记入编年史（商圈与噪音圈在 snapOf 结算）
+  // ---- v43 渔业之城：鱼米之乡 ----
+  fishmkt: D(340, 4, { power: 3, earn: 4.6, upk: 1.4, goodsC: 0.4 }),   // 海鲜市场：渔获按筐变现（每座每日可售 10 筐）+ 鲜货折粮
+  fishport: D(980, 6, { power: 3, amenity: 1, upk: 2.2, cul: 1 }),   // 渔港码头：渔汛引擎（收益经海鲜市场变现，在 stepFish 结算）
   cellmast: D(120, 7, { power: 2, upk: 0.25 }),
   // ---- 水务（v6：供水覆盖指数）----
   watertower: D(130, 2, { power: 2, amenity: 1, upk: 0.75, waterR: 9, waterCap: 260 }),
@@ -570,7 +582,7 @@ export type ActiveEvent = {
   kind: 'good' | 'bad';
   left: number; dur: number;
   hap: number;
-  mult: { com?: number; ind?: number; food?: number; power?: number; traffic?: number; sp?: number; amenity?: number; tour?: number; exp?: number };
+  mult: { com?: number; ind?: number; food?: number; power?: number; traffic?: number; sp?: number; amenity?: number; tour?: number; exp?: number; fish?: number };
   /** v12 两段结算：延迟到事件结束的余损（应急车到场则豁免） */
   pendG?: number; pendP?: number;
   fx?: { x: number; y: number };
@@ -800,6 +812,24 @@ export const EVENT_TPLS: EventTpl[] = [
       return `包机到港！机场服务费 +${gain}G`;
     },
   },
+  // ---- v43 渔业之城：赤潮来袭 / 鱼汛爆发 ----
+  {
+    key: 'redtide', name: '赤潮来袭', kind: 'bad', dur: 40, hap: -2,
+    mult: { fish: 0.4 },
+    note: '水质恶化藻类爆发：渔获 ×0.4（污染倒进水里，渔船空着网回港，鱼贩子守着空冰台发愁）',
+    w: s => (s.fishPorts > 0 && s.envIdx < 55 ? 7 : 0),   // 有渔港且环境走低才有的新烦恼
+  },
+  {
+    key: 'runfish', name: '鱼汛爆发', kind: 'good', dur: 45, hap: 2,
+    mult: { fish: 2.0 },
+    note: '鱼群浩浩荡荡润进近岸：渔获 ×2（码头筐摞着筐，海鲜市场排起长队）',
+    w: s => (s.fishPorts > 0 && (s.fishSeasonK ?? 0) > 0 ? 6 : 0),
+    fire: (t) => {
+      const gain = Math.round(40 + t.lastCatch * 8);
+      t.coins += gain;
+      return `鱼汛大发！渔市旺价 +${gain}G`;
+    },
+  },
   // ---- v10 旅游事件 ----
   {
     key: 'tourseason', name: '旅游旺季', kind: 'good', dur: 70, hap: 2,
@@ -1010,6 +1040,13 @@ export const ACHIEVEMENTS: AchvDef[] = [
     goal: AIR_PAX_GOAL, val: s => s.paxTotal },
   { id: 'airR', name: '国际枢纽', desc: '在飞航线 ≥4 条（基础线 + 三条姊妹城国际线，或再加远洋枢纽线 —— 外交与门户互相成就）', icon: 'road',
     goal: 4, val: s => s.airRoutes },
+  // ---- v43 渔业之城三枚 ----
+  { id: 'fish1', name: '渔舟唱晚', desc: '渔港码头落成且首汛归港（春汛桃花水暖，秋汛鱼蟹满筐 —— 编年史记下第一网）', icon: 'fishChip',
+    goal: 1, val: s => (s.fishPorts > 0 && s.fishTotal > 0 ? 1 : 0) },
+  { id: 'fishY', name: '鱼米之乡', desc: `累计渔获 ${FISH_CATCH_GOAL} 筐（渔获随季节起落：春汛 1.5×、秋汛 1.8×，冬季冰封歇海）`, icon: 'fishChip',
+    goal: FISH_CATCH_GOAL, val: s => s.fishTotal },
+  { id: 'fishD', name: '满舱而归', desc: `渔获图鉴集齐全部 ${FISH_DEX_TOTAL} 种（春鲦秋蟹夏虾，各有各的汛；清波见底才有银鱼与中华鲟）`, icon: 'fishChip',
+    goal: FISH_DEX_TOTAL, val: s => s.fishDexN },
   { id: 'hall8', name: '满堂生辉', desc: '八大奖项各评出至少一次（劳动模范/见义勇为/仁心仁术/平安卫士/绿茵之星/杏坛春晖/寿星高照/创业先锋 —— 消防局医院交番学校体育场在城，才评得动相应的奖）', icon: 'star',
     goal: HALL_AWARDS.length, val: s => s.hallAwardsN },
   { id: 'hall12', name: '群星璀璨', desc: '累计评出 12 届城市之光（一季一届风雨无阻 —— 双雕像台前掌声一季比一季响，光荣榜写满一整年的星光）', icon: 'medal',
@@ -1244,6 +1281,15 @@ export type QS = {
   airOut: number;      // 商圈外建筑栋数（商铺+住宅）
   noiseRes: number;    // 噪音圈住宅栋数（幸福惩罚源）
   airTourK: number;    // 游客乘数（1 + 0.12×航线；游客结算链尾）
+  // ---- v43 渔业之城 ----
+  fishPorts: number;   // 渔港码头座数（渔汛引擎开关）
+  fishMkts: number;    // 海鲜市场座数（冰台容量口径）
+  fishSeasonK: number; // 当前季节汛系数（春汛 1.5 / 夏平 1.0 / 秋汛 1.8 / 冬封 0）
+  fishEnvK: number;    // 当前水质系数（污染倒进水里鱼群绕道）
+  fishCatch: number;   // 预估日渔获（筐；面板口径，实际结算在 stepFish）
+  fishHap: number;     // 海味上桌全市幸福加成（渔港与市场齐备且非冬封）
+  fishTotal: number;   // 累计渔获（筐；成就口径，随档保存）
+  fishDexN: number;    // 渔获图鉴已录入种数（成就口径，随档保存）
   // ---- v19 污染空间化 ----
   smogTiles: number; smogBad: number; smogRes: number; ecotowers: number;
   // ---- v20 电网空间化 ----
@@ -1458,6 +1504,11 @@ export const QUESTS: Quest[] = [
     val: s => (s.metroDepots > 0 && s.metroConn >= 2 ? 1 : 0), rG: 480, rXp: 220 },
   { id: 'air1', title: '临空而起', hint: '建成空港航站楼（需先研究「建筑工程学」）：航站楼落成即开邻省都会线 —— 顶栏「航」看航线状态；姊妹城好感到位各开花一条国际航线，人口 ≥500 再开远洋枢纽线', goal: 1,
     val: s => (s.airN > 0 ? 1 : 0), rG: 560, rXp: 260 },
+  // ---- v43 渔业之城 ----
+  { id: 'fish1', title: '临渊结网', hint: '在水畔建起 1 座渔港码头：渔船出海拖网，每 24 游戏时一汛 —— 春汛 1.5×、秋汛 1.8×，冬季冰封歇海；顶栏「渔」翻渔获图鉴', goal: 1,
+    val: s => (s.fishPorts > 0 ? 1 : 0), rG: 540, rXp: 250 },
+  { id: 'fish2', title: '海味上桌', hint: '再开一间海鲜市场：渔获按筐上集市变现（每座每日可售 10 筐 ×26G），鲜货折粮入仓补口粮 —— 渔港与市场齐备，全城幸福 +1', goal: 1,
+    val: s => (s.fishMkts > 0 ? 1 : 0), rG: 380, rXp: 180 },
 ];
 
 // ------------------------------------------------------------
@@ -1654,6 +1705,20 @@ export type EconView = {
     noise: number;              // 噪音圈住宅栋数（幸福惩罚源）
     tourK: number;              // 游客乘数（1 + 0.12×航线）
     lines: Array<{ id: string; name: string; open: boolean; cond: string }>;  // 航线表
+  };
+  // ---- v43：渔业之城（鱼米之乡）----
+  fish: {
+    ports: number;              // 渔港码头座数（0 = 渔港尚未落成）
+    mkts: number;               // 海鲜市场座数（冰台容量口径）
+    seasonK: number;            // 当前季节汛系数（春汛 1.5 / 夏平 1.0 / 秋汛 1.8 / 冬封 0）
+    seasonName: string;         // 当前季节名（春/夏/秋/冬）
+    envK: number;               // 当前水质系数
+    catch: number;              // 预估日渔获（筐）
+    today: number;              // 最近一汛渔获（筐）
+    total: number;              // 累计渔获（筐）
+    income: number;             // 预估日渔业收入（G；按冰台容量封顶）
+    dex: Array<{ id: string; name: string; rare: 0 | 1 | 2; icon: string; note: string; got: boolean; season: string }>;  // 渔获图鉴
+    hapOn: number;              // 海味上桌幸福加成（0/1）
   };
   // ---- v19：污染空间化 ----
   smogTiles: number;                // 雾霾格数（浓度 ≥45）
@@ -2143,6 +2208,7 @@ export class Tycoon {
 
   // ---- v42：空港之城（机场与航线）----
   /** 空港商圈建筑锤点集合（商铺+住宅；引擎商圈渲染 / 收入加成源） */
+  /** v42 空港商圈与噪音场 —— ensureAir 派生，随摆盘重算 */
   airField = new Set<number>();
   /** 商圈外建筑锤点集合（商铺+住宅；统计口径） */
   airMissField = new Set<number>();
@@ -2158,6 +2224,14 @@ export class Tycoon {
   flights = 0;
   /** 累计旅客吞吐（人次；随档保存） */
   paxTotal = 0;
+  // ---- v43 渔业之城：鱼米之乡 ----
+  private fishNext = -1;          // 下次渔汛结算时刻（gHours；-1 = 渔港未落成）
+  fishTotal = 0;                  // 累计渔获（筐；成就「鱼米之乡」口径）
+  fishDex: string[] = [];         // 渔获图鉴（已录鱼种 id，按首录顺序）
+  lastCatch = 0;                  // 最近一汛渔获（筐；面板与鱼汛事件口径）
+  private fishSeen = false;       // 首港落成纪事旗
+  private fishBountySeen = false; // 渔汛大丰收藏旗（只记头一回）
+  private fishWinterSeen = false; // 冬封歇海纪事旗（每年首冬各记一回）
   /** 航班倒计时（秒；到点起飞一架） */
   private flightTimer = 0;
   /** 航站楼落成纪事旗（只写一次；随档保存） */
@@ -2432,6 +2506,7 @@ export class Tycoon {
     let metroIn = 0, metroOut = 0;
     let metroDepots = 0, metroStops = 0;   // v41 地铁车辆段 / 车站座数
     let airports = 0;                      // v42 空港航站楼座数（门户开关）
+    let fishports = 0, fishmkts = 0;       // v43 渔港码头 / 海鲜市场座数
     // v10：货物 / 旅游累计器
     let goodsP = 0, goodsC = 0, goodsCapV = GOODS_BASE_CAP;
     let hotelBeds = 0, attract = 0, ports = 0;
@@ -2532,6 +2607,7 @@ export class Tycoon {
         if (o.id === 'metrodepot') metroDepots++;           // v41 地铁车辆段（线网锚点）
         if (o.id === 'metrostop') metroStops++;             // v41 地铁站
         if (o.id === 'airport') airports++;                 // v42 空港航站楼（门户开关）
+        if (o.id === 'fishport') fishports++;               // v43 渔港码头（渔汛引擎开关）
       }
       // v6 水务设施：登记覆盖圆心（半径含足迹）
       if (e?.waterR) {
@@ -2543,6 +2619,7 @@ export class Tycoon {
       // v7 公交 / 航运设施计数
       if (o.id === 'busstop') busStops++;
       if (o.id === 'ferry') ferries++;
+      if (o.id === 'fishmkt') fishmkts++;                 // v43 海鲜市场（com 类：冰台容量口径）
       if (o.id === 'tramstop') tramStops++;      // v11
       if (o.id === 'railhub') railHubs++;
       // v10：货物供应链 / 旅游设施（v20：断电商铺不上货、断电工厂不产货；仓库容量照算——货架还在那）
@@ -2861,13 +2938,19 @@ export class Tycoon {
     const routeOpen = AIR_ROUTE_DEFS.map(d => airRouteOpen(d, airports > 0, pop, sisRel));
     const routesOpen = routeOpen.filter(Boolean).length;
     const airTourK = airTourMult(routesOpen);
+    // v43 渔业之城：季节汛与水质系数 → 预估日渔获与海味上桌幸福（实际结算在 stepFish）
+    const fishSeasonK = seasonKOf(this.season);
+    const fishEnvK = envKOf(envIdx);
+    const fishCatch = fishCatchOf(fishports, this.season, envIdx);
+    const fishHap = fishHapOf(fishports, fishmkts, this.season);
     const mood = taxMood(this.taxRate);
     const happiness = Math.max(5, Math.min(100, Math.round(
       0.24 * livability + 0.15 * foodIdx + 0.12 * jobIdx + 0.11 * waterIdx + 0.09 * cultureIdx +
       0.09 * envIdx + 0.07 * healthIdx + 0.06 * safetyIdx + 0.07 * trafficIdx + mood + weatherHap + eventHap + seasonHap + ordHap + festHap + this.docHap + cycHap + lgHap + zooB.hap + relicB.hap + (this.hallHapT > 0 ? HALL_HAP : 0)
       + (operas > 0 ? 2 : 0)
+      + fishHap
       + Math.min(WF_HAP_MAX, wfRes)
-      + (tramStops >= 2 ? 2 : 0) + metroHap - airNoise - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap - medHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区/v36 医疗盲区扣减；v29 朱批民心增益；v31 大剧院全市幸福 +2；v32 滨水住宅每栋 +1；v33 市况荣枯 ±2/0/+1/+3；v34 比赛日沸腾 + 赛后情绪；v35 物种住户幸福（企鹅冬季加成）；v42 噪音圈住宅扣减
+      + (tramStops >= 2 ? 2 : 0) + metroHap - airNoise - famineHit - smogHap - powerHap - wasteHap - eduHap - secHap - fireHap - medHap)));   // v11 电车通车 +2；v20 断电/v21 垃圾/v22 学区外/v23 盲区/v24 消防盲区/v36 医疗盲区扣减；v29 朱批民心增益；v31 大剧院全市幸福 +2；v32 滨水住宅每栋 +1；v33 市况荣枯 ±2/0/+1/+3；v34 比赛日沸腾 + 赛后情绪；v35 物种住户幸福（企鹅冬季加成）；v42 噪音圈住宅扣减；v43 海味上桌 +1
     const happyMult = 0.6 + happiness / 125;
 
     // ---- v10 旅游：景点吸引力 × 文化/幸福 × 季节/天气 → 游客（酒店床位为接待上限）----
@@ -2968,6 +3051,10 @@ export class Tycoon {
         ? Math.round(100 * this.airField.size / (this.airField.size + this.airMissField.size)) : 100,
       airIn: this.airField.size, airOut: this.airMissField.size,
       noiseRes, airTourK,
+      // ---- v43 渔业之城 ----
+      fishPorts: fishports, fishMkts: fishmkts,
+      fishSeasonK, fishEnvK, fishCatch, fishHap,
+      fishTotal: this.fishTotal, fishDexN: this.fishDex.length,
       // ---- v33 经济周期 ----
       cycIdx: Math.round(this.cycIdx), cycPhase: this.cycPhase, cycHap,
       cycComK, cycTourK, cycIndK, cycMigK,
@@ -4313,6 +4400,95 @@ export class Tycoon {
 
   /** v42 空港之城：航站楼落成纪事 + 首航纪事 + 航线开通纪事 + 航班起降计数 + 噪音提醒
    *  （商圈收入 ×1.08 / 噪音幸福惩罚 / 游客乘数 / 交通加成已在 snapOf 生效） */
+  // ---------------- v43：渔业之城（鱼米之乡） ----------------
+
+  /**
+   * 渔汛结算步进：渔港落成开册 → 每 FISH_DAY_H 游戏时一汛 →
+   * 渔获 = 港数 × 基础 × 季节汛 × 水质（冬封歇海）→
+   * 海鲜市场按筐变现（coins），余货折粮入仓 → 大丰收藏纪事 → 抽鱼种入册。
+   * 渔港被拆光时暂停结算（累计与图鉴保留，重建即恢复）。
+   */
+  private stepFish(): void {
+    const s = this.snap;
+    if (!s) return;
+    // 渔港落成 → 开册（首港纪事；拆光复建不重记）
+    if (this.fishNext < 0 && s.fishPorts > 0) {
+      this.fishNext = this.gHours + FISH_DAY_H;
+      if (!this.fishSeen) {
+        this.fishSeen = true;
+        this.chron.write('mile', 'good', 'drop', '渔舟唱晚',
+          '第一座渔港在河湾里立起了栈桥，泊位上系着漆色还新的渔船。开港那日第一网拉上来，鱼在筐里活蹦乱跳 —— 这座城从此多了一门靠水吃水的营生。', this.gHours);
+        this.msg?.('渔港码头启用 —— 每 24 游戏时一汛，渔获经海鲜市场变现（春汛 1.5× · 秋汛 1.8× · 冬季冰封歇海）');
+        this.sfx?.('bell');
+      }
+    }
+    if (this.fishNext < 0) return;
+    // 渔港被拆光 → 渔汛暂停（账目保留；重建即恢复）
+    if (s.fishPorts === 0) return;
+    if (this.gHours < this.fishNext) return;
+    this.fishNext = this.gHours + FISH_DAY_H;
+    // 冬季冰封歇海（与 v7 渡轮同一片封冻的水面；每年首冬记一回）
+    if (this.season === 3) {
+      this.lastCatch = 0;
+      if (!this.fishWinterSeen) {
+        this.fishWinterSeen = true;
+        this.chron.write('event', 'info', 'drop', '冬季歇海',
+          '水面封了冻，渔船拖上岸盖了草帘，渔具房的门上了闩 —— 渔家猫冬的日子，全城等着开春第一网。', this.gHours);
+        this.msg?.('水面封冻 —— 渔汛冬季歇海，开春桃花水暖再开网');
+      }
+      return;
+    }
+    this.fishWinterSeen = false;
+    // 事件乘数（赤潮 ×0.4 / 鱼汛爆发 ×2）
+    let fishMult = 1;
+    for (const ev of this.events) if (ev.mult.fish) fishMult *= ev.mult.fish;
+    const base = fishCatchOf(s.fishPorts, this.season, s.envIdx);
+    const catchB = Math.round(base * fishMult);
+    this.lastCatch = catchB;
+    this.fishTotal += catchB;
+    // 渔获变现（海鲜市场按筐点钱）+ 鲜货折粮入仓
+    const income = fishIncomeOf(catchB, s.fishMkts);
+    if (income > 0) this.coins += income;
+    const foodGain = fishFoodOf(catchB, s.fishMkts);
+    if (foodGain > 0) this.food = Math.max(0, Math.min(s.foodCap, this.food + foodGain));
+    // 渔汛大丰收（单日 ≥ FISH_BOUNTY_CATCH 筐；只记头一回）
+    if (catchB >= FISH_BOUNTY_CATCH && !this.fishBountySeen) {
+      this.fishBountySeen = true;
+      this.chron.write('mile', 'big', 'drop', '渔汛大丰收',
+        `这一汛的渔获堆满了码头，${catchB} 筐鲜货摆上集市，叫卖声从早到晚没停过 —— 老渔公说，这样的旺汛一年碰不上一回。`, this.gHours);
+      this.msg?.(`✦ 渔汛大丰收 —— 单日 ${catchB} 筐，海鲜市场排起长队`);
+      this.sfx?.('achieve');
+    }
+    // 抽鱼种入册（渔获图鉴；春鳜秋蟹夏虾，清波见底才有银鱼与中华鲟）
+    if (this.fishDex.length < FISH_SPECIES.length) {
+      const pick = rollFish(this.season, s.envIdx, Math.random);
+      if (pick) this.fishArrive(pick);
+    }
+  }
+
+  /** 渔获入册：按稀有度分级纪事（镇册之宝大书一笔） */
+  private fishArrive(sp: FishSpeciesDef): void {
+    if (this.fishDex.includes(sp.id)) return;
+    this.fishDex.push(sp.id);
+    const n = this.fishDex.length;
+    if (sp.rare === 2) {
+      this.chron.write('mile', 'big', 'drop', '镇册之宝入册',
+        `${sp.name}进了渔获图鉴的那一刻，码头上的欢呼盖过了浪声 —— ${sp.note}。图鉴第 ${n} 页，全城的荣光。`, this.gHours);
+      this.msg?.(`✦ 镇册之宝「${sp.name}」入册！渔获图鉴 ${n}/${FISH_SPECIES.length}`);
+      this.sfx?.('achieve');
+    } else if (sp.rare === 1) {
+      this.chron.write('event', 'good', 'drop', '稀有渔获入册',
+        `渔获图鉴翻开新页：「${sp.name}」上钩了。${sp.note}。`, this.gHours);
+      this.msg?.(`✦ 稀有渔获「${sp.name}」入册（图鉴 ${n}/${FISH_SPECIES.length}）`);
+      this.sfx?.('bell');
+    } else {
+      this.chron.write('event', 'info', 'drop', '渔获图鉴新页',
+        `渔获图鉴记下一笔：「${sp.name}」。${sp.note}。`, this.gHours);
+      this.msg?.(`· 渔获图鉴新页「${sp.name}」（${n}/${FISH_SPECIES.length}）`);
+      this.sfx?.('bell');
+    }
+  }
+
   private stepAviation(): void {
     const airN = this.snap?.airN ?? 0;
     const routes = this.snap?.airRoutes ?? 0;
@@ -4391,6 +4567,18 @@ export class Tycoon {
     };
   }
 
+  /** v43 渔业之城测试钩子（E2E 用：内部计数与渔汛时刻） */
+  fishTest(): { ports: number; mkts: number; total: number; dex: number; next: number; today: number } {
+    return {
+      ports: this.snap?.fishPorts ?? 0,
+      mkts: this.snap?.fishMkts ?? 0,
+      total: this.fishTotal,
+      dex: this.fishDex.length,
+      next: this.fishNext,
+      today: this.lastCatch,
+    };
+  }
+
   // ---------------- 每帧心跳 ----------------
 
   tick(dt: number, map: CityMap): void {
@@ -4426,6 +4614,8 @@ export class Tycoon {
     this.stepLeague(dt);
     // v35 百兽之园：开园判定 + 动物巡查入住（物种加成已在 snapOf 生效）
     this.stepZoo();
+    // v43 渔业之城：渔港落成开册 + 渔汛结算（季节汛×水质×事件乘数；变现与折粮在此落账）
+    this.stepFish();
     // v39 城市之声：报馆落成创刊 + 到期出版（发行收入出版时结算）
     this.stepPress(map);
     // v40 城市之光：名人堂开榜 + 换季整点评选授勋
@@ -4541,6 +4731,9 @@ export class Tycoon {
       metro: s.metroConn,                      // v41：地铁接入车站数（通车心声）
       air: s.airRoutes,                        // v42：在飞航线数（通航心声）
       airNoise: s.noiseRes,                    // v42：噪音圈住宅栋数（噪音心声）
+      fishPorts: s.fishPorts,                  // v43：渔港码头座数（渔业心声）
+      fishMkts: s.fishMkts,                    // v43：海鲜市场座数（海味上桌心声）
+      fishToday: this.lastCatch,               // v43：最近一汛渔获（丰收心声）
       cyc: s.cycPhase,                         // v33：市况相位心声（衰退抱怨生意淡 / 繁荣夸市道）
       lg: this.lgMoodT > 0 ? (this.lgMood > 0 ? 2 : 3) : s.lgPre,   // v34：绿茵心声（比赛日预热 / 赢球余温 / 输球低落）
       zooN: s.zooN,                            // v35：动物园住户数（住户在园时市民谈动物）
@@ -5199,6 +5392,26 @@ export class Tycoon {
           return { id: d.id, name, open, cond };
         }),
       },
+      // ---- v43：渔业之城 ----
+      fish: {
+        ports: s?.fishPorts ?? 0,
+        mkts: s?.fishMkts ?? 0,
+        seasonK: s?.fishSeasonK ?? 0,
+        seasonName: SEASONS[this.season]?.name ?? '',
+        envK: s?.fishEnvK ?? 1,
+        catch: s?.fishCatch ?? 0,
+        today: this.lastCatch,
+        total: this.fishTotal,
+        income: fishIncomeOf(s?.fishCatch ?? 0, s?.fishMkts ?? 0),
+        hapOn: s?.fishHap ?? 0,
+        dex: FISH_SPECIES.map(sp => ({
+          id: sp.id, name: sp.name, rare: sp.rare, icon: sp.icon, note: sp.note,
+          got: this.fishDex.includes(sp.id),
+          season: sp.w ? (sp.id === 'mandarin' ? '春汛限定' : sp.id === 'crab' ? '秋汛限定'
+            : sp.id === 'whitefish' ? '秋汛最盛' : sp.id === 'catfish' ? '夏汛最盛'
+            : sp.id === 'silverfish' ? '清波见底' : sp.id === 'sturgeon' ? '清波极境' : '四季可渔') : '四季可渔',
+        })),
+      },
       // ---- v18：灾害链 ----
       quakes: this.quakes, floods: this.floods,
       levees: s?.levees ?? 0, waterNear: s?.waterNear ?? 0,
@@ -5520,6 +5733,14 @@ export class Tycoon {
       airR: this.routeSeen.map(x => x ? 1 : 0),
       airFl: this.flights,
       airPax: Math.round(this.paxTotal),
+      // v43：渔业之城档（累计渔获 / 图鉴 / 纪事旗 / 下汛时刻 / 最近一汛 —— 旧档缺省 → 渔港未落成，落成后自动开册）
+      fishT: this.fishTotal,
+      fishX: this.fishDex.join(','),
+      fishS1: this.fishSeen ? 1 : 0,
+      fishB: this.fishBountySeen ? 1 : 0,
+      fishW: this.fishWinterSeen ? 1 : 0,
+      fishN: Math.round(this.fishNext * 10) / 10,
+      fishLC: this.lastCatch,
       // v29：市长公署档（待批公文 / 已批数 / 用过池 / 朱批存档 / 民心增益）
       docP: this.docPending, docNext: this.docNext, docN: this.docN,
       docUsed: this.docUsed, docLog: this.docLog,
@@ -5808,6 +6029,18 @@ export class Tycoon {
     this.paxTotal = Math.max(0, Number(d.airPax) || 0);
     this.flightTimer = 0;
     this.noiseWarned = false;
+    // v43：渔业之城档恢复（旧档无字段 → 渔港未落成；落成后首个 tick 自动开册，
+    // 累计渔获与图鉴随档恢复，纪事旗随档避免复建重记）
+    this.fishTotal = Math.max(0, Math.floor(Number(d.fishT) || 0));
+    this.fishDex = [];
+    for (const id of String(d.fishX ?? '').split(',')) {
+      if (id && FISH_SPECIES.some(x => x.id === id) && !this.fishDex.includes(id)) this.fishDex.push(id);
+    }
+    this.fishSeen = d.fishS1 === 1;
+    this.fishBountySeen = d.fishB === 1;
+    this.fishWinterSeen = d.fishW === 1;
+    this.fishNext = Number(d.fishN) > 0 ? Number(d.fishN) : -1;
+    this.lastCatch = Math.max(0, Math.floor(Number(d.fishLC) || 0));
     // v29：市长公署档恢复（旧档无字段 → 首份公文从下一个清晨八点起算；在批公文原样回到案头）
     this.docN = Math.max(0, Math.floor(Number(d.docN) || 0));
     this.docNext = Number(d.docNext) > 0 ? Number(d.docNext) : nextMorningH(this.gHours);
